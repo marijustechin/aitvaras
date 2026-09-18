@@ -1,0 +1,79 @@
+// Aitvaras owns its own PostgreSQL schema. Only confirmed, current requirements
+// are modelled here: identity and access management.
+//
+// Deliberately NOT present: inventory, stock, orders, sales, barcode workflows,
+// warehouse operations, production, tenancy or Sandėlys integration. Those
+// concepts are unconfirmed discovery material, not approved scope. See
+// ../../docs/scope.md.
+
+generator client {
+  // Prisma 7 Rust-free client. Outputs plain TypeScript that is compiled with
+  // the package. `cjs` + bare import extensions keep it compatible with the
+  // NestJS CommonJS build.
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "cjs"
+  importFileExtension = ""
+}
+
+// Connection URL lives in prisma.config.ts (Prisma 7); the datasource block
+// only declares the provider.
+datasource db {
+  provider = "postgresql"
+}
+
+// Canonical, stable role identifiers. The database enum is the persistence
+// representation; `@aitvaras/contracts` (ROLE_KEYS) is the shared runtime
+// representation. They must stay in sync.
+enum RoleKey {
+  ADMIN
+  WAREHOUSE_WORKER
+  ACCOUNTING
+  PRODUCTION_MANAGER
+}
+
+// A user of Aitvaras. Authentication uses the unique `username`; `firstName`
+// and `lastName` are the person's real display identity. Roles are related
+// explicitly (many-to-many via UserRole).
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  username     String   @unique @db.VarChar(64)
+  firstName    String   @map("first_name") @db.VarChar(100)
+  lastName     String   @map("last_name") @db.VarChar(100)
+  passwordHash String   @map("password_hash") @db.VarChar(255)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  roles UserRole[]
+
+  @@map("users")
+}
+
+// A role. Identified by a stable semantic key (RoleKey) rather than a numeric
+// id, so meaning is explicit in data and code.
+model Role {
+  id        String   @id @default(uuid()) @db.Uuid
+  key       RoleKey  @unique
+  name      String   @db.VarChar(128)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users UserRole[]
+
+  @@map("roles")
+}
+
+// Explicit join model for user <-> role assignment.
+model UserRole {
+  userId    String   @map("user_id") @db.Uuid
+  roleId    String   @map("role_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+  @@map("user_roles")
+}

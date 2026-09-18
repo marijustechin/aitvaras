@@ -1,0 +1,13 @@
+{
+  "extends": "@aitvaras/config/tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    // The Prisma 7 generated client is plain TypeScript compiled with this
+    // package. It is generated code, so strict indexed-access checks are
+    // relaxed here (the Aitvaras-authored code is only the re-export above).
+    "noUncheckedIndexedAccess": false
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

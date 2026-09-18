@@ -1,0 +1,33 @@
+name: aitvaras
+
+# Local development infrastructure only.
+# This provides the Aitvaras-owned PostgreSQL database.
+# It is NOT a production deployment and carries no production assumptions.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: aitvaras-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aitvaras}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aitvaras}
+      POSTGRES_DB: ${POSTGRES_DB:-aitvaras}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - aitvaras-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-aitvaras} -d ${POSTGRES_DB:-aitvaras}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  aitvaras-postgres-data:
+    name: aitvaras-postgres-data

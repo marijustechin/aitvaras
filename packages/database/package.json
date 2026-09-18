@@ -1,0 +1,36 @@
+{
+  "name": "@aitvaras/database",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Aitvaras-owned PostgreSQL persistence layer (Prisma).",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "prisma"
+  ],
+  "scripts": {
+    "db:validate": "prisma validate",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:format": "prisma format",
+    "build": "prisma generate && tsc -p tsconfig.json",
+    "typecheck": "prisma generate && tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
+    "pg": "8.23.0"
+  },
+  "devDependencies": {
+    "@aitvaras/config": "workspace:*",
+    "prisma": "7.10.0",
+    "typescript": "5.9.3"
+  }
+}

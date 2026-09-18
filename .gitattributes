@@ -1,0 +1,16 @@
+# Normalise text files to LF in the repository, regardless of platform.
+* text=auto eol=lf
+
+# Windows scripts (if added later) must keep CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets are never normalised.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pdf binary

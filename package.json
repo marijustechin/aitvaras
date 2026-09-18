@@ -1,0 +1,33 @@
+{
+  "name": "aitvaras",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Aitvaras — the future Alfasis warehouse application (pnpm workspace).",
+  "packageManager": "pnpm@11.26.0",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "build:libs": "pnpm --filter @aitvaras/contracts --filter @aitvaras/database build",
+    "build": "pnpm -r --if-present build",
+    "lint": "eslint .",
+    "typecheck": "pnpm build:libs && pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test",
+    "verify": "pnpm lint && pnpm db:validate && pnpm typecheck && pnpm test && pnpm build",
+    "dev:api": "pnpm --filter @aitvaras/api dev",
+    "dev:web": "pnpm --filter @aitvaras/web dev",
+    "db:validate": "pnpm --filter @aitvaras/database db:validate",
+    "db:generate": "pnpm --filter @aitvaras/database db:generate",
+    "db:migrate": "pnpm --filter @aitvaras/database db:migrate",
+    "bootstrap:admin": "pnpm --filter @aitvaras/api bootstrap:admin",
+    "seed:dev": "pnpm --filter @aitvaras/api seed:dev",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.10.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.70.0"
+  }
+}
