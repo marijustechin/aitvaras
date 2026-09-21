@@ -69,6 +69,10 @@ concerns; the `access` module owns the role catalogue.
   for semantic meaning.
 - Approved brand assets live in `apps/web/public/brand/`; see
   [branding.md](branding.md) for the variant usage convention.
+- Authenticated pages use a shared **application shell**
+  (`components/layout/app-shell.tsx`: sticky top header + role-aware
+  navigation + user menu + content). Navigation contains only implemented,
+  confirmed functionality. Self-service profile lives at `/profile`.
 - The database has exactly one migration, `initial_identity_access` (identity/
   access only). Applied migrations become immutable after the first shared/
   production deployment (ADR-010).

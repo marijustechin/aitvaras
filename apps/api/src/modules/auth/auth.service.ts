@@ -1,12 +1,22 @@
-import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
 import type { CookieSerializeOptions } from "@fastify/cookie";
-import type { AuthenticatedUser, RoleKey } from "@aitvaras/contracts";
+import type {
+  AuthenticatedUser,
+  RoleKey,
+  UpdateOwnProfileRequest,
+} from "@aitvaras/contracts";
+import { Prisma } from "@aitvaras/database";
 import { AUTH_COOKIE_PATH } from "../../common/auth/auth-cookie";
 import { PrismaService } from "../../infrastructure/prisma/prisma.service";
 import { LoginAttemptService } from "./login-attempt.service";
-import { verifyPassword } from "./password";
+import { hashPassword, verifyPassword } from "./password";
 
 const DEFAULT_ACCESS_TTL_SECONDS = 3600;
 const GENERIC_LOGIN_FAILURE = "Invalid credentials";
@@ -130,6 +140,51 @@ export class AuthService {
       throw new UnauthorizedException("Authentication required");
     }
     return this.toAuthenticatedUser(user);
+  }
+
+  /**
+   * Self-service profile update for the authenticated user.
+   *
+   * The user is derived from the authenticated identity (never a client id).
+   * Only first/last name and (with current-password verification) the password
+   * can change; roles, active state and username are not part of this contract.
+   */
+  async updateOwnProfile(
+    userId: string,
+    input: UpdateOwnProfileRequest,
+  ): Promise<AuthenticatedUser> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.active) {
+      throw new UnauthorizedException("Authentication required");
+    }
+
+    const data: Prisma.UserUpdateInput = {};
+    if (input.firstName !== undefined) {
+      data.firstName = input.firstName;
+    }
+    if (input.lastName !== undefined) {
+      data.lastName = input.lastName;
+    }
+
+    if (input.newPassword !== undefined) {
+      const currentValid =
+        input.currentPassword !== undefined
+          ? await verifyPassword(user.passwordHash, input.currentPassword)
+          : false;
+      if (!currentValid) {
+        throw new BadRequestException("Neteisingas dabartinis slaptažodis.");
+      }
+      data.passwordHash = await hashPassword(input.newPassword);
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data,
+      include: { roles: { include: { role: true } } },
+    });
+
+    this.logger.log("Profile updated");
+    return this.toAuthenticatedUser(updated);
   }
 
   /**

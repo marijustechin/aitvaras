@@ -8,16 +8,15 @@ import {
   type RoleKey,
   type UserSummary,
 } from "@aitvaras/contracts";
-import { RequireAuth } from "@/components/require-auth";
-import { BrandMark } from "@/components/brand-mark";
+import { AppShell } from "@/components/layout/app-shell";
 import { isUnauthorized, useAuth } from "@/components/auth-provider";
 import { ApiError, apiFetch } from "@/lib/api";
 
 export default function AdminUsersPage() {
   return (
-    <RequireAuth roles={["ADMIN"]}>
+    <AppShell roles={["ADMIN"]}>
       <UsersManager />
-    </RequireAuth>
+    </AppShell>
   );
 }
 
@@ -149,13 +148,8 @@ function UsersManager() {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-6 py-12">
-      <header>
-        <BrandMark href="/" />
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight">
-          Naudotojai
-        </h1>
-      </header>
+    <div className="flex flex-col gap-8">
+      <h1 className="text-2xl font-semibold tracking-tight">Naudotojai</h1>
 
       {error ? (
         <p role="alert" className="text-sm text-destructive">
@@ -237,7 +231,7 @@ function UsersManager() {
             />
           </div>
           <fieldset className="mt-3 flex flex-wrap gap-4">
-            <legend className="sr-only">Rolės</legend>
+            <legend className="sr-only">Vaidmenys</legend>
             {ROLE_KEYS.map((key) => (
               <label key={key} className="flex items-center gap-2 text-sm">
                 <input
@@ -287,7 +281,7 @@ function UsersManager() {
             <tr>
               <th className="px-4 py-2 font-medium">Vardas, pavardė</th>
               <th className="px-4 py-2 font-medium">Naudotojo vardas</th>
-              <th className="px-4 py-2 font-medium">Rolės</th>
+              <th className="px-4 py-2 font-medium">Vaidmenys</th>
               <th className="px-4 py-2 font-medium">Būsena</th>
               <th className="px-4 py-2 font-medium" />
             </tr>
@@ -328,6 +322,6 @@ function UsersManager() {
           </tbody>
         </table>
       </section>
-    </main>
+    </div>
   );
 }

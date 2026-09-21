@@ -4,16 +4,19 @@ import {
   Get,
   HttpCode,
   Ip,
+  Patch,
   Post,
   Res,
 } from "@nestjs/common";
 import type { FastifyReply } from "fastify";
 import {
   LoginRequestSchema,
+  UpdateOwnProfileRequestSchema,
   type AuthenticatedUser,
   type LoginRequest,
   type LoginResponse,
   type LogoutResponse,
+  type UpdateOwnProfileRequest,
 } from "@aitvaras/contracts";
 import {
   AUTH_COOKIE_NAME,
@@ -63,5 +66,14 @@ export class AuthController {
   @Get("me")
   me(@CurrentUser() user: AuthenticatedUser): Promise<AuthenticatedUser> {
     return this.authService.getAuthenticatedUser(user.id);
+  }
+
+  @Patch("me")
+  updateMe(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body(new ZodValidationPipe(UpdateOwnProfileRequestSchema))
+    body: UpdateOwnProfileRequest,
+  ): Promise<AuthenticatedUser> {
+    return this.authService.updateOwnProfile(user.id, body);
   }
 }

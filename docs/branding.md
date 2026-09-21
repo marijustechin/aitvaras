@@ -32,7 +32,7 @@ Do not use all three variants arbitrarily on the same page. The responsive
 `BrandMark` component (`apps/web/src/components/brand-mark.tsx`) renders the
 symbol on narrow viewports and the horizontal logo from the `sm` breakpoint up,
 so only one variant is visible (and announced) at a time. It is used on the
-login screen, the authenticated shell and the admin users page.
+login screen, the authenticated application header and the admin users page.
 
 Rendering uses `next/image` with explicit intrinsic `width`/`height` and CSS
 `h-* w-auto`, preserving aspect ratio and avoiding layout shift; the logo is not

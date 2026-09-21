@@ -121,6 +121,19 @@ multi-language support is not a confirmed requirement. Use the centralised
 `ROLE_LABELS` mapping in `@aitvaras/contracts` for role display; never show raw
 role keys such as `WAREHOUSE_WORKER` to users.
 
+**User-facing Lithuanian terminology** — technical identifiers in English,
+user-facing Lithuanian terminology in Lithuanian:
+
+```text
+Role    → Vaidmuo
+Roles   → Vaidmenys
+Status  → Būsena
+Statuses→ Būsenos
+```
+
+Use these when rendering or documenting visible UI labels. Legacy terms
+(`Rolė`, `Rolės`, `Statusas`, `Statusai`) must not appear in user-facing text.
+
 ## UI style
 
 Default visual direction is **minimalist, high-contrast monochrome** (white,
@@ -163,6 +176,26 @@ role guards. Cookie policy decisions (CORS, CSRF) are in ADR-011.
 
 Password fields that support manual entry should provide an accessible show/hide
 control (with Lithuanian `aria-label`s) unless there is a specific reason not to.
+
+## Navigation and application shell
+
+- Authenticated pages use the shared application shell
+  (`components/layout/app-shell.tsx`); do **not** duplicate header markup per
+  page.
+- **Navigation must contain only implemented and confirmed functionality.** Do
+  not add placeholder links for future business domains.
+- Menu visibility (e.g. `Naudotojai` for ADMIN) is a UI convenience only;
+  server-side authorization remains authoritative and must never be weakened.
+
+## Self-service profile
+
+- `/profile` is self-service for the authenticated user: first/last name are
+  editable; `username` and roles are read-only.
+- Password changes require verification of the current password. Never return or
+  log passwords.
+- The server derives the user from the authenticated identity; the client never
+  sends a user id, and self-profile cannot change roles, active state or
+  username.
 
 ## Migrations
 

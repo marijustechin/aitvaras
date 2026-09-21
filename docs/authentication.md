@@ -80,6 +80,23 @@ only for API clients/tooling). The browser never uses the bearer source.
   **not** in the token; clients read them from `/auth/me`.
 - **No refresh tokens** (ADR-011): on expiry the user signs in again.
 
+## Self-service profile
+
+```http
+PATCH /auth/me
+```
+
+Authenticated. Updates **only the current user** (derived from the session; the
+client never sends a user id). Body:
+
+- `firstName` / `lastName` — optional; trimmed, non-empty, ≤ 100 chars;
+- `currentPassword` + `newPassword` — to change the password; the current
+  password must verify against the stored hash (wrong value → `400`), and the new
+  password follows the existing policy (≥ 8 chars).
+
+`roles`, `active` and `username` are **not** accepted (the request schema is
+strict; unknown keys are rejected with `400`). Returns the updated safe user.
+
 ## Logout
 
 ```http

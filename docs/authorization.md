@@ -63,6 +63,12 @@ The guards are unit-tested independently of any business module
 Login brute-force protection and generic login failures are documented in
 [authentication.md](authentication.md).
 
+**Navigation visibility is a UI convenience only.** Menu items (e.g.
+`Naudotojai` for `ADMIN`) are hidden from users without the role, but the server
+remains authoritative: a non-admin who requests `/admin/users` is still denied.
+**Self-service** (`PATCH /auth/me`) cannot change roles, active state or
+username; role management stays ADMIN-only via `/users`.
+
 ## Initial capabilities
 
 | Capability | Endpoint | Requirement |

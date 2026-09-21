@@ -56,6 +56,14 @@ Status legend: **DONE** · **CURRENT** · **NEXT** · **LATER / DISCOVERY ONLY**
 - **Test DB isolation (ATV-012 / O-046)** — integration tests use a dedicated
   `aitvaras_test` DB via `TEST_DATABASE_URL` with a safety guard; the
   development database is never touched by tests.
+- **Application shell + profile (ATV-013 / O-048)** — sticky top bar, brand,
+  role-aware navigation, user menu, and `/profile` self-service (names +
+  password change) via `PATCH /auth/me`. Navigation contains only confirmed,
+  implemented functionality.
+- **Lithuanian UI terminology (ATV-014 / O-049)** — user-facing Role/Roles →
+  `Vaidmuo`/`Vaidmenys`, Status/Statuses → `Būsena`/`Būsenos`; technical
+  identifiers stay English. Rule recorded in `AGENTS.md`; guarded by
+  `terminology.test.ts`.
 
 ## CURRENT
 

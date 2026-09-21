@@ -30,3 +30,36 @@ export const LogoutResponseSchema = z.object({
   success: z.literal(true),
 });
 export type LogoutResponse = z.infer<typeof LogoutResponseSchema>;
+
+const NamePartSchema = z.string().trim().min(1).max(100);
+
+/**
+ * Self-service profile update for the currently authenticated user.
+ *
+ * The server derives the user from the authenticated identity, so no user id is
+ * accepted. Only name and password are editable; username, roles and active
+ * state are deliberately not part of this contract (unknown keys are rejected).
+ */
+export const UpdateOwnProfileRequestSchema = z
+  .object({
+    firstName: NamePartSchema.optional(),
+    lastName: NamePartSchema.optional(),
+    currentPassword: z.string().min(1).max(200).optional(),
+    newPassword: z.string().min(8).max(200).optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.firstName !== undefined ||
+      value.lastName !== undefined ||
+      value.newPassword !== undefined,
+    { message: "Nothing to update" },
+  )
+  .refine(
+    (value) =>
+      value.newPassword === undefined || value.currentPassword !== undefined,
+    { message: "Current password is required to change the password" },
+  );
+export type UpdateOwnProfileRequest = z.infer<
+  typeof UpdateOwnProfileRequestSchema
+>;

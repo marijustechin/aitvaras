@@ -19,6 +19,8 @@ interface AuthContextValue {
   logout: () => Promise<void>;
   /** Clear client session state without calling the API (e.g. on a 401). */
   clearSession: () => void;
+  /** Replace the cached current user (e.g. after a self-profile update). */
+  replaceUser: (user: AuthenticatedUser) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -80,9 +82,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const clearSession = useCallback((): void => setUser(null), []);
 
+  const replaceUser = useCallback(
+    (nextUser: AuthenticatedUser): void => setUser(nextUser),
+    [],
+  );
+
   const value = useMemo(
-    () => ({ user, loading, login, logout, clearSession }),
-    [user, loading, login, logout, clearSession],
+    () => ({ user, loading, login, logout, clearSession, replaceUser }),
+    [user, loading, login, logout, clearSession, replaceUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

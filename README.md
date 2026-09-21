@@ -9,6 +9,11 @@ from legacy code.
 > business functionality (stock, orders, sales, barcode, integration) is
 > approved or implemented. See [docs/scope.md](docs/scope.md).
 
+After login, Aitvaras runs as an application: a **sticky top bar** with
+role-aware navigation (`Pradžia`, plus `Naudotojai` for admins), a current-user
+menu with **Mano profilis** (self-service profile and password change) and a
+footer. Navigation contains only confirmed, implemented functionality.
+
 ## What Aitvaras is (and is not)
 
 - It **is** a separate application with its own web UI, API and PostgreSQL
