@@ -8,6 +8,9 @@ import { PrismaModule } from "./infrastructure/prisma/prisma.module";
 import { AccessModule } from "./modules/access/access.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { HealthModule } from "./modules/health/health.module";
+import { PackingFormsModule } from "./modules/packing-forms/packing-forms.module";
+import { PartnersModule } from "./modules/partners/partners.module";
+import { ResourcesModule } from "./modules/resources/resources.module";
 import { UsersModule } from "./modules/users/users.module";
 
 @Module({
@@ -23,6 +26,9 @@ import { UsersModule } from "./modules/users/users.module";
     AccessModule,
     AuthModule,
     UsersModule,
+    PartnersModule,
+    ResourcesModule,
+    PackingFormsModule,
     HealthModule,
   ],
   providers: [

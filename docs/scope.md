@@ -4,9 +4,11 @@
 > Aitvaras proceeds **step by step from confirmed requirements only**. If it is
 > not listed as confirmed here, it is not approved work.
 
-## Currently confirmed scope: identity and access
+## Currently confirmed scope
 
-The only confirmed application functionality is **identity and access
+### Identity and access
+
+The confirmed application functionality starts with **identity and access
 management**:
 
 - users with a unique login credential and a hashed password;
@@ -14,6 +16,33 @@ management**:
 - active/inactive users;
 - role-based authorization;
 - user administration (admin-only).
+
+### Business partners (Partneriai)
+
+The first confirmed business-domain module is **business partners**:
+
+- one unified partner entity (a counterparty), never separate supplier/buyer
+  entities;
+- partner business roles `SUPPLIER`/`BUYER` (Tiekėjas/Pirkėjas), multi-valued;
+- active/inactive lifecycle (deactivated, not normally deleted).
+
+See [partners.md](partners.md). **Only partners are confirmed**; no other
+business module is approved.
+
+### Resources, categories and packing forms
+
+The second confirmed business-domain scope is **resources** plus supporting
+master data:
+
+- one resource entity with exactly one category (`Žaliava`, `Pusgaminis`,
+  `Gaminys`), a required name, optional notes and an active/inactive lifecycle;
+- **packing forms** (`Dėžė`, `Maišas`, `Metalinis narvas`, `Rulonas`) as
+  independent reference data — deliberately **not** a permanent resource
+  property.
+
+See [resources.md](resources.md). Goods receipt, purchasing, stock balances,
+warehouse locations, quantities, production, orders and sales remain **not**
+confirmed.
 
 ### Confirmed initial roles
 
@@ -28,10 +57,10 @@ The following are **discovery concepts only** and are **not approved**. They
 must not be implemented, planned into a roadmap, or assumed from the fact that
 a similar concept exists in `/sandelys`:
 
-inventory, stock, orders, order lines, dispatch, sales, suppliers, buyers,
-warehouse locations/movements, production, barcode workflows, reporting,
-Sandėlys adapter/integration, data migration, synchronisation, tenant/company
-architecture, machine integration.
+stock, goods receipt, purchasing, orders, order lines, dispatch, sales,
+warehouse locations/movements, quantities, production, barcode workflows,
+reporting, Sandėlys adapter/integration, data migration, synchronisation,
+tenant/company architecture, machine integration.
 
 If any of these are ever approved, it happens through a **new confirmed
 requirement** and a recorded task/decision — not by inheriting discovery.
@@ -72,5 +101,7 @@ be treated as **discovery evidence**, clearly marked **unconfirmed** or
 ## Related documents
 
 - `authentication.md`, `authorization.md` — the implemented identity/access scope
+- `partners.md`, `resources.md`, `domain-glossary.md` — implemented business
+  modules and confirmed terms
 - `legacy-as-reference.md`, `architecture.md`, `TODO.md`
 - Workspace ADR-004 (reference, not blueprint)

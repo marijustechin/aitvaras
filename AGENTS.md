@@ -12,12 +12,17 @@ concise and operational; put durable knowledge in `docs/`.
 - Business behaviour must come from **confirmed requirements and real warehouse
   workflows**, never from assuming legacy code is a specification. The strategy
   is fixed by the workspace ADR-001.
-- **The only confirmed functional scope is identity and access management**
-  (`docs/scope.md`). Everything else — inventory, stock, orders, sales,
-  suppliers, buyers, warehouse movements, barcode workflows, reporting, tenant
-  architecture, Sandėlys integration, migration, synchronisation — is
-  **unconfirmed discovery** and must not be built or planned. Candidate modules
-  and first slices in `docs/` are evidence, not a roadmap.
+- **Confirmed functional scope is identity and access management, business
+  partners (`Partneriai`), resources (`Ištekliai`, with fixed categories) and
+  packing forms (`Pakavimo formos`, reference data)**. Identity/access is
+  `docs/scope.md`, `docs/authentication.md`, `docs/authorization.md`; business
+  partners are [docs/partners.md](docs/partners.md); resources and packing forms
+  are [docs/resources.md](docs/resources.md). Everything else — goods receipt,
+  purchasing, stock balances, warehouse locations, quantities, production,
+  orders, sales, barcode workflows, reporting, tenant architecture, Sandėlys
+  integration, migration, synchronisation — is **unconfirmed discovery** and
+  must not be built or planned. Candidate modules and first slices in `docs/`
+  are evidence, not a roadmap.
 
 ## Boundaries
 
@@ -41,6 +46,21 @@ concise and operational; put durable knowledge in `docs/`.
 Do not add infrastructure (Redis, queues, Kafka, Kubernetes, microservices,
 etc.) without a concrete, current requirement recorded in a task. Prefer the
 smallest solution that works.
+
+## Web frontend architecture (FSD-lite)
+
+- `apps/web/src` uses **FSD-lite**: `app`, `widgets`, `features`, `entities`,
+  `shared`. Dependencies flow **downwards** only:
+  `app → widgets → features → entities → shared`; lower layers must not import
+  higher layers (no cycles).
+- Keep Next.js route files **thin** (`page.tsx` = routing/composition only);
+  page implementations live in `features/*/ui`.
+- Business/domain code must **not** accumulate in generic `components/` or
+  `lib/`. Place domain concepts in `entities/`, use cases in `features/`,
+  application composition in `widgets/`, and domain-agnostic code in `shared/`.
+- Import via the `@/*` alias and slice barrels. Do **not** create empty FSD
+  ceremony (no empty `model/api/ui/lib` folders).
+- Full rules: `docs/frontend-architecture.md`.
 
 ## Architectural principles
 
@@ -91,12 +111,27 @@ pinning an older major in a greenfield project.
 
 ## NestJS structure
 
-- Feature/domain modules live under `apps/api/src/modules/<feature>/`.
-- Infrastructure adapters live under `apps/api/src/infrastructure/<adapter>/`.
-- Cross-cutting technical helpers live under `apps/api/src/common/`
-  (`decorators/`, `guards/`, `validation/`). **No domain logic in `common/`.**
+- Backend is a **modular monolith**; do not split into microservices without a
+  concrete operational requirement.
+- Business/domain code lives under `apps/api/src/modules/<feature>/` (controller,
+  service, mapper, module config, module-local rules). New business concepts get
+  their own module.
+- Infrastructure adapters live under `apps/api/src/infrastructure/<adapter>/`;
+  `prisma` owns the Prisma client lifecycle only.
+- Only **technical cross-cutting** code goes in `apps/api/src/common/`
+  (`auth/`, `decorators/`, `guards/`, `validation/`). **No domain logic, and not
+  a generic dumping ground** — if code understands Partner/Resource/Receipt/
+  Stock/Production/Order/Sale, it belongs to a module, not `common`.
+- Operational entry points live in `apps/api/src/scripts/` and orchestrate
+  existing logic.
+- **Controllers stay thin** (HTTP only). **Direct Prisma usage in a simple
+  module service is acceptable**; add repositories/ports only for a real need.
+  Keep simple modules simple; grow complexity **locally** inside a module.
 - `AppModule` composes modules and wires global providers; no business logic.
+- Dependency direction: `modules → infrastructure` and `modules → common`;
+  avoid cycles and do not import another module's internals.
 - Do not create empty architecture scaffolding — add directories with real code.
+- Full rules: `docs/backend-architecture.md`.
 
 ## User identity and roles
 

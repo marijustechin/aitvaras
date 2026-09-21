@@ -1,7 +1,7 @@
 "use client";
 
-import { AppShell } from "@/components/layout/app-shell";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth } from "@/features/auth";
+import { AppShell } from "@/widgets/app-shell";
 
 export default function HomePage() {
   const { user } = useAuth();
@@ -13,8 +13,8 @@ export default function HomePage() {
           Sveiki, {user?.firstName}.
         </h1>
         <p className="text-muted-foreground">
-          Tai Aitvaro identiteto ir prieigos pagrindas. Verslo funkcijos dar
-          neįgyvendintos.
+          Tai Aitvaro pradžia. Kol kas įgyvendinti naudotojų, partnerių ir
+          išteklių moduliai.
         </p>
       </div>
     </AppShell>

@@ -1,7 +1,7 @@
 # Authorization
 
-> Confirmed scope: identity and access management only (`scope.md`). No
-> business functionality is implemented.
+> Confirmed scope: identity and access management and **business partners**
+> (`scope.md`). No other business functionality is implemented.
 
 ## Roles
 
@@ -98,6 +98,18 @@ username; role management stays ADMIN-only via `/users`.
 | List users | `GET /users` | `ADMIN` |
 | Create user | `POST /users` | `ADMIN` |
 | Update roles / active / password | `PATCH /users/:id` | `ADMIN` |
+| List partners | `GET /partners` | authenticated |
+| Partner details | `GET /partners/:id` | authenticated |
+| Create partner | `POST /partners` | `ADMIN` |
+| Update partner (roles / active / data) | `PATCH /partners/:id` | `ADMIN` |
+| List resources | `GET /resources` | authenticated |
+| Resource details | `GET /resources/:id` | authenticated |
+| Create resource | `POST /resources` | `ADMIN` |
+| Update resource (category / active / data) | `PATCH /resources/:id` | `ADMIN` |
+| List packing forms | `GET /packing-forms` | authenticated |
+| Packing-form details | `GET /packing-forms/:id` | authenticated |
+| Create packing form | `POST /packing-forms` | `ADMIN` |
+| Update packing form (name / active) | `PATCH /packing-forms/:id` | `ADMIN` |
 
 ## Failure behaviour
 
@@ -111,7 +123,9 @@ username; role management stays ADMIN-only via `/users`.
 ## Limitations / next steps
 
 - No permission model finer than roles (no per-resource permissions); none is
-  confirmed as required.
+  confirmed as required. Partner/resource/packing-form viewing is
+  authenticated-only and modification is `ADMIN`-only, using the same role
+  guard.
 - Role changes take effect at the user's next login/token expiry.
 - The web UI hides admin pages from non-admins and shows an access-denied state,
   but **the server is the enforcement point** — UI checks are convenience only.

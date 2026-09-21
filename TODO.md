@@ -64,13 +64,37 @@ Status legend: **DONE** · **CURRENT** · **NEXT** · **LATER / DISCOVERY ONLY**
   `Vaidmuo`/`Vaidmenys`, Status/Statuses → `Būsena`/`Būsenos`; technical
   identifiers stay English. Rule recorded in `AGENTS.md`; guarded by
   `terminology.test.ts`.
+- **Business partners (ATV-015 / O-051)** — first confirmed business-domain
+  module. One unified `BusinessPartner` (never separate supplier/buyer),
+  multi-valued business roles `SUPPLIER`/`BUYER` (Tiekėjas/Pirkėjas), required
+  name + ≥1 role, active/inactive lifecycle (deactivate, not delete),
+  free-text country, no speculative uniqueness. `GET/POST/PATCH /partners`;
+  viewing authenticated, mutation `ADMIN`. UI `/partners`, `/partners/new`,
+  `/partners/[id]`; navigation `Partneriai`. Docs: `partners.md`,
+  `domain-glossary.md`.
+- **Resources, categories & packing forms (ATV-016 / O-052)** — second confirmed
+  business-domain scope. `Resource` (name required, exactly one category, notes,
+  active/inactive lifecycle, no name uniqueness) with fixed categories
+  `RAW_MATERIAL`/`SEMI_FINISHED`/`FINISHED_PRODUCT` (Žaliava/Pusgaminis/
+  Gaminys); `PackingForm` as independent reference data (Dėžė, Maišas, Metalinis
+  narvas, Rulonas) with an explicit idempotent seed (`pnpm seed:reference`) — not
+  a resource property. `GET/POST/PATCH /resources` and `/packing-forms`; UI
+  `/resources`, `/resources/new`, `/resources/[id]`, `/resources/packing-forms`;
+  navigation `Ištekliai`. Docs: `resources.md`, `domain-glossary.md`.
+- **User administration fix + ADMIN role UX (ATV-017 / O-053)** — root-caused the
+  `Naudotojai` edit/disable failures to Fastify's CORS default methods
+  (`GET,HEAD,POST`); fixed by setting allowed methods explicitly (browser
+  `PATCH` now works everywhere). Enforced ADMIN dominance server-side
+  (`normalizeRoleKeys`), added last-active-admin + self-admin-change guards,
+  the `Įjungti` label, specific error mapping and immediate table refresh.
 
 ## CURRENT
 
-- **Identity & access hardening & review.** No new functional scope. Candidate
-  next security step: rate limiting/lockout on `/auth/login`, and moving the web
-  token to an http-only cookie. These require explicit confirmation before
-  implementation.
+- **Business-domain modules review.** Partners, resources, categories and
+  packing forms are implemented and awaiting review. No other business scope is
+  confirmed (goods receipt, purchasing, stock, quantities, orders and sales are
+  explicitly out of scope). The partner/resource/receipt relationship is not
+  implemented or designed.
 
 ## NEXT (only with a confirmed requirement)
 
@@ -84,7 +108,7 @@ Status legend: **DONE** · **CURRENT** · **NEXT** · **LATER / DISCOVERY ONLY**
 The items below come from legacy discovery. They are **unconfirmed** and must
 not be promoted into current/next work:
 
-- inventory / stock lots, locations, catalog, partners;
+- inventory / stock lots, locations, catalog, units;
 - orders, order lines, dispatch/sales;
 - discrepancies/errors, barcode workflows, reporting;
 - Sandėlys integration/adapter, data migration, synchronisation;

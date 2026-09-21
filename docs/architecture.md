@@ -11,6 +11,9 @@ apps/api/src/
 ├── modules/                    feature / domain modules
 │   ├── auth/                   login, /auth/me, Argon2id hashing
 │   ├── users/                  admin user lifecycle (/users)
+│   ├── partners/               business partners (/partners)
+│   ├── resources/              resources (/resources)
+│   ├── packing-forms/          packing forms reference data (/packing-forms)
 │   ├── access/                 role catalogue + access domain primitives
 │   └── health/                 /health (public)
 ├── infrastructure/             infrastructure adapters
@@ -23,7 +26,7 @@ apps/api/src/
 ├── app.module.ts               composes modules; registers global guards
 └── main.ts
 
-packages/contracts/src/  roles.ts, auth.ts, users.ts, health.ts
+packages/contracts/src/  roles.ts, auth.ts, users.ts, partners.ts, resources.ts, packing-forms.ts, health.ts
 packages/database/       Prisma 7, generated client + adapter (see ADR-008)
 ```
 
@@ -33,27 +36,39 @@ packages/database/       Prisma 7, generated client + adapter (see ADR-008)
 - **Prisma 7** (`prisma-client` generator, TypeScript output at
   `packages/database/src/generated/prisma`, `@prisma/adapter-pg`). See
   [ADR-008](../../docs/decisions/ADR-008-prisma-7-and-api-module-layout.md).
-- Prisma contains **only** the identity/access models: `User` (unique `username`
-  + `firstName`/`lastName` + `active`), `Role` (canonical `RoleKey` enum), and
-  `UserRole` (many-to-many). No other tables exist.
+- Prisma contains the confirmed models only: identity/access (`User` with a
+  unique `username` + `firstName`/`lastName` + `active`, `Role` with the
+  canonical `RoleKey` enum, `UserRole` many-to-many), business partners
+  (`BusinessPartner`, `PartnerRole`), resources (`Resource` with the
+  `ResourceCategoryKey` enum) and reference data (`PackingForm`). No other
+  tables exist.
 - `AppModule` composes `PrismaModule`, `AccessModule`, `AuthModule`,
-  `UsersModule`, `HealthModule` and registers the global guards.
+  `UsersModule`, `PartnersModule`, `ResourcesModule`, `PackingFormsModule`,
+  `HealthModule` and registers the global guards.
 - See `authentication.md`, `authorization.md` and `scope.md`.
 
 ## API module conventions (NestJS)
 
+The backend is a **modular monolith**; the full accepted baseline and evolution
+rules are in [backend-architecture.md](backend-architecture.md). In short:
+
 - `modules/<feature>/` — one Nest module per feature/domain capability
-  (module, controller(s), service(s), feature-local helpers). A module owns its
-  data access and business rules.
+  (module, controller(s), service(s), feature-local helpers, mapper). A module
+  owns its data access and business rules.
 - `infrastructure/<adapter>/` — adapters to external systems. `prisma` owns the
   Prisma client lifecycle only.
 - `common/` — cross-cutting technical concerns with no domain meaning
-  (`decorators/`, `guards/`, `validation/`). Do **not** put domain logic here.
+  (`auth/`, `decorators/`, `guards/`, `validation/`). **No domain logic and no
+  generic dumping ground here.**
+- `scripts/` — operational entry points that orchestrate existing logic.
 - `AppModule` composes modules and wires global providers (e.g. `APP_GUARD`); it
   holds no business logic.
 - Dependency direction: `modules → infrastructure` and `modules → common`;
   `common` depends on nothing domain-specific. Feature modules do not import
   each other's internals; share through explicit provider exports.
+- **Controllers stay thin** (HTTP only). **Direct Prisma use in a simple module
+  service is fine**; repositories/ports only for a real need. Keep simple
+  modules simple and grow complexity **locally** inside a module.
 - Create directories only when they contain real code.
 
 Global security primitives (`JwtAuthGuard`, `RolesGuard`, `@Public`, `@Roles`,
@@ -70,12 +85,16 @@ concerns; the `access` module owns the role catalogue.
 - Approved brand assets live in `apps/web/public/brand/`; see
   [branding.md](branding.md) for the variant usage convention.
 - Authenticated pages use a shared **application shell**
-  (`components/layout/app-shell.tsx`: sticky top header + role-aware
-  navigation + user menu + content). Navigation contains only implemented,
-  confirmed functionality. Self-service profile lives at `/profile`.
-- The database has exactly one migration, `initial_identity_access` (identity/
-  access only). Applied migrations become immutable after the first shared/
-  production deployment (ADR-010).
+  (`widgets/app-shell/`: sticky top header + role-aware navigation + user menu +
+  content). Navigation contains only implemented, confirmed functionality.
+  Self-service profile lives at `/profile`; the implemented partner module lives
+  at `/partners` (`docs/partners.md`); resources and packing forms live under
+  `/resources` (`docs/resources.md`).
+- The web frontend follows **FSD-lite** (`app`, `widgets`, `features`,
+  `entities`, `shared`); see [frontend-architecture.md](frontend-architecture.md).
+- The database has three migrations: `initial_identity_access`,
+  `business_partners` and `resources_and_packing_forms`. Applied migrations
+  become immutable after the first shared/production deployment (ADR-010).
 
 ## Purpose
 
@@ -155,8 +174,10 @@ empty layers in advance.
 - Aitvaras owns its own PostgreSQL database and its own Prisma schema.
 - `/sandelys` tables are **not** part of the Aitvaras domain model. They must
   never be used as the model for Aitvaras entities.
-- The schema currently contains **only** the confirmed identity/access models
-  (`User`, `Role`, `UserRole`); no business-domain tables were created.
+- The schema contains the confirmed models only: identity/access (`User`,
+  `Role`, `UserRole`), business partners (`BusinessPartner`, `PartnerRole`),
+  resources (`Resource`) and reference data (`PackingForm`). No other
+  business-domain tables were created.
 - Money, identifiers and domain vocabulary are Aitvaras decisions, not inherited
   from legacy conventions (e.g. legacy seeded numeric IDs or integer cents).
 
@@ -197,7 +218,7 @@ contract exists:
 | `inventory` | Stock lots, lifecycle/status, parent/child lineage, movements | API/domain service; depends on locations/catalog/partners | Yes (eventually) | Yes, while legacy remains source of truth |
 | `locations` | Warehouses, places, place types/groups, storage locations | API/admin | Yes (reference) | Yes, to import/read legacy layout |
 | `catalog` | Stock categories/types, containers, units | API/admin | Yes (reference) | Yes, to import/read legacy dictionaries |
-| `partners` | Suppliers, buyers, countries | API/admin | Yes (reference) | Yes, to import/read legacy partners |
+| `partners` | Suppliers, buyers, countries — **business partners implemented** (`docs/partners.md`) | API/admin | Yes (reference) | Yes, to import/read legacy partners |
 | `orders` | Buyer orders, order lines (type/weight/price), collection, completion, partial sale | API/domain service | Yes (eventually) | Yes, while legacy owns open orders |
 | `dispatch` | Sales / `atkrovimai` (single, mass, from order) | API/domain service | Yes (eventually) | Yes, if dispatching legacy-owned stock |
 | `discrepancies` | Sorting/packing error records | API/admin | Unknown (semantics unconfirmed) | Possibly |
@@ -212,6 +233,9 @@ Rules:
   interface, never on adapter internals or legacy names.
 - `reporting` must not own data.
 - `barcode` is not an identity provider (see `identity-strategy.md`).
+- `partners`, `resources` (with its fixed categories) and `packing-forms` are
+  now implemented (`docs/partners.md`, `docs/resources.md`); the remaining rows
+  are unconfirmed.
 - Do not create these modules until a slice needs them.
 
 ## What is deliberately *not* here

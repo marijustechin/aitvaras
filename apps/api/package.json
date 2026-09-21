@@ -10,7 +10,8 @@
     "dev": "nest start --watch",
     "start": "node dist/main.js",
     "bootstrap:admin": "tsx src/scripts/bootstrap-admin.ts",
-    "seed:dev": "tsx src/scripts/seed-dev.ts"
+    "seed:dev": "tsx src/scripts/seed-dev.ts",
+    "seed:reference": "tsx src/scripts/seed-reference-data.ts"
   },
   "dependencies": {
     "@aitvaras/contracts": "workspace:*",

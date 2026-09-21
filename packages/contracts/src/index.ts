@@ -2,3 +2,6 @@ export * from "./health";
 export * from "./roles";
 export * from "./auth";
 export * from "./users";
+export * from "./partners";
+export * from "./resources";
+export * from "./packing-forms";

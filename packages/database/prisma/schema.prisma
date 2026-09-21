@@ -1,10 +1,11 @@
 // Aitvaras owns its own PostgreSQL schema. Only confirmed, current requirements
-// are modelled here: identity and access management.
+// are modelled here: identity/access management, business partners, resources
+// and packing forms (reference data).
 //
-// Deliberately NOT present: inventory, stock, orders, sales, barcode workflows,
-// warehouse operations, production, tenancy or Sandėlys integration. Those
-// concepts are unconfirmed discovery material, not approved scope. See
-// ../../docs/scope.md.
+// Deliberately NOT present: goods receipt, purchasing, stock balances,
+// warehouse locations, quantities, production, orders, dispatch, sales, barcode
+// workflows, tenancy or Sandėlys integration. Those concepts are unconfirmed
+// discovery material, not approved scope. See ../../docs/scope.md.
 
 generator client {
   // Prisma 7 Rust-free client. Outputs plain TypeScript that is compiled with
@@ -76,4 +77,90 @@ model UserRole {
   @@id([userId, roleId])
   @@index([roleId])
   @@map("user_roles")
+}
+
+// Partner business roles. These are a business-domain concept, deliberately
+// separate from system access roles (RoleKey). A partner may hold several.
+enum PartnerRoleKey {
+  SUPPLIER
+  BUYER
+}
+
+// A business counterparty (partneris). Suppliers and buyers are NOT separate
+// entities: one partner may be a supplier, a buyer, or both. Optional fields
+// are nullable (unset), never empty strings. `companyCode`/`vatCode` are
+// intentionally not unique — foreign/unknown values are expected.
+model BusinessPartner {
+  id            String   @id @default(uuid()) @db.Uuid
+  name          String   @db.VarChar(255)
+  companyCode   String?  @map("company_code") @db.VarChar(64)
+  vatCode       String?  @map("vat_code") @db.VarChar(64)
+  address       String?  @db.VarChar(500)
+  country       String?  @db.VarChar(100)
+  contactPerson String?  @map("contact_person") @db.VarChar(200)
+  phone         String?  @db.VarChar(64)
+  email         String?  @db.VarChar(254)
+  notes         String?  @db.VarChar(2000)
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  roles PartnerRole[]
+
+  @@index([name])
+  @@map("business_partners")
+}
+
+// Normalised, multi-valued partner role assignment. Composite primary key gives
+// deterministic, duplicate-free representation and the FK is indexed.
+model PartnerRole {
+  partnerId String         @map("partner_id") @db.Uuid
+  role      PartnerRoleKey
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  partner BusinessPartner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@id([partnerId, role])
+  @@map("partner_roles")
+}
+
+// Resource categories. A small, fixed domain classification (a business/schema
+// decision), not user-managed configuration. A resource has exactly one.
+enum ResourceCategoryKey {
+  RAW_MATERIAL
+  SEMI_FINISHED
+  FINISHED_PRODUCT
+}
+
+// A business item/material/product handled by Aitvaras. Only confirmed fields
+// are modelled; price, VAT, barcode, quantity, stock, location, supplier,
+// packing form, dimensions, weight, unit and reorder level are deliberately
+// absent until confirmed. `name` is intentionally not unique: two resources may
+// share a descriptive name.
+model Resource {
+  id        String              @id @default(uuid()) @db.Uuid
+  name      String              @db.VarChar(255)
+  category  ResourceCategoryKey
+  notes     String?             @db.VarChar(2000)
+  active    Boolean             @default(true)
+  createdAt DateTime            @default(now()) @map("created_at")
+  updatedAt DateTime            @updatedAt @map("updated_at")
+
+  @@index([name])
+  @@index([category])
+  @@map("resources")
+}
+
+// How goods are physically packed/presented for handling/storage. Independent
+// reference/master data: deliberately NOT a permanent property of a resource
+// (a later receipt may use a different form). `name` is unique so the reference
+// seed is idempotent and the small controlled list stays unambiguous.
+model PackingForm {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique @db.VarChar(255)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("packing_forms")
 }

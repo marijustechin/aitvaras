@@ -53,8 +53,21 @@ updates) before they reach the API.
 
 ## Database
 
-Aitvaras owns its own PostgreSQL database. It currently contains **only** the
-identity/access models (`User`, `Role`, `UserRole`); no business tables exist.
+Aitvaras owns its own PostgreSQL database. It currently contains the confirmed
+models: identity/access (`User`, `Role`, `UserRole`), business partners
+(`BusinessPartner`, `PartnerRole`), resources (`Resource`) and packing-form
+reference data (`PackingForm`); no other business tables exist.
+
+### Reference/master data
+
+Packing forms are reference data and are seeded explicitly (never at startup):
+
+```bash
+pnpm seed:reference     # idempotent; ensures the confirmed packing forms
+```
+
+It is separate from `seed:dev` (which owns only the local development login) and
+is safe to re-run: existing rows are never modified.
 
 ```bash
 pnpm infra:up          # start local PostgreSQL (Docker, bound to 127.0.0.1)
@@ -146,6 +159,7 @@ pnpm db:migrate
 pnpm db:test:create  # ensure the isolated test database exists
 pnpm db:test:migrate
 pnpm seed:dev
+pnpm seed:reference  # packing-form reference data (idempotent)
 pnpm dev:api         # http://localhost:3010
 pnpm dev:web         # http://localhost:3011  (login: localdev / localdev)
 ```
