@@ -11,6 +11,15 @@ import {
 import { AppShell } from "@/components/layout/app-shell";
 import { isUnauthorized, useAuth } from "@/components/auth-provider";
 import { ApiError, apiFetch } from "@/lib/api";
+import {
+  activeToggleLabel,
+  applyUserUpdate,
+  isRoleControlDisabled,
+  toggleRoleSelection,
+  userAdminErrorMessage,
+  userEditSuccess,
+  type UserEditState,
+} from "@/lib/users";
 
 export default function AdminUsersPage() {
   return (
@@ -18,13 +27,6 @@ export default function AdminUsersPage() {
       <UsersManager />
     </AppShell>
   );
-}
-
-interface EditState {
-  firstName: string;
-  lastName: string;
-  roles: RoleKey[];
-  active: boolean;
 }
 
 function UsersManager() {
@@ -36,13 +38,14 @@ function UsersManager() {
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<RoleKey>("WAREHOUSE_WORKER");
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [edit, setEdit] = useState<EditState | null>(null);
+  const [edit, setEdit] = useState<UserEditState | null>(null);
   const router = useRouter();
   const { clearSession } = useAuth();
 
   /**
    * Surface an error; on a 401 (expired/absent session) clear client session
-   * state and return to the login screen instead of showing stale auth UI.
+   * state and return to the login screen. Known API failures are mapped to
+   * specific Lithuanian messages; unknown ones fall back to the caller's text.
    */
   function handleError(caught: unknown, fallback: string): void {
     if (isUnauthorized(caught)) {
@@ -50,7 +53,11 @@ function UsersManager() {
       router.replace("/login");
       return;
     }
-    setError(caught instanceof ApiError ? caught.message : fallback);
+    if (process.env.NODE_ENV === "development") {
+      // Keep enough context to diagnose request failures locally.
+      console.error("[Naudotojai]", caught);
+    }
+    setError(caught instanceof ApiError ? userAdminErrorMessage(caught) : fallback);
   }
 
   const reload = useCallback(async (): Promise<void> => {
@@ -105,10 +112,7 @@ function UsersManager() {
       if (!current) {
         return current;
       }
-      const roles = current.roles.includes(roleKey)
-        ? current.roles.filter((value) => value !== roleKey)
-        : [...current.roles, roleKey];
-      return { ...current, roles };
+      return { ...current, roles: toggleRoleSelection(current.roles, roleKey) };
     });
   }
 
@@ -117,18 +121,20 @@ function UsersManager() {
       return;
     }
     if (edit.roles.length === 0) {
-      setError("Pasirinkite bent vieną rolę");
+      setError("Pasirinkite bent vieną vaidmenį.");
       return;
     }
     setError(null);
     try {
-      await apiFetch(`/users/${editingId}`, {
+      const updated = await apiFetch<UserSummary>(`/users/${editingId}`, {
         method: "PATCH",
         body: JSON.stringify(edit),
       });
-      setEditingId(null);
-      setEdit(null);
-      await reload();
+      const next = userEditSuccess(users, updated);
+      setUsers(next.users);
+      setEditingId(next.editingId);
+      setEdit(next.edit);
+      setError(next.error);
     } catch (caught) {
       handleError(caught, "Nepavyko atnaujinti naudotojo");
     }
@@ -137,11 +143,12 @@ function UsersManager() {
   async function toggleActive(user: UserSummary): Promise<void> {
     setError(null);
     try {
-      await apiFetch(`/users/${user.id}`, {
+      const updated = await apiFetch<UserSummary>(`/users/${user.id}`, {
         method: "PATCH",
         body: JSON.stringify({ active: !user.active }),
       });
-      await reload();
+      setUsers((current) => applyUserUpdate(current, updated));
+      setError(null);
     } catch (caught) {
       handleError(caught, "Nepavyko atnaujinti naudotojo");
     }
@@ -237,12 +244,16 @@ function UsersManager() {
                 <input
                   type="checkbox"
                   checked={edit.roles.includes(key)}
+                  disabled={isRoleControlDisabled(key, edit.roles)}
                   onChange={() => toggleRole(key)}
                 />
                 {ROLE_LABELS[key]}
               </label>
             ))}
           </fieldset>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Administratorius turi visas teises, todėl kiti vaidmenys nereikalingi.
+          </p>
           <label className="mt-3 flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -266,6 +277,7 @@ function UsersManager() {
               onClick={() => {
                 setEditingId(null);
                 setEdit(null);
+                setError(null);
               }}
               className="rounded-md border border-border px-3 py-2 text-sm"
             >
@@ -313,7 +325,7 @@ function UsersManager() {
                       onClick={() => void toggleActive(user)}
                       className="rounded-md border border-border px-2 py-1 text-xs hover:bg-accent"
                     >
-                      {user.active ? "Išjungti" : "Aktyvuoti"}
+                      {activeToggleLabel(user.active)}
                     </button>
                   </div>
                 </td>

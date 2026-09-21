@@ -5,11 +5,12 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { Prisma } from "@aitvaras/database";
-import type {
-  CreateUserRequest,
-  RoleKey,
-  UpdateUserRequest,
-  UserSummary,
+import {
+  normalizeRoleKeys,
+  type CreateUserRequest,
+  type RoleKey,
+  type UpdateUserRequest,
+  type UserSummary,
 } from "@aitvaras/contracts";
 import { PrismaService } from "../../infrastructure/prisma/prisma.service";
 import { hashPassword } from "../auth/password";
@@ -18,6 +19,13 @@ import { toUserSummary } from "./user.mapper";
 const withRoles = {
   roles: { include: { role: true } },
 } satisfies Prisma.UserInclude;
+
+const LAST_ACTIVE_ADMIN_DEACTIVATE =
+  "Negalima išjungti paskutinio aktyvaus administratoriaus.";
+const LAST_ACTIVE_ADMIN_ROLE =
+  "Negalima pašalinti paskutinio aktyvaus administratoriaus vaidmens.";
+const SELF_ADMIN_CHANGE =
+  "Negalima atimti administratoriaus teisių ar išjungti savo paskyros.";
 
 @Injectable()
 export class UsersService {
@@ -32,7 +40,8 @@ export class UsersService {
   }
 
   async create(input: CreateUserRequest): Promise<UserSummary> {
-    const roleIds = await this.resolveRoleIds(input.roles);
+    // ADMIN dominates: a redundant ADMIN + other role set is stored as ADMIN.
+    const roleIds = await this.resolveRoleIds(normalizeRoleKeys(input.roles));
     const passwordHash = await hashPassword(input.password);
 
     try {
@@ -50,17 +59,26 @@ export class UsersService {
       return toUserSummary(user);
     } catch (error) {
       if (isUniqueConstraintError(error)) {
-        throw new ConflictException("Username already exists");
+        throw new ConflictException("Naudotojas tokiu vardu jau egzistuoja.");
       }
       throw error;
     }
   }
 
-  async update(id: string, input: UpdateUserRequest): Promise<UserSummary> {
-    const existing = await this.prisma.user.findUnique({ where: { id } });
+  async update(
+    actorId: string,
+    id: string,
+    input: UpdateUserRequest,
+  ): Promise<UserSummary> {
+    const existing = await this.prisma.user.findUnique({
+      where: { id },
+      include: withRoles,
+    });
     if (!existing) {
       throw new NotFoundException("User not found");
     }
+
+    await this.assertAdministrativeSafety(actorId, existing, input);
 
     const data: Prisma.UserUpdateInput = {};
     if (input.firstName !== undefined) {
@@ -81,7 +99,10 @@ export class UsersService {
         await tx.user.update({ where: { id }, data });
       }
       if (input.roles !== undefined) {
-        const roleIds = await this.resolveRoleIds(input.roles, tx);
+        const roleIds = await this.resolveRoleIds(
+          normalizeRoleKeys(input.roles),
+          tx,
+        );
         await tx.userRole.deleteMany({ where: { userId: id } });
         if (roleIds.length > 0) {
           await tx.userRole.createMany({
@@ -96,6 +117,53 @@ export class UsersService {
       include: withRoles,
     });
     return toUserSummary(user);
+  }
+
+  /**
+   * Authorization safety rules for user updates.
+   *
+   * - The system must never end up with zero active ADMIN users.
+   * - An admin must not remove their own admin access or deactivate their own
+   *   account (session cookies are not invalidated when `active` changes, so
+   *   self-deactivation would leave an incoherent session).
+   */
+  private async assertAdministrativeSafety(
+    actorId: string,
+    existing: { id: string; active: boolean; roles: { role: { key: string } }[] },
+    input: UpdateUserRequest,
+  ): Promise<void> {
+    const currentRoles = existing.roles.map(
+      (assignment) => assignment.role.key as RoleKey,
+    );
+    if (!existing.active || !currentRoles.includes("ADMIN")) {
+      return;
+    }
+
+    const nextRoles =
+      input.roles !== undefined ? normalizeRoleKeys(input.roles) : currentRoles;
+    const losesAdmin = !nextRoles.includes("ADMIN");
+    const deactivates = input.active === false;
+    if (!losesAdmin && !deactivates) {
+      return;
+    }
+
+    const otherActiveAdmins = await this.prisma.user.count({
+      where: {
+        active: true,
+        id: { not: existing.id },
+        roles: { some: { role: { key: "ADMIN" } } },
+      },
+    });
+
+    if (otherActiveAdmins === 0) {
+      throw new ConflictException(
+        deactivates ? LAST_ACTIVE_ADMIN_DEACTIVATE : LAST_ACTIVE_ADMIN_ROLE,
+      );
+    }
+
+    if (existing.id === actorId) {
+      throw new ConflictException(SELF_ADMIN_CHANGE);
+    }
   }
 
   private async resolveRoleIds(

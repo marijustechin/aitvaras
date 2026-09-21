@@ -44,7 +44,12 @@ Both are defaults, not constants. The API falls back to `3010` when `API_PORT`
 is unset; the web dev script defaults to `3011` and can be overridden by passing
 a different `--port`. The web app talks to the API via `NEXT_PUBLIC_API_URL`
 (default `http://localhost:3010`) and never assumes the API is on its own port.
-CORS allows `WEB_ORIGIN` (default `http://localhost:3011,http://127.0.0.1:3011`).
+CORS allows `WEB_ORIGIN` (default `http://localhost:3011,http://127.0.0.1:3011`)
+with credentials. The allowed methods are set explicitly
+(`CORS_METHODS` in `apps/api/src/bootstrap.ts`): Fastify's CORS default is only
+`GET,HEAD,POST`, which would otherwise let the browser block credentialed
+`PATCH`/`PUT`/`DELETE` requests (e.g. profile, user, partner and resource
+updates) before they reach the API.
 
 ## Database
 

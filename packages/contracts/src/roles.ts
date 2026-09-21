@@ -29,3 +29,19 @@ export const ROLE_LABELS: Record<RoleKey, string> = {
 /** The initial role catalogue seeded into the database. */
 export const ROLE_CATALOG: ReadonlyArray<{ key: RoleKey; name: string }> =
   ROLE_KEYS.map((key) => ({ key, name: ROLE_LABELS[key] }));
+
+/**
+ * Normalise a role set for assignment.
+ *
+ * `ADMIN` includes full application access, so it **dominates**: when present
+ * it is stored alone. Otherwise roles are de-duplicated in catalogue order.
+ * This is the single rule shared by the API (server-side normalization) and the
+ * web UI; never rely on the UI alone.
+ */
+export function normalizeRoleKeys(roles: readonly RoleKey[]): RoleKey[] {
+  const unique = new Set(roles);
+  if (unique.has("ADMIN")) {
+    return ["ADMIN"];
+  }
+  return ROLE_KEYS.filter((key) => unique.has(key));
+}

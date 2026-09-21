@@ -106,6 +106,14 @@ pinning an older major in a greenfield project.
 - Keep the **relational** access model (`User`/`Role`/`UserRole`); do not replace
   it with a single role field or numeric ids. `RoleKey` is the canonical stable
   role identifier; multiple roles per user are supported.
+- **`ADMIN` dominates.** Normalize every role assignment with
+  `normalizeRoleKeys` (`@aitvaras/contracts`): `ADMIN` plus any other role is
+  stored as `ADMIN` alone. Enforce this **server-side** (create and update); the
+  UI only mirrors it. Never persist a redundant mixed set.
+- **At least one role** per user is required (`roles: []` is invalid).
+- **Never allow zero active administrators.** Reject deactivating the last
+  active `ADMIN` or removing `ADMIN` from them, and reject an admin changing
+  their own admin access/active state. See `docs/authorization.md`.
 
 ## Development ports
 

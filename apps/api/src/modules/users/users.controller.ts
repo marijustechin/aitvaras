@@ -10,11 +10,13 @@ import {
 import {
   CreateUserRequestSchema,
   UpdateUserRequestSchema,
+  type AuthenticatedUser,
   type CreateUserRequest,
   type UpdateUserRequest,
   type UserSummary,
 } from "@aitvaras/contracts";
 import { Roles } from "../../common/decorators/roles.decorator";
+import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { ZodValidationPipe } from "../../common/validation/zod-validation.pipe";
 import { UsersService } from "./users.service";
 
@@ -39,10 +41,11 @@ export class UsersController {
 
   @Patch(":id")
   update(
+    @CurrentUser() actor: AuthenticatedUser,
     @Param("id", ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(UpdateUserRequestSchema))
     body: UpdateUserRequest,
   ): Promise<UserSummary> {
-    return this.usersService.update(id, body);
+    return this.usersService.update(actor.id, id, body);
   }
 }

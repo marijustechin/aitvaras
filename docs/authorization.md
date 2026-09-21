@@ -63,6 +63,25 @@ The guards are unit-tested independently of any business module
 Login brute-force protection and generic login failures are documented in
 [authentication.md](authentication.md).
 
+## Role normalization and administrative safety
+
+- **`ADMIN` dominates.** `ADMIN` includes full application access, so assigning
+  it together with any other role is normalized to **`ADMIN` alone** — on user
+  creation, on user update, and therefore for direct API requests. The single
+  rule lives in `normalizeRoleKeys` (`@aitvaras/contracts`) and is enforced
+  **server-side**; the UI only mirrors it (checking `Administratorius` clears
+  and disables the other role controls).
+- **At least one role is required.** `roles: []` is rejected (`400`).
+- **Never zero active administrators.** Deactivating the last active `ADMIN`, or
+  removing the `ADMIN` role from them, is rejected with `409 Conflict` and a
+  specific Lithuanian message (`Negalima išjungti paskutinio aktyvaus
+  administratoriaus.` / `Negalima pašalinti paskutinio aktyvaus
+  administratoriaus vaidmens.`).
+- **No self admin change.** An administrator cannot remove their own admin
+  access or deactivate their own account (auth cookies are not invalidated when
+  `active` changes, so self-deactivation would leave an incoherent session);
+  rejected with `409`.
+
 **Navigation visibility is a UI convenience only.** Menu items (e.g.
 `Naudotojai` for `ADMIN`) are hidden from users without the role, but the server
 remains authoritative: a non-admin who requests `/admin/users` is still denied.
@@ -86,6 +105,7 @@ username; role management stays ADMIN-only via `/users`.
 |---|---|
 | No/invalid/expired token or cookie on a protected route | `401 Unauthorized` |
 | Authenticated but missing the required role | `403 Forbidden` |
+| Unsafe role change (last active admin, self admin change) | `409 Conflict` |
 | Any login failure (unknown/wrong/inactive/locked) | `401` (generic) |
 
 ## Limitations / next steps
