@@ -30,6 +30,8 @@ function readAppVersion(): string {
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // `next dev` otherwise writes AGENTS.md/CLAUDE.md into the app directory.
+  agentRules: false,
   // Expose the version as a build-time constant (no runtime lookup).
   env: {
     NEXT_PUBLIC_APP_VERSION: readAppVersion(),

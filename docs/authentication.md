@@ -1,7 +1,7 @@
 # Authentication
 
-> Confirmed scope: identity and access management only (`scope.md`). No
-> business functionality is implemented.
+> Confirmed scope: identity and access management only (`scope.md`). No business
+> functionality is implemented.
 
 ## Model
 
@@ -10,8 +10,7 @@
   `passwordHash`, `active`, timestamps.
 - **Role** (`roles`): stable semantic `key` (`RoleKey` enum, e.g. `ADMIN`),
   display `name`.
-- **UserRole** (`user_roles`): explicit many-to-many assignment (a user may hold
-  several roles).
+- **UserRole** (`user_roles`): explicit many-to-many assignment.
 
 `username` is an **authentication identifier, not a display name**. Screens,
 reports and audit trails display `firstName` + `lastName`.
@@ -22,20 +21,22 @@ the auth code lives in `apps/api/src/modules/auth`.
 Passwords are hashed with **Argon2id** via `@node-rs/argon2`. Hashes never leave
 the API and are never logged.
 
-## Password hashing
+## Browser authentication: httpOnly cookie
 
-`apps/api/src/auth/password.ts` uses Argon2id with OWASP-baseline parameters:
+The browser never receives a readable token. On successful login the API issues
+a JWT and delivers it **only** as an httpOnly cookie
+(`aitvaras_access`). See ADR-011.
 
-| Parameter | Value |
-|---|---|
-| algorithm | Argon2id |
-| memoryCost | 19456 KiB (19 MiB) |
-| timeCost | 2 |
-| parallelism | 1 |
+| Attribute | Value | Rationale |
+|---|---|---|
+| `HttpOnly` | yes | JavaScript cannot read the token (XSS token theft mitigation) |
+| `Secure` | `NODE_ENV === "production"` | HTTPS-only in production; local dev is plain HTTP |
+| `SameSite` | `Lax` | Blocks cross-site state-changing requests; see CSRF below |
+| `Path` | `/` | Sent to the API on all routes |
+| `Max-Age` | `JWT_ACCESS_TTL` (default 3600 s) | Aligns cookie life with token life |
 
-Hashes encode their own parameters, so these can be raised later without
-invalidating existing passwords. Comparison is always done by the hashing
-library (`verifyPassword`), never by custom code.
+No auth token is stored in `localStorage` or `sessionStorage`, and the web client
+never builds an `Authorization` header.
 
 ## Login lifecycle
 
@@ -43,46 +44,112 @@ library (`verifyPassword`), never by custom code.
 POST /auth/login
 Content-Type: application/json
 
-{ "username": "alice", "password": "…" }
+{ "username": "localdev", "password": "…" }
 ```
 
-- On success → `200`:
+- On success → `200` with **safe user data only** (no token):
 
   ```json
   {
-    "accessToken": "<jwt>",
-    "tokenType": "Bearer",
-    "expiresIn": 3600,
     "user": {
-      "id": "…",
-      "username": "alice",
-      "firstName": "Alice",
-      "lastName": "Anderson",
-      "roles": ["ADMIN"]
+      "id": "…", "username": "localdev",
+      "firstName": "Local", "lastName": "Developer", "roles": ["ADMIN"]
     }
   }
   ```
 
-- On failure → `401` with a **generic** `"Invalid credentials"` message. Unknown
-  user, wrong password and inactive user are indistinguishable.
-- Requests requiring authentication use `Authorization: Bearer <token>`.
-- `GET /auth/me` returns the current safe user (`id`, `username`, `roles`).
+  plus `Set-Cookie: aitvaras_access=<jwt>; HttpOnly; SameSite=Lax; Path=/; Max-Age=3600`.
+- On any failure → `401` with a **generic** `"Invalid credentials"` message.
+  Unknown user, wrong password, inactive account and temporary lockout are
+  indistinguishable to the caller.
+
+Authenticated requests send the cookie automatically (`credentials: "include"`);
+`GET /auth/me` returns the current safe user.
+
+### Token source priority (server)
+
+The global `JwtAuthGuard` accepts, in order: (1) the `aitvaras_access` **cookie**
+(canonical browser auth); (2) an `Authorization: Bearer <jwt>` header (retained
+only for API clients/tooling). The browser never uses the bearer source.
 
 ### JWT
 
 - Algorithm `HS256`; signing secret from `JWT_SECRET` (required, ≥ 32 chars).
-- Short-lived access token; TTL from `JWT_ACCESS_TTL` seconds (default 3600).
-- Claims remain minimal: `sub` (user id), `username`, `roles`, plus `iat`/`exp`.
-  Names are **not** placed in the token; clients read them from `/auth/me`.
-- Signature and expiration are validated on every protected request.
-- **No refresh tokens** in this foundation: the access token is short-lived and
-  the user signs in again on expiry. Adding refresh tokens is a deliberate later
-  decision (see Limitations).
+- Short-lived; TTL from `JWT_ACCESS_TTL` seconds (default 3600).
+- Claims remain minimal: `sub`, `username`, `roles`, plus `iat`/`exp`. Names are
+  **not** in the token; clients read them from `/auth/me`.
+- **No refresh tokens** (ADR-011): on expiry the user signs in again.
+
+## Logout
+
+```http
+POST /auth/logout   → 200 { "success": true }
+```
+
+Clears the auth cookie with matching attributes (`Path=/`) via `Set-Cookie`
+expiry. The web UI (`Atsijungti`) calls this and returns to `/login`. Because
+JWTs are stateless, the previously issued token remains cryptographically valid
+until it expires; the short TTL bounds this. This is an accepted property, not a
+client-only logout.
+
+## Session expiry UX
+
+When the token/cookie expires, authenticated API calls return `401`; the web app
+clears its session state and redirects to `/login` (no redirect loop, no stale
+authenticated UI). Users simply sign in again (no refresh tokens).
+
+## Login brute-force protection
+
+A process-local limiter (`LoginAttemptService`) tracks failures per username and
+per client IP within a sliding window and temporarily locks a key at the
+threshold. Defaults (env-configurable):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `LOGIN_MAX_ATTEMPTS` | `5` | failures before temporary lockout |
+| `LOGIN_WINDOW_SECONDS` | `900` | failure-counting window |
+| `LOGIN_LOCKOUT_SECONDS` | `900` | how long a locked key stays locked |
+
+Counters reset on successful login and after the window/lockout expires. Locked
+attempts return the **same generic** `401` — the client cannot tell that an
+account exists or is locked. Accounts are never permanently locked.
+
+**This limiter is in-memory and therefore per-instance**; a shared store (e.g.
+Redis) would be required for multi-instance deployments. It is intentionally not
+added yet (no verified need).
+
+## CSRF assessment
+
+Cookie auth changes the threat model. Decision: **`SameSite=Lax` plus a
+same-site deployment is sufficient for the current architecture; no CSRF token is
+used.** Reasoning:
+
+- The web app and API are intended to be **same-site** (e.g. `localhost:3011` →
+  `localhost:3010` in dev; one site in production). Ports do not affect the
+  SameSite "site" boundary.
+- `SameSite=Lax` cookies are **not sent on cross-site subrequests/POSTs**, so a
+  third-party page cannot trigger an authenticated state-changing request.
+- CORS is explicit and credentialed (`credentials: true`) with **no wildcard
+  origin**, so a foreign origin cannot read responses either.
+
+If the deployment ever moves the API to a **different site** (which would require
+`SameSite=None; Secure`), a CSRF token (double-submit or synchroniser) becomes
+necessary and must be added deliberately.
+
+## CORS
+
+- Explicit allowed origins from `WEB_ORIGIN` (comma-separated); the default
+  includes `http://localhost:3011`.
+- `credentials: true`; a wildcard origin is rejected at startup.
+- Origins remain environment-driven for production.
+
+## Password visibility toggle
+
+The Lithuanian login form's password field has an accessible show/hide control
+(`type="button"`, `aria-label` `Rodyti slaptažodį` / `Slėpti slaptažodį`). It
+only toggles `type="password"` ↔ `type="text"` and never submits the form.
 
 ## Bootstrap the first user
-
-There is no default account and no silent startup creation. There are two
-separate mechanisms:
 
 ### Local development seed (weak, guarded)
 
@@ -90,9 +157,8 @@ separate mechanisms:
 pnpm seed:dev      # creates/ensures localdev / localdev (ADMIN, active)
 ```
 
-- Development only: refuses to run unless `NODE_ENV=development` and
-  `DATABASE_URL` points at a local database.
-- Idempotent; never run at API startup.
+- Development only: refuses unless `NODE_ENV=development` and `DATABASE_URL` is
+  local. Idempotent; never run at API startup.
 - `localdev` / `localdev` must never be reused outside local development.
 
 ### Secure admin bootstrap (production)
@@ -107,49 +173,39 @@ BOOTSTRAP_ADMIN_PASSWORD=<strong password, >= 12 chars>
 pnpm bootstrap:admin
 ```
 
-The script:
-- ensures the initial role catalogue exists;
-- creates one `ADMIN` user with the given real names and a hashed password;
-- is idempotent (skips if the username already exists);
-- refuses to run without username, first name, last name and password, and
-  requires a ≥ 12-char password;
-- never uses `localdev` as a fallback.
+Requires all four variables, is idempotent, and never uses `localdev` as a
+fallback. `BOOTSTRAP_ADMIN_*` are **optional** and not required for normal
+development; they are not default local credentials.
 
-It is **not** run automatically by the application.
+In development the login screen shows a muted hint (`Lokali paskyra: localdev /
+localdev`); it is omitted from production builds.
 
 ## Configuration
 
 | Variable | Required | Meaning |
 |---|---|---|
 | `JWT_SECRET` | yes | JWT signing secret (≥ 32 chars) |
-| `JWT_ACCESS_TTL` | no | Access token lifetime in seconds (default 3600) |
-| `BOOTSTRAP_ADMIN_USERNAME` | bootstrap only | Initial admin username |
-| `BOOTSTRAP_ADMIN_FIRST_NAME` | bootstrap only | Initial admin first name |
-| `BOOTSTRAP_ADMIN_LAST_NAME` | bootstrap only | Initial admin last name |
-| `BOOTSTRAP_ADMIN_PASSWORD` | bootstrap only | Initial admin password (≥ 12 chars) |
+| `JWT_ACCESS_TTL` | no | Access token / cookie lifetime in seconds (default 3600) |
+| `WEB_ORIGIN` | no | Allowed credentialed CORS origins (no `*`) |
+| `LOGIN_MAX_ATTEMPTS` / `LOGIN_WINDOW_SECONDS` / `LOGIN_LOCKOUT_SECONDS` | no | Login protection policy |
+| `BOOTSTRAP_ADMIN_*` | bootstrap only | Initial admin credentials |
 
 Secrets live in `.env` (git-ignored); `.env.example` documents them with
-placeholders. Generate a secret with e.g. `openssl rand -base64 48`.
+placeholders.
 
 ## Security properties (verified by tests)
 
-- passwords are never stored or returned in plaintext;
-- password hashes are never returned by any endpoint;
-- unknown user / wrong password / inactive user all fail with `401` and an
-  identical generic message;
-- protected endpoints reject unauthenticated requests (`401`);
-- the JWT secret is required from the environment (application fails to start
-  without a valid one);
-- request bodies are validated; credential fields are not logged.
+- passwords are never stored or returned in plaintext; hashes are never returned;
+- login failures are generic (unknown user / wrong password / inactive / locked);
+- the token is delivered only via httpOnly cookie and never in the JSON body,
+  `localStorage` or `sessionStorage`;
+- protected endpoints reject unauthenticated requests (`401`); role checks remain
+  server-side;
+- the JWT secret is required from the environment; request bodies are validated;
+  credentials and tokens are not logged.
 
 ## Current limitations / next hardening
 
-- The web client stores the access token in `localStorage`. Moving it to an
-  **http-only cookie** via a Next.js route handler is a planned hardening step.
-- **No rate limiting / lockout** on `/auth/login` yet. This is the next security
-  hardening step; it is not introduced here to avoid unrelated infrastructure.
-- Roles in the token reflect assignment **at login time**; a change takes effect
-  at the next login or token expiry.
-- No password reset, MFA, SSO/OAuth, invitations or profiles (not confirmed
-  requirements).
-- No refresh tokens.
+- No refresh tokens; re-login on expiry (accepted, ADR-011).
+- Rate limiting is in-memory/per-instance (documented above).
+- No password reset, MFA, SSO or invitations (not confirmed requirements).

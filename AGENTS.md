@@ -145,11 +145,40 @@ database is local. Never reuse development credentials in staging or
 production. The secure `pnpm bootstrap:admin` (env-supplied credentials, no
 defaults) remains a separate mechanism.
 
+## Browser authentication
+
+- Never store auth tokens in `localStorage` or `sessionStorage`. Browser
+  authentication uses the approved **httpOnly cookie** mechanism
+  (`aitvaras_access`; ADR-011), sent with `credentials: "include"`.
+- Do not return the raw token in the login response body or log tokens/cookies.
+
+## Login security
+
+Do not weaken: generic login failures (unknown user / wrong password / inactive
+/ locked must be indistinguishable), login rate limiting/lockout, cookie security
+attributes (`HttpOnly`, `SameSite=Lax`, `Secure` in production), or server-side
+role guards. Cookie policy decisions (CORS, CSRF) are in ADR-011.
+
+## UX
+
+Password fields that support manual entry should provide an accessible show/hide
+control (with Lithuanian `aria-label`s) unless there is a specific reason not to.
+
 ## Migrations
 
 Before first release, deliberate migration cleanup is allowed. **After migrations
 have been used in a shared or production environment, never rewrite applied
 migration history** — add a new migration instead.
+
+## Test database isolation
+
+- Test code must **never** mutate the normal development database.
+- Any test requiring database mutation must use the dedicated test database
+  (`TEST_DATABASE_URL`, `aitvaras_test`) and pass the test-database safety guard.
+- Never fall back to the development `DATABASE_URL`; a missing `TEST_DATABASE_URL`
+  is a hard error.
+- Never make a destructive test preserve development records as a workaround for
+  missing isolation.
 
 ## Testing expectations
 

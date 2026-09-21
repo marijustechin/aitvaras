@@ -7,6 +7,7 @@ import {
 import { Reflector } from "@nestjs/core";
 import { JwtService } from "@nestjs/jwt";
 import type { RoleKey } from "@aitvaras/contracts";
+import { AUTH_COOKIE_NAME } from "../auth/auth-cookie";
 import { IS_PUBLIC_KEY } from "../decorators/public.decorator";
 import type { AuthenticatedUser } from "./authenticated-user";
 
@@ -18,6 +19,7 @@ interface JwtPayload {
 
 interface AuthenticatedRequest {
   headers: Record<string, string | string[] | undefined>;
+  cookies?: Record<string, string | undefined>;
   user?: AuthenticatedUser;
 }
 
@@ -26,6 +28,11 @@ interface AuthenticatedRequest {
  *
  * Rejects unauthenticated requests by default; routes marked `@Public()` are
  * exempt. On success it attaches the authenticated user to the request.
+ *
+ * Token sources, in priority order:
+ *  1. the httpOnly `aitvaras_access` cookie (canonical browser authentication);
+ *  2. an `Authorization: Bearer <jwt>` header (kept for API clients/tooling;
+ *     the browser never uses this).
  */
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -44,14 +51,8 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
-    const header = request.headers.authorization;
-    const value = Array.isArray(header) ? header[0] : header;
+    const token = this.extractToken(request);
 
-    if (!value || !value.startsWith("Bearer ")) {
-      throw new UnauthorizedException("Authentication required");
-    }
-
-    const token = value.slice("Bearer ".length).trim();
     if (!token) {
       throw new UnauthorizedException("Authentication required");
     }
@@ -67,5 +68,20 @@ export class JwtAuthGuard implements CanActivate {
     } catch {
       throw new UnauthorizedException("Invalid or expired token");
     }
+  }
+
+  private extractToken(request: AuthenticatedRequest): string | undefined {
+    const cookieToken = request.cookies?.[AUTH_COOKIE_NAME];
+    if (cookieToken) {
+      return cookieToken;
+    }
+
+    const header = request.headers.authorization;
+    const value = Array.isArray(header) ? header[0] : header;
+    if (value && value.startsWith("Bearer ")) {
+      const bearer = value.slice("Bearer ".length).trim();
+      return bearer || undefined;
+    }
+    return undefined;
   }
 }

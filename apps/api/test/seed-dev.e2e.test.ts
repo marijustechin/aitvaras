@@ -5,9 +5,13 @@ import {
   assertDevelopmentEnvironment,
   seedDevelopmentUser,
 } from "../src/scripts/seed-dev";
-import { isDatabaseReachable } from "./support/test-env";
+import {
+  applyTestDatabaseEnv,
+  isTestDatabaseReachable,
+  TEST_DATABASE_NAME,
+} from "./support/test-db";
 
-const dbAvailable = await isDatabaseReachable();
+const dbAvailable = await isTestDatabaseReachable();
 const DEV_USERNAME = "localdev";
 
 describe("development seed environment guard", () => {
@@ -43,6 +47,8 @@ describe.skipIf(!dbAvailable)("development seed (integration)", () => {
   let prisma: PrismaClient;
 
   beforeAll(async () => {
+    // Isolated test database (asserted); destructive setup is safe here.
+    applyTestDatabaseEnv();
     prisma = new PrismaClient({ adapter: createPrismaAdapter() });
     await prisma.user.deleteMany({ where: { username: DEV_USERNAME } });
   });
@@ -52,6 +58,13 @@ describe.skipIf(!dbAvailable)("development seed (integration)", () => {
       await prisma.user.deleteMany({ where: { username: DEV_USERNAME } });
       await prisma.$disconnect();
     }
+  });
+
+  it("runs against the dedicated test database", async () => {
+    const rows = await prisma.$queryRaw<{ db: string }[]>`
+      SELECT current_database() AS db
+    `;
+    expect(rows[0]?.db).toBe(TEST_DATABASE_NAME);
   });
 
   it("creates an idempotent, active ADMIN named Local Developer", async () => {

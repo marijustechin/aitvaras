@@ -3,6 +3,21 @@
 Pragmatic test expectations for Aitvaras. The goal is fast, meaningful feedback,
 not arbitrary coverage numbers.
 
+## Database isolation (mandatory)
+
+> **Automated tests must never use the development database.**
+
+- Integration tests run against a dedicated **`aitvaras_test`** database via
+  `TEST_DATABASE_URL`; they never read from or mutate `DATABASE_URL`.
+- A missing `TEST_DATABASE_URL` is a **hard error** (no fallback to the
+  development database). A safety guard refuses destructive setup unless the
+  target database name is exactly `aitvaras_test`.
+- Setup: `pnpm db:test:create` then `pnpm db:test:migrate` (created automatically
+  on a fresh Docker volume). `pnpm db:test:reset` resets the test database only.
+- Tests may freely create, mutate and delete their own records in the test DB.
+  They must **never** preserve development records as a workaround for missing
+  isolation.
+
 ## Runner
 
 - **Vitest** is the default test runner.
@@ -34,13 +49,17 @@ not arbitrary coverage numbers.
 - Location: `apps/api/test/*.e2e.test.ts`.
 - They build the real Nest app (`Test.createTestingModule`) with the Fastify
   adapter and call it via `app.inject(...)`.
-- They use the **local/dev PostgreSQL** database and clean up their own data via
-  a username prefix.
+- They use the dedicated **test** database (`TEST_DATABASE_URL`, `aitvaras_test`)
+  and clean up their own data; they never use the development database.
+- Auth is **cookie-based** (ADR-011): login sets an httpOnly cookie which the
+  tests read from the response and replay via `app.inject({ cookies: { … } })`;
+  the login body never contains the raw token. Covered: valid/invalid/unknown/
+  inactive login, cookie attributes (HttpOnly/SameSite/Path/Max-Age), `/auth/me`
+  via cookie (and without/invalid/expired), logout cookie clearing, role
+  protection, duplicate username, no hash exposure, and login lockout/recovery.
 - **They skip themselves (with a warning) when PostgreSQL is unreachable**, so
   `pnpm verify` still passes without Docker. Run `pnpm infra:up` first to
-  exercise them. They cover: login (valid/invalid/unknown/inactive),
-  `/auth/me` (authenticated/unauthenticated), role protection, duplicate
-  username, and that hashes are never returned.
+  exercise them.
 
 ### End-to-end / UI tests
 

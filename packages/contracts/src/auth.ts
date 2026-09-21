@@ -18,12 +18,15 @@ export const AuthenticatedUserSchema = z.object({
 });
 export type AuthenticatedUser = z.infer<typeof AuthenticatedUserSchema>;
 
-/** Successful login response. */
+/** Successful login response. The access token is delivered via an httpOnly
+ * cookie and is deliberately NOT part of this payload. */
 export const LoginResponseSchema = z.object({
-  accessToken: z.string(),
-  tokenType: z.literal("Bearer"),
-  /** Access token lifetime in seconds. */
-  expiresIn: z.number().int().positive(),
   user: AuthenticatedUserSchema,
 });
 export type LoginResponse = z.infer<typeof LoginResponseSchema>;
+
+/** Successful logout response. */
+export const LogoutResponseSchema = z.object({
+  success: z.literal(true),
+});
+export type LogoutResponse = z.infer<typeof LogoutResponseSchema>;

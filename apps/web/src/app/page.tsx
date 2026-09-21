@@ -24,7 +24,7 @@ export default function HomePage() {
           <button
             type="button"
             onClick={() => {
-              logout();
+              void logout();
               router.replace("/login");
             }}
             className="rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-accent"

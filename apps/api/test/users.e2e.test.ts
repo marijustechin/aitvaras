@@ -1,40 +1,30 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Test } from "@nestjs/testing";
-import {
-  FastifyAdapter,
-  type NestFastifyApplication,
-} from "@nestjs/platform-fastify";
+import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import type { RoleKey } from "@aitvaras/contracts";
-import { AppModule } from "../src/app.module";
+import { AUTH_COOKIE_NAME } from "../src/common/auth/auth-cookie";
 import { PrismaService } from "../src/infrastructure/prisma/prisma.service";
 import { hashPassword } from "../src/modules/auth/password";
-import { isDatabaseReachable } from "./support/test-env";
+import { createTestApp } from "./support/create-test-app";
+import { isTestDatabaseReachable } from "./support/test-db";
 
-const dbAvailable = await isDatabaseReachable();
+const dbAvailable = await isTestDatabaseReachable();
 const PREFIX = "test_users_";
 
 describe.skipIf(!dbAvailable)("Users administration (integration)", () => {
   let app: NestFastifyApplication;
   let prisma: PrismaService;
-  let adminToken: string;
-  let workerToken: string;
+  let adminCookie: string;
+  let workerCookie: string;
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-    app = moduleRef.createNestApplication<NestFastifyApplication>(
-      new FastifyAdapter(),
-    );
-    await app.init();
-    await app.getHttpAdapter().getInstance().ready();
+    app = await createTestApp();
     prisma = app.get(PrismaService);
 
     await cleanup();
     await seedUser("admin", "admin-password-123", ["ADMIN"]);
     await seedUser("worker", "worker-password-123", ["WAREHOUSE_WORKER"]);
-    adminToken = await login(`${PREFIX}admin`, "admin-password-123");
-    workerToken = await login(`${PREFIX}worker`, "worker-password-123");
+    adminCookie = await login(`${PREFIX}admin`, "admin-password-123");
+    workerCookie = await login(`${PREFIX}worker`, "worker-password-123");
   });
 
   afterAll(async () => {
@@ -77,11 +67,15 @@ describe.skipIf(!dbAvailable)("Users administration (integration)", () => {
       url: "/auth/login",
       payload: { username, password },
     });
-    return res.json().accessToken as string;
+    const cookie = res.cookies.find((c) => c.name === AUTH_COOKIE_NAME)?.value;
+    if (!cookie) {
+      throw new Error("login did not set an auth cookie");
+    }
+    return cookie;
   }
 
-  function auth(token: string): Record<string, string> {
-    return { authorization: `Bearer ${token}` };
+  function auth(cookie: string) {
+    return { cookies: { [AUTH_COOKIE_NAME]: cookie } };
   }
 
   it("rejects unauthenticated access to /users", async () => {
@@ -93,7 +87,7 @@ describe.skipIf(!dbAvailable)("Users administration (integration)", () => {
     const res = await app.inject({
       method: "GET",
       url: "/users",
-      headers: auth(workerToken),
+      ...auth(workerCookie),
     });
     expect(res.statusCode).toBe(403);
   });
@@ -102,7 +96,7 @@ describe.skipIf(!dbAvailable)("Users administration (integration)", () => {
     const res = await app.inject({
       method: "GET",
       url: "/users",
-      headers: auth(adminToken),
+      ...auth(adminCookie),
     });
     expect(res.statusCode).toBe(200);
     const usernames = (res.json() as { username: string }[]).map(
@@ -116,7 +110,7 @@ describe.skipIf(!dbAvailable)("Users administration (integration)", () => {
     const res = await app.inject({
       method: "POST",
       url: "/users",
-      headers: auth(adminToken),
+      ...auth(adminCookie),
       payload: {
         username,
         firstName: "Created",
@@ -135,15 +129,15 @@ describe.skipIf(!dbAvailable)("Users administration (integration)", () => {
     expect(JSON.stringify(body)).not.toContain("passwordHash");
     expect(JSON.stringify(body)).not.toContain("$argon2");
 
-    const token = await login(username, "created-password-123");
-    expect(token.length).toBeGreaterThan(20);
+    const cookie = await login(username, "created-password-123");
+    expect(cookie.length).toBeGreaterThan(20);
   });
 
   it("rejects a user without a first or last name with 400", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/users",
-      headers: auth(adminToken),
+      ...auth(adminCookie),
       payload: {
         username: `${PREFIX}noname`,
         password: "no-name-password-123",
@@ -164,7 +158,7 @@ describe.skipIf(!dbAvailable)("Users administration (integration)", () => {
     const first = await app.inject({
       method: "POST",
       url: "/users",
-      headers: auth(adminToken),
+      ...auth(adminCookie),
       payload,
     });
     expect(first.statusCode).toBe(201);
@@ -172,7 +166,7 @@ describe.skipIf(!dbAvailable)("Users administration (integration)", () => {
     const second = await app.inject({
       method: "POST",
       url: "/users",
-      headers: auth(adminToken),
+      ...auth(adminCookie),
       payload,
     });
     expect(second.statusCode).toBe(409);
@@ -182,7 +176,7 @@ describe.skipIf(!dbAvailable)("Users administration (integration)", () => {
     const res = await app.inject({
       method: "POST",
       url: "/users",
-      headers: auth(adminToken),
+      ...auth(adminCookie),
       payload: {
         username: `${PREFIX}badrole`,
         firstName: "Bad",
@@ -198,7 +192,7 @@ describe.skipIf(!dbAvailable)("Users administration (integration)", () => {
     const res = await app.inject({
       method: "POST",
       url: "/users",
-      headers: auth(adminToken),
+      ...auth(adminCookie),
       payload: {
         username: `${PREFIX}shortpw`,
         firstName: "Short",
@@ -215,7 +209,7 @@ describe.skipIf(!dbAvailable)("Users administration (integration)", () => {
     const created = await app.inject({
       method: "POST",
       url: "/users",
-      headers: auth(adminToken),
+      ...auth(adminCookie),
       payload: {
         username,
         firstName: "Patch",
@@ -229,7 +223,7 @@ describe.skipIf(!dbAvailable)("Users administration (integration)", () => {
     const patched = await app.inject({
       method: "PATCH",
       url: `/users/${id}`,
-      headers: auth(adminToken),
+      ...auth(adminCookie),
       payload: {
         firstName: "Patched",
         lastName: "Renamed",

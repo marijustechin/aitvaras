@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import {
   ROLE_KEYS,
   ROLE_LABELS,
@@ -9,6 +10,7 @@ import {
 } from "@aitvaras/contracts";
 import { RequireAuth } from "@/components/require-auth";
 import { BrandMark } from "@/components/brand-mark";
+import { isUnauthorized, useAuth } from "@/components/auth-provider";
 import { ApiError, apiFetch } from "@/lib/api";
 
 export default function AdminUsersPage() {
@@ -36,14 +38,27 @@ function UsersManager() {
   const [role, setRole] = useState<RoleKey>("WAREHOUSE_WORKER");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [edit, setEdit] = useState<EditState | null>(null);
+  const router = useRouter();
+  const { clearSession } = useAuth();
+
+  /**
+   * Surface an error; on a 401 (expired/absent session) clear client session
+   * state and return to the login screen instead of showing stale auth UI.
+   */
+  function handleError(caught: unknown, fallback: string): void {
+    if (isUnauthorized(caught)) {
+      clearSession();
+      router.replace("/login");
+      return;
+    }
+    setError(caught instanceof ApiError ? caught.message : fallback);
+  }
 
   const reload = useCallback(async (): Promise<void> => {
     try {
       setUsers(await apiFetch<UserSummary[]>("/users"));
     } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : "Nepavyko įkelti naudotojų",
-      );
+      handleError(caught, "Nepavyko įkelti naudotojų");
     }
   }, []);
 
@@ -71,11 +86,7 @@ function UsersManager() {
       setPassword("");
       await reload();
     } catch (caught) {
-      setError(
-        caught instanceof ApiError
-          ? "Nepavyko sukurti naudotojo: " + caught.message
-          : "Nepavyko sukurti naudotojo",
-      );
+      handleError(caught, "Nepavyko sukurti naudotojo");
     }
   }
 
@@ -120,11 +131,7 @@ function UsersManager() {
       setEdit(null);
       await reload();
     } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "Nepavyko atnaujinti naudotojo",
-      );
+      handleError(caught, "Nepavyko atnaujinti naudotojo");
     }
   }
 
@@ -137,11 +144,7 @@ function UsersManager() {
       });
       await reload();
     } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "Nepavyko atnaujinti naudotojo",
-      );
+      handleError(caught, "Nepavyko atnaujinti naudotojo");
     }
   }
 

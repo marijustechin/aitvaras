@@ -10,22 +10,25 @@ import {
   type ReactNode,
 } from "react";
 import type { AuthenticatedUser, LoginRequest, LoginResponse } from "@aitvaras/contracts";
-import {
-  apiFetch,
-  clearAccessToken,
-  getAccessToken,
-  setAccessToken,
-} from "@/lib/api";
+import { ApiError, apiFetch } from "@/lib/api";
 
 interface AuthContextValue {
   user: AuthenticatedUser | null;
   loading: boolean;
   login: (input: LoginRequest) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
+  /** Clear client session state without calling the API (e.g. on a 401). */
+  clearSession: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+/**
+ * Cookie-based auth provider.
+ *
+ * The httpOnly auth cookie is the single source of truth; the client learns the
+ * current user from `GET /auth/me`. There is no readable token in the browser.
+ */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -33,19 +36,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
     async function load(): Promise<void> {
-      if (!getAccessToken()) {
-        setLoading(false);
-        return;
-      }
       try {
         const me = await apiFetch<AuthenticatedUser>("/auth/me");
         if (active) {
           setUser(me);
         }
-      } catch {
-        clearAccessToken();
+      } catch (caught) {
         if (active) {
+          // 401 (no/expired cookie) or any error → treat as signed out.
           setUser(null);
+          void caught;
         }
       } finally {
         if (active) {
@@ -64,18 +64,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       method: "POST",
       body: JSON.stringify(input),
     });
-    setAccessToken(result.accessToken);
     setUser(result.user);
   }, []);
 
-  const logout = useCallback((): void => {
-    clearAccessToken();
-    setUser(null);
+  const logout = useCallback(async (): Promise<void> => {
+    try {
+      await apiFetch("/auth/logout", { method: "POST" });
+    } catch (caught) {
+      // Even if the API call fails, drop client state; the cookie is httpOnly.
+      void caught;
+    } finally {
+      setUser(null);
+    }
   }, []);
 
+  const clearSession = useCallback((): void => setUser(null), []);
+
   const value = useMemo(
-    () => ({ user, loading, login, logout }),
-    [user, loading, login, logout],
+    () => ({ user, loading, login, logout, clearSession }),
+    [user, loading, login, logout, clearSession],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -87,4 +94,9 @@ export function useAuth(): AuthContextValue {
     throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
+}
+
+/** True when an error is an authentication failure (401). */
+export function isUnauthorized(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401;
 }

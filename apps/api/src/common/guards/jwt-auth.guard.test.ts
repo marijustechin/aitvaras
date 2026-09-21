@@ -2,10 +2,12 @@ import { UnauthorizedException, type ExecutionContext } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { JwtService } from "@nestjs/jwt";
 import { describe, expect, it, vi } from "vitest";
+import { AUTH_COOKIE_NAME } from "../auth/auth-cookie";
 import { JwtAuthGuard } from "./jwt-auth.guard";
 
 interface RequestStub {
   headers: Record<string, string | undefined>;
+  cookies?: Record<string, string | undefined>;
   user?: unknown;
 }
 
@@ -39,32 +41,10 @@ describe("JwtAuthGuard", () => {
     );
   });
 
-  it("rejects a request without an Authorization header", async () => {
-    const { guard } = createGuard(false);
-    await expect(
-      guard.canActivate(createContext({ headers: {} })),
-    ).rejects.toBeInstanceOf(UnauthorizedException);
-  });
-
-  it("rejects a malformed Authorization header", async () => {
-    const { guard } = createGuard(false);
-    await expect(
-      guard.canActivate(createContext({ headers: { authorization: "Token abc" } })),
-    ).rejects.toBeInstanceOf(UnauthorizedException);
-  });
-
-  it("rejects an invalid or expired token", async () => {
-    const { guard } = createGuard(false, new Error("jwt expired"));
-    await expect(
-      guard.canActivate(
-        createContext({ headers: { authorization: "Bearer bad.token" } }),
-      ),
-    ).rejects.toBeInstanceOf(UnauthorizedException);
-  });
-
-  it("attaches the user on a valid token", async () => {
+  it("authenticates from the auth cookie", async () => {
     const request: RequestStub = {
-      headers: { authorization: "Bearer good.token" },
+      headers: {},
+      cookies: { [AUTH_COOKIE_NAME]: "cookie.token" },
     };
     const { guard } = createGuard(false, {
       sub: "user-1",
@@ -78,5 +58,64 @@ describe("JwtAuthGuard", () => {
       username: "alice",
       roles: ["ADMIN"],
     });
+  });
+
+  it("prefers the cookie over a bearer header", async () => {
+    const { guard, verifyAsync } = createGuard(false, {
+      sub: "user-cookie",
+      username: "alice",
+      roles: ["ADMIN"],
+    });
+
+    await guard.canActivate(
+      createContext({
+        headers: { authorization: "Bearer header.token" },
+        cookies: { [AUTH_COOKIE_NAME]: "cookie.token" },
+      }),
+    );
+
+    expect(verifyAsync).toHaveBeenCalledWith("cookie.token");
+  });
+
+  it("still accepts a bearer header for API/tooling clients", async () => {
+    const { guard, verifyAsync } = createGuard(false, {
+      sub: "user-bearer",
+      username: "tool",
+      roles: [],
+    });
+
+    await guard.canActivate(
+      createContext({ headers: { authorization: "Bearer header.token" } }),
+    );
+
+    expect(verifyAsync).toHaveBeenCalledWith("header.token");
+  });
+
+  it("rejects a request without any token", async () => {
+    const { guard } = createGuard(false);
+    await expect(
+      guard.canActivate(createContext({ headers: {}, cookies: {} })),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it("rejects a malformed Authorization header without a cookie", async () => {
+    const { guard } = createGuard(false);
+    await expect(
+      guard.canActivate(
+        createContext({ headers: { authorization: "Token abc" }, cookies: {} }),
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it("rejects an invalid or expired token", async () => {
+    const { guard } = createGuard(false, new Error("jwt expired"));
+    await expect(
+      guard.canActivate(
+        createContext({
+          headers: {},
+          cookies: { [AUTH_COOKIE_NAME]: "bad.token" },
+        }),
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });

@@ -38,7 +38,9 @@ primitives; the role catalogue is owned by `apps/api/src/modules/access`.
 Authorization is centralised, not scattered through controllers:
 
 - **`JwtAuthGuard`** (global) authenticates every request by default. Routes
-  marked `@Public()` are exempt (e.g. `/health`, `/auth/login`).
+  marked `@Public()` are exempt (e.g. `/health`, `/auth/login`). It authenticates
+  from the **httpOnly auth cookie** (canonical browser source); an
+  `Authorization: Bearer` header is still accepted for API/tooling clients only.
 - **`RolesGuard`** (global, runs after authentication) enforces `@Roles(...)`
   metadata. A route with no `@Roles` needs only authentication; a route with
   roles requires the user to hold **at least one** of them.
@@ -56,14 +58,17 @@ export class UsersController { … }
 ```
 
 The guards are unit-tested independently of any business module
-(`src/access/*.guard.test.ts`) and exercised end-to-end in
-`test/auth.e2e.test.ts` / `test/users.e2e.test.ts`.
+(`src/common/guards/*.guard.test.ts`) and exercised end-to-end in
+`test/auth.e2e.test.ts` / `test/users.e2e.test.ts` (cookie-authenticated).
+Login brute-force protection and generic login failures are documented in
+[authentication.md](authentication.md).
 
 ## Initial capabilities
 
 | Capability | Endpoint | Requirement |
 |---|---|---|
 | Authentication | `POST /auth/login` | public |
+| Logout | `POST /auth/logout` | public (clears cookie) |
 | Current user | `GET /auth/me` | authenticated |
 | List users | `GET /users` | `ADMIN` |
 | Create user | `POST /users` | `ADMIN` |
@@ -73,9 +78,9 @@ The guards are unit-tested independently of any business module
 
 | Situation | Response |
 |---|---|
-| No/invalid/expired token on a protected route | `401 Unauthorized` |
+| No/invalid/expired token or cookie on a protected route | `401 Unauthorized` |
 | Authenticated but missing the required role | `403 Forbidden` |
-| Inactive user at login | `401` (generic) |
+| Any login failure (unknown/wrong/inactive/locked) | `401` (generic) |
 
 ## Limitations / next steps
 

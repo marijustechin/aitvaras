@@ -30,7 +30,7 @@ from legacy code.
 | Web | Next.js (App Router), React, Tailwind CSS, shadcn/ui-compatible |
 | API | NestJS on the Fastify adapter |
 | Database | PostgreSQL + Prisma (**Aitvaras-owned schema**) |
-| Auth | JWT access tokens (`@nestjs/jwt`), Argon2id password hashing |
+| Auth | JWT delivered in an httpOnly cookie (ADR-011), Argon2id password hashing |
 | Validation | Zod (shared contracts) + ZodValidationPipe |
 | Tests | Vitest (unit + DB integration) |
 
@@ -62,7 +62,9 @@ pnpm install               # install the workspace
 pnpm infra:up              # start local PostgreSQL (Docker)
 cp .env.example .env        # configure environment (Windows: copy)
 pnpm db:generate           # generate the Prisma client
-pnpm db:migrate            # create/apply migrations
+pnpm db:migrate            # create/apply migrations (development DB)
+pnpm db:test:create        # create the isolated test database (integration tests)
+pnpm db:test:migrate       # apply migrations to the test database
 pnpm seed:dev              # local dev login: localdev / localdev (guarded)
 pnpm dev:api               # API    → http://localhost:3010
 pnpm dev:web               # web    → http://localhost:3011
@@ -75,7 +77,9 @@ Local ports (defaults, configurable): **API `3010`** (`API_PORT`), **web
 
 The UI is **Lithuanian only** (no i18n framework yet). For a real admin account
 (no weak credentials), use `pnpm bootstrap:admin` with
-`BOOTSTRAP_ADMIN_*` env variables instead of `seed:dev`.
+`BOOTSTRAP_ADMIN_*` env variables instead of `seed:dev`; those variables are
+optional and **not** default local credentials. In development the login screen
+shows a muted `localdev / localdev` hint (hidden in production).
 
 Full setup details: [docs/development.md](docs/development.md).
 

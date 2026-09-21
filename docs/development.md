@@ -69,6 +69,31 @@ pnpm infra:down        # stop local PostgreSQL
   work on a fresh clone. `db:migrate` needs a real `DATABASE_URL` **and** a
   running PostgreSQL instance.
 
+## Test database (integration tests)
+
+> **Automated tests must never use the development database.**
+
+Integration tests run against a dedicated database `aitvaras_test` on the same
+local PostgreSQL server (configured by `TEST_DATABASE_URL`). They never read from
+or mutate the development database (`DATABASE_URL`), so `pnpm verify` is always
+safe to run.
+
+```bash
+pnpm db:test:create    # create aitvaras_test (idempotent; for existing volumes)
+pnpm db:test:migrate   # apply migrations to the test database
+pnpm db:test:reset     # reset the test database (DESTRUCTIVE; test DB only)
+```
+
+- `TEST_DATABASE_URL` is required for integration tests; if it is missing the
+  suite **fails clearly** and never falls back to `DATABASE_URL`.
+- A safety guard refuses destructive setup unless the target database name is
+  exactly `aitvaras_test`.
+- On a fresh Docker volume, `docker/postgres/init/` creates `aitvaras_test`
+  automatically; for existing volumes run `pnpm db:test:create`.
+- If the configured test database is unreachable, integration tests skip
+  explicitly (misconfiguration still fails the run); unit tests never need a
+  database.
+
 ## Authentication setup
 
 ### Local development login (weak, guarded)
@@ -85,6 +110,11 @@ This creates/ensures the account `localdev` / `localdev` (ADMIN, active,
 run at API startup. These weak credentials are for local use only and must
 never be reused in staging or production.
 
+Browser sessions use an **httpOnly cookie** (ADR-011); no auth token is stored
+in `localStorage`/`sessionStorage`. Login brute-force protection is configured
+via `LOGIN_MAX_ATTEMPTS` / `LOGIN_WINDOW_SECONDS` / `LOGIN_LOCKOUT_SECONDS`
+(see `.env.example`).
+
 ### Secure bootstrap admin
 
 There is no default production account and no account is created automatically
@@ -95,8 +125,12 @@ at startup. Create the first admin explicitly:
    `BOOTSTRAP_ADMIN_LAST_NAME` and `BOOTSTRAP_ADMIN_PASSWORD` (≥ 12 chars).
 2. Run `pnpm bootstrap:admin` (idempotent).
 
-`localdev` is never a fallback for missing bootstrap variables. See
-[authentication.md](authentication.md) and [authorization.md](authorization.md).
+`BOOTSTRAP_ADMIN_*` are **optional** and **not required** for normal local
+development — the local login is `localdev` / `localdev` via `pnpm seed:dev`.
+They are **not default local credentials**, and the secure bootstrap fails
+without all four. `localdev` is never a fallback for missing bootstrap
+variables. See [authentication.md](authentication.md) and
+[authorization.md](authorization.md).
 
 ## Typical local startup
 
@@ -104,6 +138,8 @@ at startup. Create the first admin explicitly:
 pnpm install
 pnpm infra:up        # or: docker compose up -d
 pnpm db:migrate
+pnpm db:test:create  # ensure the isolated test database exists
+pnpm db:test:migrate
 pnpm seed:dev
 pnpm dev:api         # http://localhost:3010
 pnpm dev:web         # http://localhost:3011  (login: localdev / localdev)
@@ -112,8 +148,8 @@ pnpm dev:web         # http://localhost:3011  (login: localdev / localdev)
 ## Running the applications
 
 ```bash
-pnpm dev:api           # NestJS API  → http://127.0.0.1:3001/health
-pnpm dev:web           # Next.js web  → http://127.0.0.1:3000
+pnpm dev:api           # NestJS API  → http://localhost:3010/health
+pnpm dev:web           # Next.js web  → http://localhost:3011
 ```
 
 ## Verification
@@ -167,9 +203,10 @@ pnpm --filter @aitvaras/web build
   (ADR-010). This is safe only while unreleased. After migrations have been used
   in a shared or production environment, **never rewrite applied migration
   history** — add a new migration instead.
-- **API integration tests require local PostgreSQL.** They apply committed
-  migrations in a test `globalSetup` and skip themselves (with a warning) if the
-  database is unreachable. Unit tests never need a database.
+- **Integration tests use a dedicated test database** (`aitvaras_test` via
+  `TEST_DATABASE_URL`) and never touch the development database. See
+  [testing.md](testing.md). A missing/invalid `TEST_DATABASE_URL` is a hard
+  error; an unreachable test database causes explicit skips.
 - `docker compose` is only used for local PostgreSQL; applications are not
   containerised.
 

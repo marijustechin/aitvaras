@@ -35,6 +35,18 @@ export default tseslint.config(
     files: ["**/*.{js,mjs,cjs}"],
     languageOptions: {
       sourceType: "module",
+      globals: {
+        process: "readonly",
+        console: "readonly",
+        URL: "readonly",
+        Buffer: "readonly",
+        __dirname: "readonly",
+        __filename: "readonly",
+        module: "readonly",
+        require: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+      },
     },
   },
 );

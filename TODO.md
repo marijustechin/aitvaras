@@ -47,6 +47,15 @@ Status legend: **DONE** · **CURRENT** · **NEXT** · **LATER / DISCOVERY ONLY**
 - **Favicon + footer polish (ATV-009 / O-042)** — light-background favicon;
   minimal footer `© Alfasis UAB · Aitvaras v{version}` on all screens; version
   single-sourced from root `package.json`. UI-only.
+- **Auth hardening (ATV-010 / O-044)** — httpOnly cookie auth (no localStorage),
+  logout, credentialed CORS, CSRF decision, login rate limiting/lockout,
+  accessible password toggle. ADR-011.
+- **Login UX / dev reliability (ATV-011 / O-045)** — non-destructive dev seed
+  test (localdev survives `pnpm verify`), corrected eye-icon semantics,
+  development-only login hint, clearer login error mapping.
+- **Test DB isolation (ATV-012 / O-046)** — integration tests use a dedicated
+  `aitvaras_test` DB via `TEST_DATABASE_URL` with a safety guard; the
+  development database is never touched by tests.
 
 ## CURRENT
 
