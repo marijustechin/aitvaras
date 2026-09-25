@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PasswordSchema } from "./fields";
 import { RoleKeySchema } from "./roles";
 
 /** Credentials submitted to `POST /auth/login`. */
@@ -45,7 +46,7 @@ export const UpdateOwnProfileRequestSchema = z
     firstName: NamePartSchema.optional(),
     lastName: NamePartSchema.optional(),
     currentPassword: z.string().min(1).max(200).optional(),
-    newPassword: z.string().min(8).max(200).optional(),
+    newPassword: PasswordSchema.optional(),
   })
   .strict()
   .refine(

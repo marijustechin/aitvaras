@@ -9,12 +9,15 @@ import { JwtService } from "@nestjs/jwt";
 import type { RoleKey } from "@aitvaras/contracts";
 import { AUTH_COOKIE_NAME } from "../auth/auth-cookie";
 import { IS_PUBLIC_KEY } from "../decorators/public.decorator";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service";
 import type { AuthenticatedUser } from "./authenticated-user";
 
 interface JwtPayload {
   sub: string;
   username: string;
   roles?: RoleKey[];
+  /** Token version at issue time; compared with the user's current version. */
+  ver?: number;
 }
 
 interface AuthenticatedRequest {
@@ -33,12 +36,18 @@ interface AuthenticatedRequest {
  *  1. the httpOnly `aitvaras_access` cookie (canonical browser authentication);
  *  2. an `Authorization: Bearer <jwt>` header (kept for API clients/tooling;
  *     the browser never uses this).
+ *
+ * JWTs are stateless, so revocation is enforced by comparing the token's `ver`
+ * claim with the user's current `tokenVersion`. An administrator password reset
+ * bumps `tokenVersion`, which invalidates the target user's existing tokens
+ * immediately (the token otherwise stays cryptographically valid until expiry).
  */
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly jwtService: JwtService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -59,6 +68,16 @@ export class JwtAuthGuard implements CanActivate {
 
     try {
       const payload = await this.jwtService.verifyAsync<JwtPayload>(token);
+
+      const user = await this.prisma.user.findUnique({
+        where: { id: payload.sub },
+        select: { tokenVersion: true },
+      });
+      if (!user || (payload.ver ?? 0) !== user.tokenVersion) {
+        // Unknown user, or a token issued before the last password reset.
+        throw new UnauthorizedException("Invalid or expired token");
+      }
+
       request.user = {
         id: payload.sub,
         username: payload.username,

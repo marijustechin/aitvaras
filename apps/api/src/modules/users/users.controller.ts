@@ -9,9 +9,11 @@ import {
 } from "@nestjs/common";
 import {
   CreateUserRequestSchema,
+  ResetUserPasswordRequestSchema,
   UpdateUserRequestSchema,
   type AuthenticatedUser,
   type CreateUserRequest,
+  type ResetUserPasswordRequest,
   type UpdateUserRequest,
   type UserSummary,
 } from "@aitvaras/contracts";
@@ -47,5 +49,19 @@ export class UsersController {
     body: UpdateUserRequest,
   ): Promise<UserSummary> {
     return this.usersService.update(actor.id, id, body);
+  }
+
+  /**
+   * Set a new password for another user (admin-only). Returns the safe user
+   * summary; the password/hash is never returned. Existing sessions of the
+   * target user are invalidated.
+   */
+  @Patch(":id/password")
+  resetPassword(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(ResetUserPasswordRequestSchema))
+    body: ResetUserPasswordRequest,
+  ): Promise<UserSummary> {
+    return this.usersService.resetPassword(id, body.password);
   }
 }

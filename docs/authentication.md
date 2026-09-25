@@ -76,9 +76,13 @@ only for API clients/tooling). The browser never uses the bearer source.
 
 - Algorithm `HS256`; signing secret from `JWT_SECRET` (required, ≥ 32 chars).
 - Short-lived; TTL from `JWT_ACCESS_TTL` seconds (default 3600).
-- Claims remain minimal: `sub`, `username`, `roles`, plus `iat`/`exp`. Names are
-  **not** in the token; clients read them from `/auth/me`.
+- Claims remain minimal: `sub`, `username`, `roles`, plus `iat`/`exp` and `ver`
+  (the user's token version, used for revocation). Names are **not** in the
+  token; clients read them from `/auth/me`.
 - **No refresh tokens** (ADR-011): on expiry the user signs in again.
+- Because JWTs are stateless, the global `JwtAuthGuard` compares the token's
+  `ver` claim with the user's current `tokenVersion` on every authenticated
+  request; a mismatch (e.g. after an administrator password reset) yields `401`.
 
 ## Self-service profile
 
@@ -92,10 +96,36 @@ client never sends a user id). Body:
 - `firstName` / `lastName` — optional; trimmed, non-empty, ≤ 100 chars;
 - `currentPassword` + `newPassword` — to change the password; the current
   password must verify against the stored hash (wrong value → `400`), and the new
-  password follows the existing policy (≥ 8 chars).
+  password follows the shared policy (≥ 6 chars).
 
 `roles`, `active` and `username` are **not** accepted (the request schema is
 strict; unknown keys are rejected with `400`). Returns the updated safe user.
+
+## Administrator-driven password reset
+
+```http
+PATCH /users/:id/password        (ADMIN only)
+Content-Type: application/json
+
+{ "password": "new-password" }
+```
+
+- An administrator sets a new password for another user. The **old password is
+  never requested, read or returned**, and there is no reset token or email.
+- The new password follows the shared policy (≥ 6 chars; `PasswordSchema`,
+  identical to user creation).
+- On success the target user's **`tokenVersion` is bumped**, invalidating every
+  access token already issued to them: their existing sessions stop
+  authenticating immediately. The response is the safe user summary only — no
+  password or hash.
+- Resetting **another** user does not affect the administrator's own session. If
+  an administrator resets **their own** password, their current session is
+  invalidated too and they must sign in again.
+- The generic `PATCH /users/:id` **does not accept** a password (strict schema);
+  password changes always go through this action.
+- Error codes: `400 VALIDATION_ERROR` (invalid password), `404 USER_NOT_FOUND`,
+  `403` (not an administrator). Passwords/hashes are never returned or logged.
+- **No email recovery**, no "forgot password" flow and no reset tokens exist.
 
 ## Logout
 
@@ -225,4 +255,7 @@ placeholders.
 
 - No refresh tokens; re-login on expiry (accepted, ADR-011).
 - Rate limiting is in-memory/per-instance (documented above).
-- No password reset, MFA, SSO or invitations (not confirmed requirements).
+- Password recovery is **administrator-driven only** (see above); there is no
+  email/self-service recovery. Self-service profile password change does not yet
+  revoke the user's other sessions (only the administrator reset does).
+- No MFA, SSO or invitations (not confirmed requirements).

@@ -33,6 +33,7 @@ interface UserWithRoles {
   firstName: string;
   lastName: string;
   passwordHash: string;
+  tokenVersion: number;
   active: boolean;
   roles: { role: { key: string } }[];
 }
@@ -119,6 +120,8 @@ export class AuthService {
         sub: user.id,
         username: user.username,
         roles: authenticatedUser.roles,
+        // Token version enables immediate revocation after a password reset.
+        ver: user.tokenVersion,
       },
       { expiresIn: this.accessTtlSeconds },
     );

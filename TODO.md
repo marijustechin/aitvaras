@@ -119,6 +119,13 @@ Status legend: **DONE** · **CURRENT** · **NEXT** · **LATER / DISCOVERY ONLY**
   the `bg-muted` work surface. UI-only.
 - **Consistent active-work surfaces (ATV-026 / O-064)** — `shared/lib/surfaces.ts`
   applied to create/edit areas. UI-only.
+- **Administrator-driven password reset (ATV-027)** — admin-only
+  `PATCH /users/:id/password` sets a user's password using the shared ≥ 8-char
+  policy. The target's existing sessions are invalidated immediately via a bumped
+  `tokenVersion` (JWT `ver` claim checked by the auth guard). The old password is
+  never requested/returned; no email recovery or reset tokens. Generic
+  `PATCH /users/:id` no longer accepts a password. Inline reset form in the user
+  edit panel. Docs: `authentication.md`, `authorization.md`.
 
 ## CURRENT
 

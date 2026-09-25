@@ -204,6 +204,14 @@ pnpm --filter @aitvaras/web build
   resolve their types from there. That is why `typecheck` builds them first. If
   you type-check a single consuming package in isolation, build the libraries
   first (`pnpm build:libs`).
+- **A shared-package change needs a rebuild _and_ a dev-server restart.** A
+  running `pnpm dev:api` (`nest start --watch`) watches only `apps/api`, and a
+  long-running `next dev` can keep serving a stale bundle; neither reliably
+  picks up a rebuilt workspace `dist`. After changing `@aitvaras/contracts` /
+  `@aitvaras/database` (or a shared policy such as `PasswordSchema`), rebuild the
+  libraries and restart the dev servers — otherwise the running process keeps
+  enforcing the old contract (a stale API once kept rejecting a 6-character
+  password with the previous 8-character minimum).
 - `prisma generate` does not require a running database.
 - `pnpm db:migrate` **does** require local PostgreSQL to be running.
 - **Prisma ORM 7** is used (ADR-008). The new `prisma-client` generator emits

@@ -6,6 +6,7 @@ import {
 } from "@nestjs/common";
 import { Prisma } from "@aitvaras/database";
 import {
+  USER_PASSWORD_RESET_ERROR_CODES,
   normalizeRoleKeys,
   type CreateUserRequest,
   type RoleKey,
@@ -90,9 +91,6 @@ export class UsersService {
     if (input.active !== undefined) {
       data.active = input.active;
     }
-    if (input.password !== undefined) {
-      data.passwordHash = await hashPassword(input.password);
-    }
 
     await this.prisma.$transaction(async (tx) => {
       if (Object.keys(data).length > 0) {
@@ -114,6 +112,39 @@ export class UsersService {
 
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id },
+      include: withRoles,
+    });
+    return toUserSummary(user);
+  }
+
+  /**
+   * Administrator-driven password reset.
+   *
+   * Sets a new password for the target user and bumps their `tokenVersion`,
+   * which invalidates every access token already issued to that user. The old
+   * password is never accepted, read or returned. There is no email recovery
+   * flow and no reset token.
+   *
+   * If the administrator resets their own password, their current token is
+   * invalidated too (they must sign in again); resetting another user does not
+   * affect the administrator's session.
+   */
+  async resetPassword(id: string, password: string): Promise<UserSummary> {
+    const existing = await this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!existing) {
+      throw new NotFoundException({
+        code: USER_PASSWORD_RESET_ERROR_CODES.USER_NOT_FOUND,
+        message: "Naudotojas nerastas.",
+      });
+    }
+
+    const passwordHash = await hashPassword(password);
+    const user = await this.prisma.user.update({
+      where: { id },
+      data: { passwordHash, tokenVersion: { increment: 1 } },
       include: withRoles,
     });
     return toUserSummary(user);

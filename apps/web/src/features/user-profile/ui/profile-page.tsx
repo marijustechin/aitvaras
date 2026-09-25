@@ -87,7 +87,7 @@ export function ProfilePage() {
       return;
     }
     if (newPassword.length < 8) {
-      setPasswordError("Naujas slaptažodis turi būti bent 8 simboliai.");
+      setPasswordError("Naujas slaptažodis turi būti bent 6 simboliai.");
       return;
     }
     if (newPassword !== confirmPassword) {

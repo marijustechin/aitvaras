@@ -4,9 +4,22 @@ import { ApiError } from "@/shared/api";
 import {
   activeToggleLabel,
   applyUserUpdate,
+  CLOSED_PASSWORD_RESET_PANEL,
+  closePasswordResetPanel,
+  emptyPasswordReset,
   isRoleControlDisabled,
+  MIN_PASSWORD_LENGTH,
+  openPasswordResetPanel,
+  PASSWORD_RESET_MESSAGES,
+  PASSWORD_RESET_SUCCESS,
+  passwordResetError,
+  passwordResetErrorMessage,
+  passwordResetPanelSuccess,
+  passwordResetPayload,
+  passwordTooShortMessage,
   toggleRoleSelection,
   userAdminErrorMessage,
+  userEditPayload,
   userEditSuccess,
 } from "./users";
 
@@ -115,5 +128,151 @@ describe("applyUserUpdate / userEditSuccess", () => {
     expect(result.editingId).toBeNull();
     expect(result.edit).toBeNull();
     expect(result.users[0]?.firstName).toBe("Saved");
+  });
+});
+
+describe("administrator password reset helpers", () => {
+  it("starts with empty password inputs", () => {
+    expect(emptyPasswordReset()).toEqual({ password: "", confirm: "" });
+    expect(PASSWORD_RESET_SUCCESS).toBe("Slaptažodis pakeistas.");
+  });
+
+  it("requires the shared minimum length (6) with an actionable message", () => {
+    expect(MIN_PASSWORD_LENGTH).toBe(6);
+    expect(passwordTooShortMessage()).toBe(
+      "Slaptažodis turi būti bent 6 simbolių.",
+    );
+    expect(
+      passwordResetError({ password: "abcde", confirm: "abcde" }),
+    ).toBe(passwordTooShortMessage());
+    expect(
+      passwordResetError({ password: "abcdef", confirm: "abcdef" }),
+    ).toBeNull();
+  });
+
+  it("requires both fields", () => {
+    expect(passwordResetError({ password: "", confirm: "" })).toBe(
+      PASSWORD_RESET_MESSAGES.required,
+    );
+    expect(passwordResetError({ password: "abcdef", confirm: "" })).toBe(
+      PASSWORD_RESET_MESSAGES.confirmRequired,
+    );
+  });
+
+  it("requires the confirmation to match", () => {
+    expect(
+      passwordResetError({ password: "abcdef", confirm: "abcdeg" }),
+    ).toBe(PASSWORD_RESET_MESSAGES.mismatch);
+  });
+
+  it("builds a payload containing only the new password", () => {
+    expect(
+      passwordResetPayload({ password: "new-password-123", confirm: "ignored" }),
+    ).toEqual({ password: "new-password-123" });
+    expect(
+      Object.keys(passwordResetPayload(emptyPasswordReset())),
+    ).toEqual(["password"]);
+  });
+});
+
+describe("password reset panel state", () => {
+  it("starts closed with empty fields and no messages", () => {
+    expect(CLOSED_PASSWORD_RESET_PANEL).toEqual({
+      open: false,
+      form: { password: "", confirm: "" },
+      error: null,
+      success: null,
+    });
+  });
+
+  it("opens with empty fields and no messages", () => {
+    expect(openPasswordResetPanel()).toEqual({
+      open: true,
+      form: { password: "", confirm: "" },
+      error: null,
+      success: null,
+    });
+  });
+
+  it("Uždaryti closes, clears both fields and all reset messages", () => {
+    expect(closePasswordResetPanel()).toEqual({
+      open: false,
+      form: { password: "", confirm: "" },
+      error: null,
+      success: null,
+    });
+  });
+
+  it("does not carry any user-edit fields (the edit form is untouched)", () => {
+    const panel = closePasswordResetPanel();
+    expect(Object.keys(panel).sort()).toEqual([
+      "error",
+      "form",
+      "open",
+      "success",
+    ]);
+    const serialized = JSON.stringify(panel);
+    expect(serialized).not.toContain("firstName");
+    expect(serialized).not.toContain("roles");
+    expect(serialized).not.toContain("active");
+  });
+
+  it("success state clears the form and closes with a note", () => {
+    expect(passwordResetPanelSuccess()).toEqual({
+      open: false,
+      form: { password: "", confirm: "" },
+      error: null,
+      success: PASSWORD_RESET_SUCCESS,
+    });
+  });
+});
+
+describe("passwordResetErrorMessage", () => {
+  it("maps a server validation error to the actionable length message", () => {
+    expect(
+      passwordResetErrorMessage(
+        new ApiError(400, "Validation failed", "VALIDATION_ERROR"),
+      ),
+    ).toBe(passwordTooShortMessage());
+  });
+
+  it("maps authorization and not-found responses", () => {
+    expect(passwordResetErrorMessage(new ApiError(403, "Forbidden"))).toBe(
+      PASSWORD_RESET_MESSAGES.forbidden,
+    );
+    expect(passwordResetErrorMessage(new ApiError(404, "Not found"))).toBe(
+      PASSWORD_RESET_MESSAGES.notFound,
+    );
+  });
+
+  it("uses a clear retry message for unexpected failures", () => {
+    expect(passwordResetErrorMessage(new ApiError(500, "boom"))).toBe(
+      PASSWORD_RESET_MESSAGES.failed,
+    );
+    expect(passwordResetErrorMessage(new Error("network"))).toBe(
+      PASSWORD_RESET_MESSAGES.failed,
+    );
+    // A 400 without the explicit validation code is not treated as "too short".
+    expect(passwordResetErrorMessage(new ApiError(400, "Bad request"))).toBe(
+      PASSWORD_RESET_MESSAGES.failed,
+    );
+  });
+});
+
+describe("userEditPayload", () => {
+  it("never includes a password in the generic user update", () => {
+    const payload = userEditPayload({
+      firstName: "Jonas",
+      lastName: "Jonaitis",
+      roles: ["ACCOUNTING"],
+      active: true,
+    });
+    expect(Object.keys(payload).sort()).toEqual([
+      "active",
+      "firstName",
+      "lastName",
+      "roles",
+    ]);
+    expect(JSON.stringify(payload)).not.toContain("password");
   });
 });

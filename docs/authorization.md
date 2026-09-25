@@ -97,7 +97,8 @@ username; role management stays ADMIN-only via `/users`.
 | Current user | `GET /auth/me` | authenticated |
 | List users | `GET /users` | `ADMIN` |
 | Create user | `POST /users` | `ADMIN` |
-| Update roles / active / password | `PATCH /users/:id` | `ADMIN` |
+| Update roles / active | `PATCH /users/:id` | `ADMIN` |
+| Reset user password | `PATCH /users/:id/password` | `ADMIN` |
 | List partners | `GET /partners` | authenticated |
 | Partner details | `GET /partners/:id` | authenticated |
 | Create partner | `POST /partners` | `ADMIN` |

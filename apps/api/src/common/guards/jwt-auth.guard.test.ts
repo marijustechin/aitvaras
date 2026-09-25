@@ -19,7 +19,11 @@ function createContext(request: RequestStub): ExecutionContext {
   } as unknown as ExecutionContext;
 }
 
-function createGuard(isPublic: boolean, verifyResult?: unknown) {
+function createGuard(
+  isPublic: boolean,
+  verifyResult?: unknown,
+  options: { tokenVersion?: number; userFound?: boolean } = {},
+) {
   const reflector = {
     getAllAndOverride: vi.fn().mockReturnValue(isPublic),
   } as unknown as Reflector;
@@ -30,7 +34,18 @@ function createGuard(isPublic: boolean, verifyResult?: unknown) {
     verifyAsync.mockResolvedValue(verifyResult);
   }
   const jwt = { verifyAsync } as unknown as JwtService;
-  return { guard: new JwtAuthGuard(reflector, jwt), verifyAsync };
+  const tokenVersion = options.tokenVersion ?? 0;
+  const userFound = options.userFound ?? true;
+  const prisma = {
+    user: {
+      findUnique: vi.fn().mockResolvedValue(userFound ? { tokenVersion } : null),
+    },
+  };
+  return {
+    guard: new JwtAuthGuard(reflector, jwt, prisma as never),
+    verifyAsync,
+    prisma,
+  };
 }
 
 describe("JwtAuthGuard", () => {
@@ -89,6 +104,49 @@ describe("JwtAuthGuard", () => {
     );
 
     expect(verifyAsync).toHaveBeenCalledWith("header.token");
+  });
+
+  it("accepts a token whose version matches the user's current version", async () => {
+    const tokenVersion = 3;
+    const { guard } = createGuard(
+      false,
+      { sub: "user-1", username: "alice", roles: ["ADMIN"], ver: tokenVersion },
+      { tokenVersion },
+    );
+
+    await expect(
+      guard.canActivate(
+        createContext({ headers: {}, cookies: { [AUTH_COOKIE_NAME]: "t" } }),
+      ),
+    ).resolves.toBe(true);
+  });
+
+  it("rejects a token issued before a password reset (stale version)", async () => {
+    const { guard } = createGuard(
+      false,
+      { sub: "user-1", username: "alice", roles: ["ADMIN"], ver: 0 },
+      { tokenVersion: 1 },
+    );
+
+    await expect(
+      guard.canActivate(
+        createContext({ headers: {}, cookies: { [AUTH_COOKIE_NAME]: "t" } }),
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it("rejects a token for a user that no longer exists", async () => {
+    const { guard } = createGuard(
+      false,
+      { sub: "user-gone", username: "gone", roles: [] },
+      { userFound: false },
+    );
+
+    await expect(
+      guard.canActivate(
+        createContext({ headers: {}, cookies: { [AUTH_COOKIE_NAME]: "t" } }),
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it("rejects a request without any token", async () => {

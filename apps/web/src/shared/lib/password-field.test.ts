@@ -17,4 +17,28 @@ describe("passwordFieldState", () => {
       ariaLabel: "Slėpti slaptažodį",
     });
   });
+
+  it("is hidden by default (password type, toggles back after hiding)", () => {
+    // The reset form starts hidden and toggles back to hidden on second press.
+    expect(passwordFieldState(false).inputType).toBe("password");
+    expect(passwordFieldState(true).inputType).toBe("text");
+    expect(passwordFieldState(false).inputType).toBe("password");
+  });
+
+  it("lets two fields toggle independently", () => {
+    let first = false;
+    let second = false;
+
+    first = !first;
+    expect(passwordFieldState(first).inputType).toBe("text");
+    expect(passwordFieldState(second).inputType).toBe("password");
+
+    second = !second;
+    expect(passwordFieldState(first).inputType).toBe("text");
+    expect(passwordFieldState(second).inputType).toBe("text");
+
+    first = !first;
+    expect(passwordFieldState(first).inputType).toBe("password");
+    expect(passwordFieldState(second).inputType).toBe("text");
+  });
 });

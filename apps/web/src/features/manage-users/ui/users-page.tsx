@@ -13,13 +13,23 @@ import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
 import { inactiveRowClass, toggleActionClass } from "@/shared/lib/row-styles";
 import { workSurfaceClass } from "@/shared/lib/surfaces";
+import { PasswordInput } from "@/shared/ui";
 import {
   activeToggleLabel,
   applyUserUpdate,
+  CLOSED_PASSWORD_RESET_PANEL,
+  closePasswordResetPanel,
   isRoleControlDisabled,
+  openPasswordResetPanel,
+  passwordResetError,
+  passwordResetErrorMessage,
+  passwordResetPanelSuccess,
+  passwordResetPayload,
   toggleRoleSelection,
   userAdminErrorMessage,
+  userEditPayload,
   userEditSuccess,
+  type PasswordResetPanelState,
   type UserEditState,
 } from "../lib/users";
 
@@ -34,6 +44,9 @@ export function UsersPage() {
   const [role, setRole] = useState<RoleKey>("WAREHOUSE_WORKER");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [edit, setEdit] = useState<UserEditState | null>(null);
+  const [resetPanel, setResetPanel] = useState<PasswordResetPanelState>(
+    CLOSED_PASSWORD_RESET_PANEL,
+  );
   const router = useRouter();
   const { clearSession } = useAuth();
 
@@ -100,6 +113,19 @@ export function UsersPage() {
       roles: user.roles,
       active: user.active,
     });
+    setResetPanel(CLOSED_PASSWORD_RESET_PANEL);
+  }
+
+  function closeEdit(): void {
+    setEditingId(null);
+    setEdit(null);
+    setError(null);
+    setResetPanel(CLOSED_PASSWORD_RESET_PANEL);
+  }
+
+  /** `Uždaryti`: clear and close the reset section without touching the edit form. */
+  function closePasswordReset(): void {
+    setResetPanel(closePasswordResetPanel());
   }
 
   function toggleRole(roleKey: RoleKey): void {
@@ -123,7 +149,7 @@ export function UsersPage() {
     try {
       const updated = await apiFetch<UserSummary>(`/users/${editingId}`, {
         method: "PATCH",
-        body: JSON.stringify(edit),
+        body: JSON.stringify(userEditPayload(edit)),
       });
       const next = userEditSuccess(users, updated);
       setUsers(next.users);
@@ -146,6 +172,36 @@ export function UsersPage() {
       setError(null);
     } catch (caught) {
       handleError(caught, "Nepavyko atnaujinti naudotojo");
+    }
+  }
+
+  async function submitPasswordReset(): Promise<void> {
+    if (!editingId) {
+      return;
+    }
+    const validation = passwordResetError(resetPanel.form);
+    if (validation) {
+      setResetPanel((current) => ({ ...current, error: validation }));
+      return;
+    }
+    setResetPanel((current) => ({ ...current, error: null, success: null }));
+    try {
+      await apiFetch<UserSummary>(`/users/${editingId}/password`, {
+        method: "PATCH",
+        body: JSON.stringify(passwordResetPayload(resetPanel.form)),
+      });
+      setResetPanel(passwordResetPanelSuccess());
+      await reload();
+    } catch (caught) {
+      if (isUnauthorized(caught)) {
+        clearSession();
+        router.replace("/login");
+        return;
+      }
+      setResetPanel((current) => ({
+        ...current,
+        error: passwordResetErrorMessage(caught),
+      }));
     }
   }
 
@@ -186,7 +242,7 @@ export function UsersPage() {
           <input
             required
             type="password"
-            placeholder="Slaptažodis (bent 8 simboliai)"
+            placeholder="Slaptažodis (bent 6 simboliai)"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             className="rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -259,7 +315,78 @@ export function UsersPage() {
             />
             Aktyvus
           </label>
-          <div className="mt-4 flex gap-3">
+
+          <div className="mt-4 border-t border-border pt-4">
+            {resetPanel.open ? (
+              <div className="flex flex-col gap-3">
+                <p className="text-sm font-medium">
+                  Nustatyti naują slaptažodį
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <PasswordInput
+                    autoComplete="new-password"
+                    placeholder="Naujas slaptažodis"
+                    value={resetPanel.form.password}
+                    onChange={(value) =>
+                      setResetPanel((current) => ({
+                        ...current,
+                        form: { ...current.form, password: value },
+                      }))
+                    }
+                  />
+                  <PasswordInput
+                    autoComplete="new-password"
+                    placeholder="Pakartoti slaptažodį"
+                    value={resetPanel.form.confirm}
+                    onChange={(value) =>
+                      setResetPanel((current) => ({
+                        ...current,
+                        form: { ...current.form, confirm: value },
+                      }))
+                    }
+                  />
+                </div>
+                {resetPanel.error ? (
+                  <p role="alert" className="text-sm text-destructive">
+                    {resetPanel.error}
+                  </p>
+                ) : null}
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={() => void submitPasswordReset()}
+                    className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
+                  >
+                    Pakeisti slaptažodį
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closePasswordReset}
+                    className="rounded-md border border-border px-3 py-2 text-sm"
+                  >
+                    Uždaryti
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => setResetPanel(openPasswordResetPanel())}
+                  className="self-start rounded-md border border-border px-3 py-2 text-sm hover:bg-accent"
+                >
+                  Nustatyti naują slaptažodį
+                </button>
+                {resetPanel.success ? (
+                  <p role="status" className="text-sm text-muted-foreground">
+                    {resetPanel.success}
+                  </p>
+                ) : null}
+              </div>
+            )}
+          </div>
+
+          <div className="mt-8 flex flex-wrap gap-3 border-t border-border pt-6">
             <button
               type="button"
               onClick={() => void saveEdit()}
@@ -269,11 +396,7 @@ export function UsersPage() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                setEditingId(null);
-                setEdit(null);
-                setError(null);
-              }}
+              onClick={closeEdit}
               className="rounded-md border border-border px-3 py-2 text-sm"
             >
               Atšaukti

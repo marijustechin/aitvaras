@@ -42,6 +42,10 @@ model User {
   firstName    String   @map("first_name") @db.VarChar(100)
   lastName     String   @map("last_name") @db.VarChar(100)
   passwordHash String   @map("password_hash") @db.VarChar(255)
+  // Bumped whenever the password is changed by an administrator. Access tokens
+  // embed this value (`ver`); the auth guard rejects tokens whose version is
+  // stale, which invalidates the user's existing sessions immediately.
+  tokenVersion Int      @default(0) @map("token_version")
   active       Boolean  @default(true)
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
