@@ -13,16 +13,21 @@ concise and operational; put durable knowledge in `docs/`.
   workflows**, never from assuming legacy code is a specification. The strategy
   is fixed by the workspace ADR-001.
 - **Confirmed functional scope is identity and access management, business
-  partners (`Partneriai`), resources (`Ištekliai`, with fixed categories) and
-  packing forms (`Pakavimo formos`, reference data)**. Identity/access is
-  `docs/scope.md`, `docs/authentication.md`, `docs/authorization.md`; business
-  partners are [docs/partners.md](docs/partners.md); resources and packing forms
-  are [docs/resources.md](docs/resources.md). Everything else — goods receipt,
-  purchasing, stock balances, warehouse locations, quantities, production,
-  orders, sales, barcode workflows, reporting, tenant architecture, Sandėlys
-  integration, migration, synchronisation — is **unconfirmed discovery** and
-  must not be built or planned. Candidate modules and first slices in `docs/`
-  are evidence, not a roadmap.
+  partners (`Partneriai`), resources (`Ištekliai`, with fixed categories),
+  packing forms (`Pakavimo formos`, reference data), warehouses + locations
+  (`Sandėliai`) and the first minimal goods-receipt workflow (`Pajamavimas`)
+  with physical placement.** Identity/access is `docs/scope.md`,
+  `docs/authentication.md`, `docs/authorization.md`; business partners are
+  [docs/partners.md](docs/partners.md); resources and packing forms are
+  [docs/resources.md](docs/resources.md); goods receipts and warehouses are
+  [docs/receipts.md](docs/receipts.md) and
+  [docs/warehouses.md](docs/warehouses.md). The canonical scope statement is
+  [docs/scope.md](docs/scope.md). Everything else — stock balances, warehouse
+  movements, purchasing/accounting, production, orders, sales, barcode
+  workflows, reporting, tenant architecture, Sandėlys integration, migration,
+  synchronisation — is **unconfirmed discovery** and must not be built or
+  planned. Candidate modules and first slices in `docs/` are evidence, not a
+  roadmap.
 
 ## Boundaries
 
@@ -223,8 +228,8 @@ control (with Lithuanian `aria-label`s) unless there is a specific reason not to
 ## Navigation and application shell
 
 - Authenticated pages use the shared application shell
-  (`components/layout/app-shell.tsx`); do **not** duplicate header markup per
-  page.
+  (`apps/web/src/widgets/app-shell/`: sticky top bar, role-aware navigation and
+  user menu); do **not** duplicate header markup per page.
 - **Navigation must contain only implemented and confirmed functionality.** Do
   not add placeholder links for future business domains.
 - Menu visibility (e.g. `Naudotojai` for ADMIN) is a UI convenience only;

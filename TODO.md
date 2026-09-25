@@ -87,19 +87,54 @@ Status legend: **DONE** · **CURRENT** · **NEXT** · **LATER / DISCOVERY ONLY**
   `PATCH` now works everywhere). Enforced ADMIN dominance server-side
   (`normalizeRoleKeys`), added last-active-admin + self-admin-change guards,
   the `Įjungti` label, specific error mapping and immediate table refresh.
+- **Frontend refactor to FSD-lite (ATV-018 / O-055)** — `apps/web/src`
+  reorganised into `app` / `widgets` / `features` / `entities` / `shared` with
+  downward-only dependencies. Architecture-only; see
+  `docs/frontend-architecture.md`.
+- **Backend architecture rules (ATV-019 / O-056)** — modular-monolith baseline
+  and evolution rules recorded in `docs/backend-architecture.md`.
+- **Goods receipts / Pajamavimas (ATV-020 / O-058)** — first minimal receipt
+  workflow: one supplier partner (active + `SUPPLIER`) and 1..n lines (resource,
+  quantity, unit `kg`/`vnt.`, unit price); decimal-safe persistence; atomic save;
+  list + read-only detail. No stock, packing-form link, status lifecycle,
+  accounting or `PATCH`/`DELETE`. Auth: authenticated (not ADMIN) for
+  list/read/create. Docs: `receipts.md`, `domain-glossary.md`.
+- **Warehouses & receipt placement (ATV-021 / O-059)** — `Warehouse` +
+  `WarehouseLocation` (a location always belongs to exactly one warehouse;
+  names unique per warehouse, not globally) with active/inactive lifecycle;
+  ADMIN manage UI at `/warehouses`, `/warehouses/[id]`; navigation `Sandėliai`.
+  Receipt lines require a per-line `warehouseId`, with a dependent location
+  selector; the server enforces location-belongs-to-warehouse. Migration
+  `warehouse_placement`. Still **no** stock movements/balances. Docs:
+  `warehouses.md`, `receipts.md`.
+- **Optional receipt location (ATV-022 / O-060)** — `GoodsReceiptLine.warehouseId`
+  stays required; `warehouseLocationId` is nullable (migration
+  `optional_receipt_location`); the API validates a location only when supplied.
+- **Inactive-row and destructive-action styling (ATV-023 / O-061)** —
+  `shared/lib/row-styles.ts`: inactive rows muted, `Išjungti` destructive,
+  `Įjungti` neutral. UI-only.
+- **Detail-level toggle styling (ATV-024 / O-062)** — shared
+  `toggleActionClass(active, size)` for table and detail actions. UI-only.
+- **Receipt form visual separation (ATV-025 / O-063)** — receipt-entry card uses
+  the `bg-muted` work surface. UI-only.
+- **Consistent active-work surfaces (ATV-026 / O-064)** — `shared/lib/surfaces.ts`
+  applied to create/edit areas. UI-only.
 
 ## CURRENT
 
-- **Business-domain modules review.** Partners, resources, categories and
-  packing forms are implemented and awaiting review. No other business scope is
-  confirmed (goods receipt, purchasing, stock, quantities, orders and sales are
-  explicitly out of scope). The partner/resource/receipt relationship is not
-  implemented or designed.
+- **Uncommitted business-domain work.** Goods receipts, warehouses/locations and
+  the receipt-placement adjustment, plus UI consistency polish (ATV-020…ATV-026
+  / O-058…O-064), are implemented and awaiting review/commit. They are **not
+  yet committed** on top of `736ffea`.
+- The partner/resource/receipt relationship beyond the recorded fields is not
+  designed. No further business scope is confirmed; stock balances, warehouse
+  movements, purchasing/accounting, production, orders and sales remain
+  unconfirmed.
 
 ## NEXT (only with a confirmed requirement)
 
-1. Security hardening of the existing auth scope (rate limiting; http-only
-   cookie) — **needs confirmation**.
+1. Verify, commit and push the ATV-020…ATV-026 (O-058…O-064) package — tracked
+   as workspace backlog **O-068**.
 2. Any new functional scope — **none confirmed**. Requires a confirmed
    requirement and a new task; do not infer from `/sandelys`.
 

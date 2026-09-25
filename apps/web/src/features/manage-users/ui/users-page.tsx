@@ -11,6 +11,8 @@ import {
 import { userRolesSummary } from "@/entities/user";
 import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
+import { inactiveRowClass, toggleActionClass } from "@/shared/lib/row-styles";
+import { workSurfaceClass } from "@/shared/lib/surfaces";
 import {
   activeToggleLabel,
   applyUserUpdate,
@@ -157,7 +159,7 @@ export function UsersPage() {
         </p>
       ) : null}
 
-      <section className="rounded-xl border border-border bg-card p-6">
+      <section className={workSurfaceClass()}>
         <h2 className="text-lg font-medium">Sukurti naudotoją</h2>
         <form onSubmit={onCreate} className="mt-4 grid gap-3 sm:grid-cols-2">
           <input
@@ -210,7 +212,7 @@ export function UsersPage() {
       </section>
 
       {editingId && edit ? (
-        <section className="rounded-xl border border-border bg-card p-6">
+        <section className={workSurfaceClass()}>
           <h2 className="text-lg font-medium">Redaguoti naudotoją</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <input
@@ -293,7 +295,10 @@ export function UsersPage() {
           </thead>
           <tbody>
             {users.map((user) => (
-              <tr key={user.id} className="border-t border-border">
+              <tr
+                key={user.id}
+                className={`border-t border-border ${inactiveRowClass(user.active)}`}
+              >
                 <td className="px-4 py-2">
                   {user.firstName} {user.lastName}
                 </td>
@@ -314,7 +319,7 @@ export function UsersPage() {
                     <button
                       type="button"
                       onClick={() => void toggleActive(user)}
-                      className="rounded-md border border-border px-2 py-1 text-xs hover:bg-accent"
+                      className={toggleActionClass(user.active)}
                     >
                       {activeToggleLabel(user.active)}
                     </button>

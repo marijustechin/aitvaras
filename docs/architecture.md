@@ -14,6 +14,8 @@ apps/api/src/
 │   ├── partners/               business partners (/partners)
 │   ├── resources/              resources (/resources)
 │   ├── packing-forms/          packing forms reference data (/packing-forms)
+│   ├── receipts/               goods receipts / Pajamavimas (/receipts)
+│   ├── warehouses/             warehouses + locations (/warehouses)
 │   ├── access/                 role catalogue + access domain primitives
 │   └── health/                 /health (public)
 ├── infrastructure/             infrastructure adapters
@@ -26,7 +28,7 @@ apps/api/src/
 ├── app.module.ts               composes modules; registers global guards
 └── main.ts
 
-packages/contracts/src/  roles.ts, auth.ts, users.ts, partners.ts, resources.ts, packing-forms.ts, health.ts
+packages/contracts/src/  roles.ts, auth.ts, users.ts, partners.ts, resources.ts, packing-forms.ts, warehouses.ts, receipts.ts, health.ts
 packages/database/       Prisma 7, generated client + adapter (see ADR-008)
 ```
 
@@ -40,11 +42,13 @@ packages/database/       Prisma 7, generated client + adapter (see ADR-008)
   unique `username` + `firstName`/`lastName` + `active`, `Role` with the
   canonical `RoleKey` enum, `UserRole` many-to-many), business partners
   (`BusinessPartner`, `PartnerRole`), resources (`Resource` with the
-  `ResourceCategoryKey` enum) and reference data (`PackingForm`). No other
-  tables exist.
+  `ResourceCategoryKey` enum), reference data (`PackingForm`), goods receipts
+  (`GoodsReceipt`, `GoodsReceiptLine`, `MeasurementUnitKey`) and warehouses
+  (`Warehouse`, `WarehouseLocation`). No other tables exist.
 - `AppModule` composes `PrismaModule`, `AccessModule`, `AuthModule`,
   `UsersModule`, `PartnersModule`, `ResourcesModule`, `PackingFormsModule`,
-  `HealthModule` and registers the global guards.
+  `ReceiptsModule`, `WarehousesModule`, `HealthModule` and registers the global
+  guards.
 - See `authentication.md`, `authorization.md` and `scope.md`.
 
 ## API module conventions (NestJS)
@@ -92,8 +96,9 @@ concerns; the `access` module owns the role catalogue.
   `/resources` (`docs/resources.md`).
 - The web frontend follows **FSD-lite** (`app`, `widgets`, `features`,
   `entities`, `shared`); see [frontend-architecture.md](frontend-architecture.md).
-- The database has three migrations: `initial_identity_access`,
-  `business_partners` and `resources_and_packing_forms`. Applied migrations
+- The database has six migrations: `initial_identity_access`,
+  `business_partners`, `resources_and_packing_forms`, `goods_receipts`,
+  `warehouse_placement` and `optional_receipt_location`. Applied migrations
   become immutable after the first shared/production deployment (ADR-010).
 
 ## Purpose
@@ -176,8 +181,10 @@ empty layers in advance.
   never be used as the model for Aitvaras entities.
 - The schema contains the confirmed models only: identity/access (`User`,
   `Role`, `UserRole`), business partners (`BusinessPartner`, `PartnerRole`),
-  resources (`Resource`) and reference data (`PackingForm`). No other
-  business-domain tables were created.
+  resources (`Resource`), reference data (`PackingForm`), goods receipts
+  (`GoodsReceipt`, `GoodsReceiptLine`) and warehouses (`Warehouse`,
+  `WarehouseLocation`). No other business-domain tables were created. Receipts
+  record the transaction and intended placement only — no stock tables exist.
 - Money, identifiers and domain vocabulary are Aitvaras decisions, not inherited
   from legacy conventions (e.g. legacy seeded numeric IDs or integer cents).
 

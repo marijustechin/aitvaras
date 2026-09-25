@@ -8,6 +8,8 @@ import { EMPTY_PACKING_FORMS_MESSAGE } from "@/entities/packing-form";
 import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
 import { activeStatusLabel } from "@/shared/lib/format";
+import { inactiveRowClass, toggleActionClass } from "@/shared/lib/row-styles";
+import { workSurfaceClass } from "@/shared/lib/surfaces";
 
 /** Packing-form reference-data administration (rendered inside the shell). */
 export function PackingFormsPage() {
@@ -104,7 +106,7 @@ export function PackingFormsPage() {
       ) : null}
 
       {isAdmin ? (
-        <section className="rounded-xl border border-border bg-card p-6">
+        <section className={workSurfaceClass()}>
           <h2 className="text-lg font-medium">Nauja pakavimo forma</h2>
           <form onSubmit={onCreate} className="mt-4 flex flex-wrap gap-3">
             <input
@@ -140,7 +142,10 @@ export function PackingFormsPage() {
             </thead>
             <tbody>
               {forms.map((form) => (
-                <tr key={form.id} className="border-t border-border">
+                <tr
+                  key={form.id}
+                  className={`border-t border-border ${inactiveRowClass(form.active)}`}
+                >
                   <td className="px-4 py-2">
                     {editingId === form.id ? (
                       <input
@@ -191,9 +196,9 @@ export function PackingFormsPage() {
                             <button
                               type="button"
                               onClick={() => void toggleActive(form)}
-                              className="rounded-md border border-border px-2 py-1 text-xs hover:bg-accent"
+                              className={toggleActionClass(form.active)}
                             >
-                              {form.active ? "Išjungti" : "Aktyvuoti"}
+                              {form.active ? "Išjungti" : "Įjungti"}
                             </button>
                           </>
                         )}

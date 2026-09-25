@@ -25,6 +25,22 @@ describe("visibleNavItems", () => {
     }
   });
 
+  it("shows Pajamavimas to every authenticated user", () => {
+    for (const roles of [[], ["WAREHOUSE_WORKER"], ["ACCOUNTING"]] as const) {
+      expect(
+        visibleNavItems([...roles]).map((item) => item.label),
+      ).toContain("Pajamavimas");
+    }
+  });
+
+  it("shows Sandėliai to every authenticated user", () => {
+    for (const roles of [[], ["WAREHOUSE_WORKER"], ["ACCOUNTING"]] as const) {
+      expect(
+        visibleNavItems([...roles]).map((item) => item.label),
+      ).toContain("Sandėliai");
+    }
+  });
+
   it("shows Naudotojai only to ADMIN", () => {
     expect(
       visibleNavItems(["ADMIN"]).map((item) => item.label),
@@ -42,6 +58,8 @@ describe("visibleNavItems", () => {
       "/",
       "/partners",
       "/resources",
+      "/warehouses",
+      "/receipts",
       "/admin/users",
     ]);
   });
@@ -84,5 +102,28 @@ describe("isNavItemActive", () => {
     ).toBe(true);
     expect(isNavItemActive("/resources", "/resources/packing-forms")).toBe(true);
     expect(isNavItemActive("/resources", "/partners")).toBe(false);
+  });
+
+  it("marks Pajamavimas active on the receipts routes", () => {
+    expect(isNavItemActive("/receipts", "/receipts")).toBe(true);
+    expect(isNavItemActive("/receipts", "/receipts/new")).toBe(true);
+    expect(
+      isNavItemActive(
+        "/receipts",
+        "/receipts/0f1f2f3f-0000-4000-8000-000000000000",
+      ),
+    ).toBe(true);
+    expect(isNavItemActive("/receipts", "/resources")).toBe(false);
+  });
+
+  it("marks Sandėliai active on the warehouse routes", () => {
+    expect(isNavItemActive("/warehouses", "/warehouses")).toBe(true);
+    expect(
+      isNavItemActive(
+        "/warehouses",
+        "/warehouses/0f1f2f3f-0000-4000-8000-000000000000",
+      ),
+    ).toBe(true);
+    expect(isNavItemActive("/warehouses", "/receipts")).toBe(false);
   });
 });

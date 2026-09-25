@@ -110,6 +110,16 @@ username; role management stays ADMIN-only via `/users`.
 | Packing-form details | `GET /packing-forms/:id` | authenticated |
 | Create packing form | `POST /packing-forms` | `ADMIN` |
 | Update packing form (name / active) | `PATCH /packing-forms/:id` | `ADMIN` |
+| List receipts | `GET /receipts` | authenticated |
+| Receipt details | `GET /receipts/:id` | authenticated |
+| Create receipt | `POST /receipts` | authenticated |
+| List warehouses (with locations) | `GET /warehouses` | authenticated |
+| Warehouse details | `GET /warehouses/:id` | authenticated |
+| Create warehouse | `POST /warehouses` | `ADMIN` |
+| Update warehouse (name / active) | `PATCH /warehouses/:id` | `ADMIN` |
+| List warehouse locations | `GET /warehouses/:id/locations` | authenticated |
+| Create warehouse location | `POST /warehouses/:id/locations` | `ADMIN` |
+| Update warehouse location (name / active) | `PATCH /warehouses/:warehouseId/locations/:locationId` | `ADMIN` |
 
 ## Failure behaviour
 
@@ -125,7 +135,11 @@ username; role management stays ADMIN-only via `/users`.
 - No permission model finer than roles (no per-resource permissions); none is
   confirmed as required. Partner/resource/packing-form viewing is
   authenticated-only and modification is `ADMIN`-only, using the same role
-  guard.
+  guard. Goods receipts (`Pajamavimas`) are listable/readable/creatable by any
+  authenticated user — it is expected to become an operational warehouse
+  workflow, so creation is deliberately not `ADMIN`-restricted. Warehouse
+  master data (warehouses/locations) is listable/readable by authenticated
+  users and modifiable by `ADMIN` only.
 - Role changes take effect at the user's next login/token expiry.
 - The web UI hides admin pages from non-admins and shows an access-denied state,
   but **the server is the enforcement point** — UI checks are convenience only.

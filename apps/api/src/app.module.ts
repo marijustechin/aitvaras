@@ -10,8 +10,10 @@ import { AuthModule } from "./modules/auth/auth.module";
 import { HealthModule } from "./modules/health/health.module";
 import { PackingFormsModule } from "./modules/packing-forms/packing-forms.module";
 import { PartnersModule } from "./modules/partners/partners.module";
+import { ReceiptsModule } from "./modules/receipts/receipts.module";
 import { ResourcesModule } from "./modules/resources/resources.module";
 import { UsersModule } from "./modules/users/users.module";
+import { WarehousesModule } from "./modules/warehouses/warehouses.module";
 
 @Module({
   imports: [
@@ -29,6 +31,8 @@ import { UsersModule } from "./modules/users/users.module";
     PartnersModule,
     ResourcesModule,
     PackingFormsModule,
+    ReceiptsModule,
+    WarehousesModule,
     HealthModule,
   ],
   providers: [

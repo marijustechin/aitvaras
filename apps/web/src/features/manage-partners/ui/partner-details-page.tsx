@@ -8,6 +8,7 @@ import { partnerRoleSummary } from "@/entities/partner";
 import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
 import { EMPTY_VALUE, activeStatusLabel, valueOrPlaceholder } from "@/shared/lib/format";
+import { workSurfaceClass } from "@/shared/lib/surfaces";
 import {
   partnerFormError,
   partnerFormToPayload,
@@ -129,7 +130,7 @@ export function PartnerDetailsPage() {
       </div>
 
       {editing ? (
-        <section className="rounded-xl border border-border bg-card p-6">
+        <section className={workSurfaceClass()}>
           <PartnerForm
             initialValues={partnerToFormValues(partner)}
             submitLabel="Išsaugoti"

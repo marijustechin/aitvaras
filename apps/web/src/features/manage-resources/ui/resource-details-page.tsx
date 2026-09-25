@@ -8,6 +8,7 @@ import { resourceCategoryLabel } from "@/entities/resource";
 import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
 import { activeStatusLabel, valueOrPlaceholder } from "@/shared/lib/format";
+import { workSurfaceClass } from "@/shared/lib/surfaces";
 import {
   resourceFormError,
   resourceFormToPayload,
@@ -129,7 +130,7 @@ export function ResourceDetailsPage() {
       </div>
 
       {editing ? (
-        <section className="rounded-xl border border-border bg-card p-6">
+        <section className={workSurfaceClass()}>
           <ResourceForm
             initialValues={resourceToFormValues(resource)}
             submitLabel="Išsaugoti"

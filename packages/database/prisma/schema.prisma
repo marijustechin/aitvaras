@@ -107,6 +107,8 @@ model BusinessPartner {
 
   roles PartnerRole[]
 
+  receipts GoodsReceipt[]
+
   @@index([name])
   @@map("business_partners")
 }
@@ -146,9 +148,100 @@ model Resource {
   createdAt DateTime            @default(now()) @map("created_at")
   updatedAt DateTime            @updatedAt @map("updated_at")
 
+  goodsReceiptLines GoodsReceiptLine[]
+
   @@index([name])
   @@index([category])
   @@map("resources")
+}
+
+// Measurement units for a goods-receipt line. A small, fixed set for now (no
+// user-managed administration module; more units only when confirmed).
+enum MeasurementUnitKey {
+  KG
+  UNIT
+}
+
+// A warehouse (Sandėlis). Deactivated, never normally deleted. Only confirmed
+// fields are modelled (no address/code/manager/capacity yet).
+model Warehouse {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @db.VarChar(255)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  locations    WarehouseLocation[]
+  receiptLines GoodsReceiptLine[]
+
+  @@index([name])
+  @@map("warehouses")
+}
+
+// A physical location (Sandėlio vieta) inside exactly one warehouse. Names are
+// unique per warehouse, not globally (two warehouses may both have "Stelažas 1").
+// Uniqueness is case-sensitive per the database default; we do not normalise
+// case (no complex normalisation subsystem).
+model WarehouseLocation {
+  id          String   @id @default(uuid()) @db.Uuid
+  warehouseId String   @map("warehouse_id") @db.Uuid
+  name        String   @db.VarChar(255)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  warehouse    Warehouse         @relation(fields: [warehouseId], references: [id])
+  receiptLines GoodsReceiptLine[]
+
+  @@unique([warehouseId, name])
+  @@index([warehouseId])
+  @@map("warehouse_locations")
+}
+
+// Pajamavimas — a record of the physical receipt of resources from a supplier
+// partner. It is NOT an accounting purchase, supplier invoice, payment, stock
+// ledger or warehouse balance, and it deliberately has no status/lifecycle yet.
+// Saves do not create or modify warehouse stock.
+model GoodsReceipt {
+  id        String   @id @default(uuid()) @db.Uuid
+  partnerId String   @map("partner_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  partner BusinessPartner   @relation(fields: [partnerId], references: [id])
+  lines   GoodsReceiptLine[]
+
+  @@index([partnerId])
+  @@index([createdAt])
+  @@map("goods_receipts")
+}
+
+// A receipt line. `quantity` and `unitPrice` are decimals (never floating
+// point). `unitPrice` is the price per selected measurement unit, in EUR for
+// this first Lithuanian operational flow (no currency management). Placement:
+// `warehouseId` is required; `warehouseLocationId` is optional (a location, when
+// supplied, must belong to that warehouse). There is no packing-form relation
+// yet.
+model GoodsReceiptLine {
+  id                  String             @id @default(uuid()) @db.Uuid
+  goodsReceiptId      String             @map("goods_receipt_id") @db.Uuid
+  resourceId          String             @map("resource_id") @db.Uuid
+  quantity            Decimal            @db.Decimal(14, 3)
+  unit                MeasurementUnitKey
+  unitPrice           Decimal            @map("unit_price") @db.Decimal(14, 4)
+  warehouseId         String             @map("warehouse_id") @db.Uuid
+  warehouseLocationId String?            @map("warehouse_location_id") @db.Uuid
+
+  receipt           GoodsReceipt       @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
+  resource          Resource           @relation(fields: [resourceId], references: [id])
+  warehouse         Warehouse          @relation(fields: [warehouseId], references: [id])
+  warehouseLocation WarehouseLocation? @relation(fields: [warehouseLocationId], references: [id])
+
+  @@index([goodsReceiptId])
+  @@index([resourceId])
+  @@index([warehouseId])
+  @@index([warehouseLocationId])
+  @@map("goods_receipt_lines")
 }
 
 // How goods are physically packed/presented for handling/storage. Independent

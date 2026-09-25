@@ -4,19 +4,20 @@ Aitvaras is the **future Alfasis warehouse application**: a clean replacement fo
 the legacy `/sandelys` system, designed from confirmed business requirements, not
 from legacy code.
 
-> **Status: identity & access foundation implemented, plus business partners,
-> resources and packing forms.** The confirmed functional scope is users,
-> credential login, roles and authorization, **Partneriai** (business partners),
-> and **Ištekliai** (resources) with fixed resource categories and **Pakavimo
-> formos** (packing-form reference data). No other business functionality
-> (goods receipt, purchasing, stock, orders, sales, barcode, integration) is
-> approved or implemented. See [docs/scope.md](docs/scope.md).
+> **Status: identity & access foundation implemented, plus core business
+> modules.** The confirmed functional scope is users, credential login, roles
+> and authorization, **Partneriai** (business partners), **Ištekliai**
+> (resources) with fixed categories and **Pakavimo formos** (packing-form
+> reference data), **Sandėliai** (warehouses + locations), and the first minimal
+> **Pajamavimas** (goods receipt) workflow with physical placement. No other
+> business functionality (stock, movements, orders, sales, accounting, barcode,
+> integration) is approved or implemented. See [docs/scope.md](docs/scope.md).
 
 After login, Aitvaras runs as an application: a **sticky top bar** with
-role-aware navigation (`Pradžia`, `Partneriai`, `Ištekliai`, plus `Naudotojai`
-for admins), a current-user menu with **Mano profilis** (self-service profile
-and password change) and a footer. Navigation contains only confirmed,
-implemented functionality.
+role-aware navigation (`Pradžia`, `Partneriai`, `Ištekliai`, `Sandėliai`,
+`Pajamavimas`, plus `Naudotojai` for admins), a current-user menu with **Mano
+profilis** (self-service profile and password change) and a footer. Navigation
+contains only confirmed, implemented functionality.
 
 ## What Aitvaras is (and is not)
 
@@ -99,6 +100,8 @@ Full setup details: [docs/development.md](docs/development.md).
 - [docs/architecture.md](docs/architecture.md) — applications, packages, rules
 - [docs/partners.md](docs/partners.md) — the business-partner module
 - [docs/resources.md](docs/resources.md) — resources, categories and packing forms
+- [docs/receipts.md](docs/receipts.md) — goods receipts (Pajamavimas)
+- [docs/warehouses.md](docs/warehouses.md) — warehouses and locations
 - [docs/domain-glossary.md](docs/domain-glossary.md) — confirmed domain terminology
 - [docs/authentication.md](docs/authentication.md) — auth model and login flow
 - [docs/authorization.md](docs/authorization.md) — roles and route protection

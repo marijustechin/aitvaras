@@ -6,6 +6,7 @@ import { ROLE_LABELS, type AuthenticatedUser } from "@aitvaras/contracts";
 import { PasswordInput } from "@/shared/ui";
 import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
+import { workSurfaceClass } from "@/shared/lib/surfaces";
 
 /** Self-service profile composition (rendered inside the application shell). */
 export function ProfilePage() {
@@ -119,7 +120,7 @@ export function ProfilePage() {
     <div className="flex flex-col gap-8">
       <h1 className="text-2xl font-semibold tracking-tight">Mano profilis</h1>
 
-      <section className="rounded-xl border border-border bg-card p-6">
+      <section className={workSurfaceClass()}>
         <h2 className="text-lg font-medium">Paskyros informacija</h2>
         <form onSubmit={saveName} className="mt-4 grid gap-4">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -179,7 +180,7 @@ export function ProfilePage() {
         </form>
       </section>
 
-      <section className="rounded-xl border border-border bg-card p-6">
+      <section className={workSurfaceClass()}>
         <h2 className="text-lg font-medium">Keisti slaptažodį</h2>
         <form onSubmit={changePassword} className="mt-4 grid gap-4">
           <label className="space-y-1 text-sm">

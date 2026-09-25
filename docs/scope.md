@@ -40,9 +40,37 @@ master data:
   independent reference data — deliberately **not** a permanent resource
   property.
 
-See [resources.md](resources.md). Goods receipt, purchasing, stock balances,
-warehouse locations, quantities, production, orders and sales remain **not**
-confirmed.
+See [resources.md](resources.md).
+
+### Goods receipts (Pajamavimas)
+
+The third confirmed business-domain scope is the first minimal **goods receipt**
+workflow:
+
+- one receipt records the physical receipt of resources from one **supplier**
+  partner, with **1..n lines**;
+- each line has a resource, a quantity, a measurement unit (`kg`, `vnt.`), a
+  unit price, a **required warehouse** and an **optional warehouse location**;
+- saving records the receipt transaction only — it does **not** create or modify
+  warehouse stock.
+
+See [receipts.md](receipts.md). Each receipt line also records **physical
+placement** (warehouse + location) — see the warehouses section below.
+
+### Warehouses and locations (Sandėliai ir vietos)
+
+The confirmed supporting master data for physical placement:
+
+- **Warehouse** (`Sandėlis`) — deactivated, never hard-deleted; only a name and
+  active flag are confirmed;
+- **WarehouseLocation** (`Sandėlio vieta`) — always belongs to exactly one
+  warehouse; names are unique per warehouse, not globally.
+
+See [warehouses.md](warehouses.md).
+
+**Not** confirmed (still out of scope): purchasing/accounting, supplier
+invoices, payments, stock balances, warehouse **movements**, quantities on
+hand, production, orders and sales.
 
 ### Confirmed initial roles
 
@@ -57,10 +85,10 @@ The following are **discovery concepts only** and are **not approved**. They
 must not be implemented, planned into a roadmap, or assumed from the fact that
 a similar concept exists in `/sandelys`:
 
-stock, goods receipt, purchasing, orders, order lines, dispatch, sales,
-warehouse locations/movements, quantities, production, barcode workflows,
-reporting, Sandėlys adapter/integration, data migration, synchronisation,
-tenant/company architecture, machine integration.
+stock, purchasing, orders, order lines, dispatch, sales, warehouse movements,
+quantities on hand, production, barcode workflows, reporting, Sandėlys
+adapter/integration, data migration, synchronisation, tenant/company
+architecture, machine integration.
 
 If any of these are ever approved, it happens through a **new confirmed
 requirement** and a recorded task/decision — not by inheriting discovery.
@@ -101,7 +129,7 @@ be treated as **discovery evidence**, clearly marked **unconfirmed** or
 ## Related documents
 
 - `authentication.md`, `authorization.md` — the implemented identity/access scope
-- `partners.md`, `resources.md`, `domain-glossary.md` — implemented business
-  modules and confirmed terms
+- `partners.md`, `resources.md`, `receipts.md`, `warehouses.md`,
+  `domain-glossary.md` — implemented business modules and confirmed terms
 - `legacy-as-reference.md`, `architecture.md`, `TODO.md`
 - Workspace ADR-004 (reference, not blueprint)

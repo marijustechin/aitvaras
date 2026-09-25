@@ -8,6 +8,7 @@ import { EMPTY_PARTNERS_MESSAGE, partnerRoleSummary } from "@/entities/partner";
 import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
 import { activeStatusLabel, valueOrPlaceholder } from "@/shared/lib/format";
+import { inactiveRowClass } from "@/shared/lib/row-styles";
 
 /** Partners list composition (rendered inside the application shell). */
 export function PartnersPage() {
@@ -74,7 +75,10 @@ export function PartnersPage() {
             </thead>
             <tbody>
               {partners.map((partner) => (
-                <tr key={partner.id} className="border-t border-border">
+                <tr
+                  key={partner.id}
+                  className={`border-t border-border ${inactiveRowClass(partner.active)}`}
+                >
                   <td className="px-4 py-2">
                     <Link
                       href={`/partners/${partner.id}`}

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { Resource } from "@aitvaras/contracts";
 import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
+import { workSurfaceClass } from "@/shared/lib/surfaces";
 import {
   emptyResourceFormValues,
   resourceFormError,
@@ -51,7 +52,7 @@ export function NewResourcePage() {
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold tracking-tight">Naujas išteklius</h1>
-      <section className="rounded-xl border border-border bg-card p-6">
+      <section className={workSurfaceClass()}>
         <ResourceForm
           initialValues={emptyResourceFormValues()}
           submitLabel="Sukurti"

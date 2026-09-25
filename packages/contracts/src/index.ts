@@ -5,3 +5,5 @@ export * from "./users";
 export * from "./partners";
 export * from "./resources";
 export * from "./packing-forms";
+export * from "./warehouses";
+export * from "./receipts";

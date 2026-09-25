@@ -55,14 +55,42 @@ Rulonas
 ```
 
 **Status: implemented** as reference data with an explicit idempotent seed
-(`pnpm seed:reference`); see `docs/resources.md`. The resource/receipt link is
-**not** implemented.
+(`pnpm seed:reference`); see `docs/resources.md`. Packing forms are **not yet**
+linked to resources or receipt lines.
+
+## Pajamavimas (goods receipt)
+
+The physical receipt of resources from a **supplier** (Tiekėjas) partner. One
+receipt has exactly one supplier and **1..n lines**; each line has an
+`Išteklius`, `Kiekis`, `Matavimo vnt.` (`kg` / `vnt.`), `Vieneto kaina`, a
+required `Sandėlis` and an optional `Sandėlio vieta`. It is **not** an accounting
+purchase, supplier invoice, payment, stock ledger or warehouse balance, and
+saving does not create stock. Denominations: `Pajamavimas`, `Pajamavimai`.
+
+**Status: implemented (first minimal iteration)** (`docs/receipts.md`).
+
+## Sandėlis (warehouse)
+
+A physical warehouse. A warehouse has **1..n** locations. Deactivated, never
+hard-deleted; only a name and active flag are confirmed.
+
+**Status: implemented** (`docs/warehouses.md`).
+
+## Sandėlio vieta (warehouse location)
+
+A physical location inside **exactly one** warehouse (e.g. `Stelažas A1`,
+`Lentyna B2`, `Stalas 3`). Names are unique per warehouse, not globally.
+Deactivated, never hard-deleted.
+
+**Status: implemented** (`docs/warehouses.md`). Used as the placement of a
+goods-receipt line.
 
 ## Not yet implemented
 
-The following are **not** built and must not be treated as implemented: goods
-receipt, purchasing, stock balances, warehouse locations, quantities,
-production, orders, dispatch, sales, barcode workflows, reporting.
+The following are **not** built and must not be treated as implemented:
+purchasing/accounting, supplier invoices, payments, stock balances, warehouse
+movements, quantities on hand, production, orders, dispatch, sales, barcode
+workflows, reporting.
 
 ## Language conventions
 
@@ -76,4 +104,6 @@ production, orders, dispatch, sales, barcode workflows, reporting.
 - [scope.md](scope.md) — confirmed scope
 - [partners.md](partners.md) — the partner module
 - [resources.md](resources.md) — resources, categories and packing forms
+- [receipts.md](receipts.md) — goods receipts (Pajamavimas)
+- [warehouses.md](warehouses.md) — warehouses and locations
 - [legacy-as-reference.md](legacy-as-reference.md) — reference, not blueprint

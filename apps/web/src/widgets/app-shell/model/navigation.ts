@@ -17,6 +17,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/", label: "Pradžia" },
   { href: "/partners", label: "Partneriai" },
   { href: "/resources", label: "Ištekliai" },
+  { href: "/warehouses", label: "Sandėliai" },
+  { href: "/receipts", label: "Pajamavimas" },
   { href: "/admin/users", label: "Naudotojai", requiredRoles: ["ADMIN"] },
 ];
 

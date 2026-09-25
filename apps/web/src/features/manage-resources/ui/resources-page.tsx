@@ -8,6 +8,7 @@ import { EMPTY_RESOURCES_MESSAGE, resourceCategoryLabel } from "@/entities/resou
 import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
 import { activeStatusLabel } from "@/shared/lib/format";
+import { inactiveRowClass } from "@/shared/lib/row-styles";
 
 /** Resources list composition (rendered inside the application shell). */
 export function ResourcesPage() {
@@ -77,7 +78,10 @@ export function ResourcesPage() {
             </thead>
             <tbody>
               {resources.map((resource) => (
-                <tr key={resource.id} className="border-t border-border">
+                <tr
+                  key={resource.id}
+                  className={`border-t border-border ${inactiveRowClass(resource.active)}`}
+                >
                   <td className="px-4 py-2">
                     <Link
                       href={`/resources/${resource.id}`}
