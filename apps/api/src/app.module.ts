@@ -7,10 +7,12 @@ import { RolesGuard } from "./common/guards/roles.guard";
 import { PrismaModule } from "./infrastructure/prisma/prisma.module";
 import { AccessModule } from "./modules/access/access.module";
 import { AuthModule } from "./modules/auth/auth.module";
+import { BatchesModule } from "./modules/batches/batches.module";
 import { HealthModule } from "./modules/health/health.module";
 import { PackingFormsModule } from "./modules/packing-forms/packing-forms.module";
 import { PartnersModule } from "./modules/partners/partners.module";
 import { ReceiptsModule } from "./modules/receipts/receipts.module";
+import { ResourceCategoriesModule } from "./modules/resource-categories/resource-categories.module";
 import { ResourcesModule } from "./modules/resources/resources.module";
 import { UsersModule } from "./modules/users/users.module";
 import { WarehousesModule } from "./modules/warehouses/warehouses.module";
@@ -29,9 +31,11 @@ import { WarehousesModule } from "./modules/warehouses/warehouses.module";
     AuthModule,
     UsersModule,
     PartnersModule,
+    ResourceCategoriesModule,
     ResourcesModule,
     PackingFormsModule,
     ReceiptsModule,
+    BatchesModule,
     WarehousesModule,
     HealthModule,
   ],

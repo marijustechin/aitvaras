@@ -22,8 +22,14 @@ financial purchasing/accounting.
 ## Do not model stock yet
 
 Saving a receipt **does not** create or modify warehouse stock. There is no
-stock balance, inventory ledger, lot/batch, barcode, available or reserved
-quantity, or quantity-per-location. Those are designed separately later.
+stock balance, inventory ledger, available or reserved quantity, or
+quantity-per-location. Those are designed separately later.
+
+Batch/lot and per-bag (handling-unit) identity **is** implemented, but as a
+**separate** receiving flow — see [batches.md](batches.md). A `Pajamavimas` and a
+`Partija` are independent records: a batch is created at the start of bag-by-bag
+registration and may later be reconciled with a receipt **without duplicating
+quantities**. The structural batch↔receipt link is not modelled yet.
 
 ## Domain model
 
@@ -202,6 +208,7 @@ historical receipts keep valid references. There is no receipt delete endpoint.
 - [scope.md](scope.md) — confirmed scope
 - [partners.md](partners.md) — suppliers (Tiekėjas)
 - [resources.md](resources.md) — resources and measurement context
+- [batches.md](batches.md) — batches (Partijos) and bags (Maišai), a separate receiving flow
 - [warehouses.md](warehouses.md) — warehouses and locations (placement)
 - [domain-glossary.md](domain-glossary.md) — terminology
 - [backend-architecture.md](backend-architecture.md) — module rules

@@ -52,6 +52,9 @@ model User {
 
   roles UserRole[]
 
+  batches Batch[]
+  bags    Bag[]
+
   @@map("users")
 }
 
@@ -112,6 +115,7 @@ model BusinessPartner {
   roles PartnerRole[]
 
   receipts GoodsReceipt[]
+  batches  Batch[]
 
   @@index([name])
   @@map("business_partners")
@@ -130,12 +134,22 @@ model PartnerRole {
   @@map("partner_roles")
 }
 
-// Resource categories. A small, fixed domain classification (a business/schema
-// decision), not user-managed configuration. A resource has exactly one.
-enum ResourceCategoryKey {
-  RAW_MATERIAL
-  SEMI_FINISHED
-  FINISHED_PRODUCT
+// A managed resource classification (Išteklių kategorija). A resource has
+// exactly one. Categories are administrator-managed master data, not a closed
+// enum: the three historical values (Žaliava, Pusgaminis, Gaminys) are seeded
+// once by migration and are NOT the complete allowed set. Deactivated, never
+// hard-deleted; inactive categories stay valid for existing resources but cannot
+// be chosen for new ones.
+model ResourceCategory {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique @db.VarChar(255)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  resources Resource[]
+
+  @@map("resource_categories")
 }
 
 // A business item/material/product handled by Aitvaras. Only confirmed fields
@@ -144,18 +158,20 @@ enum ResourceCategoryKey {
 // absent until confirmed. `name` is intentionally not unique: two resources may
 // share a descriptive name.
 model Resource {
-  id        String              @id @default(uuid()) @db.Uuid
-  name      String              @db.VarChar(255)
-  category  ResourceCategoryKey
-  notes     String?             @db.VarChar(2000)
-  active    Boolean             @default(true)
-  createdAt DateTime            @default(now()) @map("created_at")
-  updatedAt DateTime            @updatedAt @map("updated_at")
+  id         String   @id @default(uuid()) @db.Uuid
+  name       String   @db.VarChar(255)
+  categoryId String   @map("category_id") @db.Uuid
+  notes      String?  @db.VarChar(2000)
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
 
+  category          ResourceCategory  @relation(fields: [categoryId], references: [id])
   goodsReceiptLines GoodsReceiptLine[]
+  batches           Batch[]
 
   @@index([name])
-  @@index([category])
+  @@index([categoryId])
   @@map("resources")
 }
 
@@ -177,6 +193,7 @@ model Warehouse {
 
   locations    WarehouseLocation[]
   receiptLines GoodsReceiptLine[]
+  batches      Batch[]
 
   @@index([name])
   @@map("warehouses")
@@ -196,6 +213,7 @@ model WarehouseLocation {
 
   warehouse    Warehouse         @relation(fields: [warehouseId], references: [id])
   receiptLines GoodsReceiptLine[]
+  bags         Bag[]
 
   @@unique([warehouseId, name])
   @@index([warehouseId])
@@ -260,4 +278,69 @@ model PackingForm {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("packing_forms")
+}
+
+// Status of a receiving batch. `PENDING` is functional now (bag-by-bag
+// registration); `CONFIRMED`/`DISCREPANCY` exist structurally for the future
+// formal-confirmation step, which is not implemented yet.
+enum BatchStatus {
+  PENDING
+  CONFIRMED
+  DISCREPANCY
+}
+
+// A receiving batch/lot (Partija): one physical delivery of one resource from one
+// supplier into one warehouse. A batch is created at the start of bag-by-bag
+// registration and stays `PENDING` until a responsible person confirms it. It
+// exists independently of the formal GoodsReceipt and may later be reconciled
+// with one WITHOUT duplicating stock/quantities. `code` is the system-generated,
+// human-readable identifier printed on labels; `arrivalDate` is the physical
+// arrival and is independent of `createdAt` (the registration time).
+model Batch {
+  id          String      @id @default(uuid()) @db.Uuid
+  code        String      @unique @db.VarChar(32)
+  resourceId  String      @map("resource_id") @db.Uuid
+  supplierId  String      @map("supplier_id") @db.Uuid
+  warehouseId String      @map("warehouse_id") @db.Uuid
+  arrivalDate DateTime    @map("arrival_date")
+  status      BatchStatus @default(PENDING)
+  createdById String      @map("created_by_id") @db.Uuid
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  resource  Resource        @relation(fields: [resourceId], references: [id])
+  supplier  BusinessPartner @relation(fields: [supplierId], references: [id])
+  warehouse Warehouse       @relation(fields: [warehouseId], references: [id])
+  createdBy User            @relation(fields: [createdById], references: [id])
+  bags      Bag[]
+
+  @@index([status])
+  @@index([resourceId])
+  @@index([supplierId])
+  @@index([warehouseId])
+  @@map("batches")
+}
+
+// A physical bag / handling unit (one bag of a batch). `barcode` uniquely
+// identifies ONE physical unit and encodes NO business data (no supplier,
+// resource, date, batch or cost) — the relationships provide that. Bags in one
+// batch may have different measured `weight`s. `warehouseLocation` is optional
+// and, when set, must belong to the batch's warehouse.
+model Bag {
+  id                  String   @id @default(uuid()) @db.Uuid
+  barcode             String   @unique @db.VarChar(32)
+  batchId             String   @map("batch_id") @db.Uuid
+  weight              Decimal  @db.Decimal(14, 3)
+  warehouseLocationId String?  @map("warehouse_location_id") @db.Uuid
+  createdById         String   @map("created_by_id") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  batch             Batch              @relation(fields: [batchId], references: [id])
+  warehouseLocation WarehouseLocation? @relation(fields: [warehouseLocationId], references: [id])
+  createdBy         User               @relation(fields: [createdById], references: [id])
+
+  @@index([batchId])
+  @@index([warehouseLocationId])
+  @@map("bags")
 }

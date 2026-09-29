@@ -7,11 +7,13 @@ from legacy code.
 > **Status: identity & access foundation implemented, plus core business
 > modules.** The confirmed functional scope is users, credential login, roles
 > and authorization, **Partneriai** (business partners), **Ištekliai**
-> (resources) with fixed categories and **Pakavimo formos** (packing-form
-> reference data), **Sandėliai** (warehouses + locations), and the first minimal
-> **Pajamavimas** (goods receipt) workflow with physical placement. No other
-> business functionality (stock, movements, orders, sales, accounting, barcode,
-> integration) is approved or implemented. See [docs/scope.md](docs/scope.md).
+> (resources) with administrator-managed categories and **Pakavimo formos**
+> (packing-form reference data), **Sandėliai** (warehouses + locations), the
+> first minimal **Pajamavimas** (goods receipt) workflow with physical placement,
+> and **Partijos ir maišai** (incoming batches/lots with per-bag handling units
+> and barcodes). No other business functionality (stock, movements, production,
+> orders, sales, accounting, integration) is approved or implemented. See
+> [docs/scope.md](docs/scope.md).
 
 After login, Aitvaras runs as an application: a **sticky top bar** with
 role-aware navigation (`Pradžia`, `Partneriai`, `Ištekliai`, `Sandėliai`,
@@ -101,6 +103,7 @@ Full setup details: [docs/development.md](docs/development.md).
 - [docs/partners.md](docs/partners.md) — the business-partner module
 - [docs/resources.md](docs/resources.md) — resources, categories and packing forms
 - [docs/receipts.md](docs/receipts.md) — goods receipts (Pajamavimas)
+- [docs/batches.md](docs/batches.md) — batches (Partijos) and bags (Maišai)
 - [docs/warehouses.md](docs/warehouses.md) — warehouses and locations
 - [docs/domain-glossary.md](docs/domain-glossary.md) — confirmed domain terminology
 - [docs/authentication.md](docs/authentication.md) — auth model and login flow

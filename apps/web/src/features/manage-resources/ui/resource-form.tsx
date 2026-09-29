@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import type { ResourceCategory } from "@aitvaras/contracts";
 import {
-  RESOURCE_CATEGORY_KEYS,
-  RESOURCE_CATEGORY_LABELS,
-  type ResourceCategoryKey,
-} from "@aitvaras/contracts";
+  resourceCategoryOptionLabel,
+  selectableResourceCategories,
+} from "@/entities/resource-category";
 import { activeStatusLabel } from "@/shared/lib/format";
 import type { ResourceFormValues } from "../lib/resource-form";
 
@@ -14,9 +14,11 @@ const inputClass =
 
 /**
  * Reusable create/edit form for a resource. Owns only field state; the parent
- * performs the request, validation messaging and navigation.
+ * performs the request, validation messaging and navigation. Categories are
+ * loaded from the API (managed master data), never a hard-coded list.
  */
 export function ResourceForm({
+  categories,
   initialValues,
   submitLabel,
   submitting,
@@ -24,6 +26,7 @@ export function ResourceForm({
   onSubmit,
   onCancel,
 }: {
+  categories: readonly ResourceCategory[];
   initialValues: ResourceFormValues;
   submitLabel: string;
   submitting: boolean;
@@ -60,17 +63,20 @@ export function ResourceForm({
       <label className="grid gap-1 text-sm">
         <span className="font-medium">Kategorija *</span>
         <select
-          value={values.category}
-          onChange={(event) =>
-            set("category", event.target.value as ResourceCategoryKey)
-          }
+          value={values.categoryId}
+          onChange={(event) => set("categoryId", event.target.value)}
           className={inputClass}
         >
-          {RESOURCE_CATEGORY_KEYS.map((key) => (
-            <option key={key} value={key}>
-              {RESOURCE_CATEGORY_LABELS[key]}
-            </option>
-          ))}
+          {values.categoryId === "" ? (
+            <option value="">Pasirinkite kategoriją…</option>
+          ) : null}
+          {selectableResourceCategories(categories, values.categoryId).map(
+            (category) => (
+              <option key={category.id} value={category.id}>
+                {resourceCategoryOptionLabel(category)}
+              </option>
+            ),
+          )}
         </select>
       </label>
 

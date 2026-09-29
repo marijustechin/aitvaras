@@ -17,7 +17,7 @@ Confirmed fields only:
 | Field | Required | Notes |
 |---|---|---|
 | `name` | yes | non-empty, trimmed, ≤ 255 |
-| `category` | yes | exactly one `ResourceCategoryKey` |
+| `categoryId` | yes | id of exactly one **managed** resource category (see below) |
 | `active` | yes | defaults to `true` |
 | `notes` | no | internal free text, ≤ 2000 |
 
@@ -41,18 +41,37 @@ dimensions, weight, unit of measure, reorder level.
 
 ## Resource categories (Išteklių kategorijos)
 
-A resource has **exactly one** category. Currently a small, **fixed** domain
-classification, represented as a stable enum (`ResourceCategoryKey`), not a
-user-managed CRUD table:
+A resource has **exactly one** category. Resource categories are
+**administrator-managed master data** (entity `ResourceCategory`: UUID `id`,
+unique `name`, `active`, timestamps) — **not** a closed enum.
 
-| Key | Lithuanian |
+The three historical values are **seeded default records**, not the complete
+allowed set:
+
+| Default category | Created by |
 |---|---|
-| `RAW_MATERIAL` | Žaliava |
-| `SEMI_FINISHED` | Pusgaminis |
-| `FINISHED_PRODUCT` | Gaminys |
+| `Žaliava` | the `managed_resource_categories` migration |
+| `Pusgaminis` | idem |
+| `Gaminys` | idem |
 
-**Adding a new resource category is a domain/schema decision** (code + enum +
-migration), not ordinary end-user configuration.
+- Administrators create/rename categories and activate/deactivate them; the
+  server enforces the `ADMIN` role.
+- `name` is required, trimmed, ≤ 255 and **unique** (duplicate → `409`).
+- Categories are **deactivated, never hard-deleted**; a category referenced by a
+  resource is never removed.
+- **Inactive categories** remain valid for existing resources (they stay
+  queryable and keep their category), but cannot be selected for a **new**
+  resource (`400`). Reassigning an inactive category to another resource is also
+  rejected.
+- The three historical values are **data, not behaviour**: no code branches on
+  a category name or key.
+
+> **Classification only.** A resource category classifies a resource; it does
+> **not** encode or drive the production lifecycle, and it is **not** a state
+> machine. Do not assume a fixed `Žaliava -> Pusgaminis -> Gaminys` sequence:
+> one production operation may produce several outputs at once. Category also does
+> **not** provide provenance — batch/lot identity is separate. See the confirmed
+> future principles in [scope.md](scope.md).
 
 ## Packing forms (Pakavimo formos)
 
@@ -125,6 +144,10 @@ framework.
 | Resource details | `GET /resources/:id` | authenticated |
 | Create resource | `POST /resources` | `ADMIN` |
 | Update resource (incl. category, active) | `PATCH /resources/:id` | `ADMIN` |
+| List resource categories | `GET /resource-categories` | authenticated |
+| Resource-category details | `GET /resource-categories/:id` | authenticated |
+| Create resource category | `POST /resource-categories` | `ADMIN` |
+| Update resource category (name / active) | `PATCH /resource-categories/:id` | `ADMIN` |
 | List packing forms | `GET /packing-forms` | authenticated |
 | Packing-form details | `GET /packing-forms/:id` | authenticated |
 | Create packing form | `POST /packing-forms` | `ADMIN` |
@@ -136,15 +159,25 @@ attempts with `403`, regardless of UI visibility. No `DELETE` endpoints.
 ## API, contracts and UI
 
 - API modules: `apps/api/src/modules/resources/`,
+  `apps/api/src/modules/resource-categories/`,
   `apps/api/src/modules/packing-forms/`.
-- Shared contracts: `@aitvaras/contracts` (`resources.ts`, `packing-forms.ts`) —
-  strict schemas (unknown fields rejected), trimmed text, blank names rejected,
-  updates require at least one field, centralised Lithuanian labels.
-- Default ordering: `name` ascending (then id) for both.
+- Shared contracts: `@aitvaras/contracts` (`resources.ts`,
+  `resource-categories.ts`, `packing-forms.ts`) — strict schemas (unknown fields
+  rejected), trimmed text, blank names rejected, updates require at least one
+  field. Resource responses denormalise the category
+  (`categoryId`/`categoryName`/`categoryActive`) so an inactive assigned category
+  stays visible.
+- Default ordering: `name` ascending (then id) for all three.
 - UI routes (inside the shell): `/resources` (list), `/resources/new` (ADMIN),
-  `/resources/[id]` (details; ADMIN edit), `/resources/packing-forms`
-  (supporting reference-data administration). Navigation: `Ištekliai`
-  (authenticated). `Pakavimo formos` is intentionally **not** a primary nav item.
+  `/resources/[id]` (details; ADMIN edit), `/resources/categories` (managed
+  resource categories — ADMIN write), `/resources/packing-forms` (supporting
+  reference-data administration). Navigation: `Ištekliai` (authenticated).
+  `Kategorijos` and `Pakavimo formos` are intentionally **not** primary nav items;
+  they are linked from `/resources`.
+- The resource form loads categories from `GET /resource-categories` (no
+  hard-coded category list); for a new resource it offers **active** categories
+  only, and when editing it keeps the currently assigned category even if it is
+  inactive.
 - UI messages are Lithuanian (`Išteklių dar nėra.`, `Pakavimo formų dar nėra.`,
   `Įveskite ištekliaus pavadinimą.`, `Įveskite pakavimo formos pavadinimą.`).
 

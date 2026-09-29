@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import type { Resource } from "@aitvaras/contracts";
-import { resourceCategoryLabel } from "@/entities/resource";
+import type { Resource, ResourceCategory } from "@aitvaras/contracts";
 import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
 import { activeStatusLabel, valueOrPlaceholder } from "@/shared/lib/format";
@@ -25,6 +24,7 @@ export function ResourceDetailsPage() {
   const { user, clearSession } = useAuth();
 
   const [resource, setResource] = useState<Resource | null>(null);
+  const [categories, setCategories] = useState<ResourceCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -52,7 +52,12 @@ export function ResourceDetailsPage() {
   const reload = useCallback(async (): Promise<void> => {
     setLoading(true);
     try {
-      setResource(await apiFetch<Resource>(`/resources/${id}`));
+      const [loadedResource, loadedCategories] = await Promise.all([
+        apiFetch<Resource>(`/resources/${id}`),
+        apiFetch<ResourceCategory[]>("/resource-categories"),
+      ]);
+      setResource(loadedResource);
+      setCategories(loadedCategories);
       setLoadError(null);
     } catch (caught) {
       handleError(caught, "Nepavyko įkelti ištekliaus");
@@ -132,6 +137,7 @@ export function ResourceDetailsPage() {
       {editing ? (
         <section className={workSurfaceClass()}>
           <ResourceForm
+            categories={categories}
             initialValues={resourceToFormValues(resource)}
             submitLabel="Išsaugoti"
             submitting={submitting}
@@ -146,7 +152,8 @@ export function ResourceDetailsPage() {
             <div>
               <dt className="text-sm font-medium">Kategorija</dt>
               <dd className="text-sm text-muted-foreground">
-                {resourceCategoryLabel(resource.category)}
+                {resource.categoryName}
+                {resource.categoryActive ? "" : " (neaktyvi)"}
               </dd>
             </div>
             <div>

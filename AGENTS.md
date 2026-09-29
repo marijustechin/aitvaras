@@ -13,21 +13,31 @@ concise and operational; put durable knowledge in `docs/`.
   workflows**, never from assuming legacy code is a specification. The strategy
   is fixed by the workspace ADR-001.
 - **Confirmed functional scope is identity and access management, business
-  partners (`Partneriai`), resources (`Ištekliai`, with fixed categories),
-  packing forms (`Pakavimo formos`, reference data), warehouses + locations
-  (`Sandėliai`) and the first minimal goods-receipt workflow (`Pajamavimas`)
-  with physical placement.** Identity/access is `docs/scope.md`,
+  partners (`Partneriai`), resources (`Ištekliai`) with administrator-managed
+  categories (`Išteklių kategorijos`), packing forms (`Pakavimo formos`, reference
+  data), warehouses + locations
+  (`Sandėliai`), the first minimal goods-receipt workflow (`Pajamavimas`)
+  with physical placement, and incoming batches/lots with per-bag handling units
+  (`Partijos ir maišai`).** Identity/access is `docs/scope.md`,
   `docs/authentication.md`, `docs/authorization.md`; business partners are
   [docs/partners.md](docs/partners.md); resources and packing forms are
-  [docs/resources.md](docs/resources.md); goods receipts and warehouses are
-  [docs/receipts.md](docs/receipts.md) and
-  [docs/warehouses.md](docs/warehouses.md). The canonical scope statement is
+  [docs/resources.md](docs/resources.md); goods receipts, warehouses and batches
+  are [docs/receipts.md](docs/receipts.md), [docs/warehouses.md](docs/warehouses.md)
+  and [docs/batches.md](docs/batches.md). The canonical scope statement is
   [docs/scope.md](docs/scope.md). Everything else — stock balances, warehouse
-  movements, purchasing/accounting, production, orders, sales, barcode
-  workflows, reporting, tenant architecture, Sandėlys integration, migration,
-  synchronisation — is **unconfirmed discovery** and must not be built or
-  planned. Candidate modules and first slices in `docs/` are evidence, not a
-  roadmap.
+  movements, purchasing/accounting, production, orders, sales, reporting, tenant
+  architecture, Sandėlys integration, migration, synchronisation — is
+  **unconfirmed discovery** and must not be built or planned. Candidate modules
+  and first slices in `docs/` are evidence, not a roadmap.
+- **Inventory/production principles are part-implemented.** Resource categories
+  are **classification only** (no implicit `Žaliava -> Pusgaminis -> Gaminys`
+  lifecycle and no provenance). Incoming batch/lot identity and per-bag
+  EAN/handling-unit identity are implemented as a first slice
+  ([docs/batches.md](docs/batches.md)); the batch↔receipt link, scan-driven
+  movements, production lineage and batch/output-lot costing remain **confirmed
+  future direction** — do not implement, model or infer them without a scoped,
+  confirmed task. See the "Confirmed future inventory/production principles"
+  section in `docs/scope.md`.
 
 ## Boundaries
 

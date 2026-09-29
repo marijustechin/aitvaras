@@ -37,7 +37,11 @@ access
 users
 partners
 resources
+resource-categories
 packing-forms
+receipts
+batches
+warehouses
 health
 ```
 

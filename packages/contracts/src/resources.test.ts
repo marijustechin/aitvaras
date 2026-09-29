@@ -1,40 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
   CreateResourceRequestSchema,
-  RESOURCE_CATEGORY_KEYS,
-  RESOURCE_CATEGORY_LABELS,
   UpdateResourceRequestSchema,
 } from "./resources";
 
-describe("resource category labels", () => {
-  it("provides a non-empty Lithuanian label for every category", () => {
-    for (const key of RESOURCE_CATEGORY_KEYS) {
-      expect(typeof RESOURCE_CATEGORY_LABELS[key]).toBe("string");
-      expect(RESOURCE_CATEGORY_LABELS[key].length).toBeGreaterThan(0);
-    }
-  });
-
-  it("maps the confirmed categories", () => {
-    expect(RESOURCE_CATEGORY_LABELS.RAW_MATERIAL).toBe("Žaliava");
-    expect(RESOURCE_CATEGORY_LABELS.SEMI_FINISHED).toBe("Pusgaminis");
-    expect(RESOURCE_CATEGORY_LABELS.FINISHED_PRODUCT).toBe("Gaminys");
-  });
-
-  it("does not expose the raw key as its label", () => {
-    for (const key of RESOURCE_CATEGORY_KEYS) {
-      expect(RESOURCE_CATEGORY_LABELS[key]).not.toBe(key);
-    }
-  });
-});
+const CATEGORY_ID = "0f1f2f3f-0000-4000-8000-000000000000";
 
 describe("CreateResourceRequestSchema", () => {
-  it("requires a non-blank name and a valid category", () => {
+  it("requires a non-blank name and a category uuid", () => {
     expect(
-      CreateResourceRequestSchema.safeParse({ name: "   ", category: "RAW_MATERIAL" })
+      CreateResourceRequestSchema.safeParse({ name: "   ", categoryId: CATEGORY_ID })
         .success,
     ).toBe(false);
     expect(
-      CreateResourceRequestSchema.safeParse({ name: "Audinys", category: "NOPE" })
+      CreateResourceRequestSchema.safeParse({ name: "Audinys", categoryId: "nope" })
         .success,
     ).toBe(false);
     expect(CreateResourceRequestSchema.safeParse({ name: "Audinys" }).success).toBe(
@@ -42,18 +21,19 @@ describe("CreateResourceRequestSchema", () => {
     );
   });
 
-  it("accepts each confirmed category", () => {
-    for (const category of RESOURCE_CATEGORY_KEYS) {
-      expect(
-        CreateResourceRequestSchema.safeParse({ name: "Audinys", category }).success,
-      ).toBe(true);
-    }
+  it("accepts a valid name and category", () => {
+    expect(
+      CreateResourceRequestSchema.safeParse({
+        name: "Audinys",
+        categoryId: CATEGORY_ID,
+      }).success,
+    ).toBe(true);
   });
 
   it("trims text, normalises empty notes to null and rejects unknown fields", () => {
     const parsed = CreateResourceRequestSchema.parse({
       name: "  Audinys  ",
-      category: "SEMI_FINISHED",
+      categoryId: CATEGORY_ID,
       notes: "  ",
     });
     expect(parsed.name).toBe("Audinys");
@@ -62,15 +42,22 @@ describe("CreateResourceRequestSchema", () => {
     expect(
       CreateResourceRequestSchema.safeParse({
         name: "Audinys",
-        category: "RAW_MATERIAL",
+        categoryId: CATEGORY_ID,
         quantity: 5,
       }).success,
     ).toBe(false);
     expect(
       CreateResourceRequestSchema.safeParse({
         name: "Audinys",
+        categoryId: CATEGORY_ID,
+        id: CATEGORY_ID,
+      }).success,
+    ).toBe(false);
+    // The obsolete fixed-category field is rejected.
+    expect(
+      CreateResourceRequestSchema.safeParse({
+        name: "Audinys",
         category: "RAW_MATERIAL",
-        id: "0f1f2f3f-0000-4000-8000-000000000000",
       }).success,
     ).toBe(false);
   });
@@ -86,8 +73,7 @@ describe("UpdateResourceRequestSchema", () => {
       UpdateResourceRequestSchema.safeParse({ active: false }).success,
     ).toBe(true);
     expect(
-      UpdateResourceRequestSchema.safeParse({ category: "FINISHED_PRODUCT" })
-        .success,
+      UpdateResourceRequestSchema.safeParse({ categoryId: CATEGORY_ID }).success,
     ).toBe(true);
   });
 });

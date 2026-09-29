@@ -13,8 +13,10 @@ apps/api/src/
 │   ├── users/                  admin user lifecycle (/users)
 │   ├── partners/               business partners (/partners)
 │   ├── resources/              resources (/resources)
+│   ├── resource-categories/    managed resource categories (/resource-categories)
 │   ├── packing-forms/          packing forms reference data (/packing-forms)
 │   ├── receipts/               goods receipts / Pajamavimas (/receipts)
+│   ├── batches/                batches + bags / Partijos ir maišai (/batches, /bags)
 │   ├── warehouses/             warehouses + locations (/warehouses)
 │   ├── access/                 role catalogue + access domain primitives
 │   └── health/                 /health (public)
@@ -28,7 +30,7 @@ apps/api/src/
 ├── app.module.ts               composes modules; registers global guards
 └── main.ts
 
-packages/contracts/src/  roles.ts, auth.ts, users.ts, partners.ts, resources.ts, packing-forms.ts, warehouses.ts, receipts.ts, health.ts
+packages/contracts/src/  roles.ts, auth.ts, users.ts, partners.ts, resources.ts, resource-categories.ts, packing-forms.ts, warehouses.ts, receipts.ts, batches.ts, health.ts
 packages/database/       Prisma 7, generated client + adapter (see ADR-008)
 ```
 
@@ -41,14 +43,15 @@ packages/database/       Prisma 7, generated client + adapter (see ADR-008)
 - Prisma contains the confirmed models only: identity/access (`User` with a
   unique `username` + `firstName`/`lastName` + `active`, `Role` with the
   canonical `RoleKey` enum, `UserRole` many-to-many), business partners
-  (`BusinessPartner`, `PartnerRole`), resources (`Resource` with the
-  `ResourceCategoryKey` enum), reference data (`PackingForm`), goods receipts
-  (`GoodsReceipt`, `GoodsReceiptLine`, `MeasurementUnitKey`) and warehouses
-  (`Warehouse`, `WarehouseLocation`). No other tables exist.
+  (`BusinessPartner`, `PartnerRole`), resources (`Resource` with a `categoryId`
+  reference to the managed `ResourceCategory` table), reference data
+  (`PackingForm`), goods receipts (`GoodsReceipt`, `GoodsReceiptLine`,
+  `MeasurementUnitKey`), warehouses (`Warehouse`, `WarehouseLocation`) and
+  receiving batches/bags (`Batch`/`BatchStatus`, `Bag`). No other tables exist.
 - `AppModule` composes `PrismaModule`, `AccessModule`, `AuthModule`,
-  `UsersModule`, `PartnersModule`, `ResourcesModule`, `PackingFormsModule`,
-  `ReceiptsModule`, `WarehousesModule`, `HealthModule` and registers the global
-  guards.
+  `UsersModule`, `PartnersModule`, `ResourceCategoriesModule`, `ResourcesModule`,
+  `PackingFormsModule`, `ReceiptsModule`, `BatchesModule`, `WarehousesModule`,
+  `HealthModule` and registers the global guards.
 - See `authentication.md`, `authorization.md` and `scope.md`.
 
 ## API module conventions (NestJS)
@@ -96,10 +99,12 @@ concerns; the `access` module owns the role catalogue.
   `/resources` (`docs/resources.md`).
 - The web frontend follows **FSD-lite** (`app`, `widgets`, `features`,
   `entities`, `shared`); see [frontend-architecture.md](frontend-architecture.md).
-- The database has six migrations: `initial_identity_access`,
+- The database has nine migrations: `initial_identity_access`,
   `business_partners`, `resources_and_packing_forms`, `goods_receipts`,
-  `warehouse_placement` and `optional_receipt_location`. Applied migrations
-  become immutable after the first shared/production deployment (ADR-010).
+  `warehouse_placement`, `optional_receipt_location`, `add_user_token_version`,
+  `managed_resource_categories` and `receiving_batches_and_bags`. Applied
+  migrations become immutable after the first shared/production deployment
+  (ADR-010).
 
 ## Purpose
 
@@ -182,9 +187,10 @@ empty layers in advance.
 - The schema contains the confirmed models only: identity/access (`User`,
   `Role`, `UserRole`), business partners (`BusinessPartner`, `PartnerRole`),
   resources (`Resource`), reference data (`PackingForm`), goods receipts
-  (`GoodsReceipt`, `GoodsReceiptLine`) and warehouses (`Warehouse`,
-  `WarehouseLocation`). No other business-domain tables were created. Receipts
-  record the transaction and intended placement only — no stock tables exist.
+  (`GoodsReceipt`, `GoodsReceiptLine`), warehouses (`Warehouse`,
+  `WarehouseLocation`) and receiving batches/bags (`Batch`, `Bag`). No other
+  business-domain tables were created. Receipts and batches record the transaction
+  and intended placement/identity only — no stock tables exist.
 - Money, identifiers and domain vocabulary are Aitvaras decisions, not inherited
   from legacy conventions (e.g. legacy seeded numeric IDs or integer cents).
 
@@ -240,8 +246,10 @@ Rules:
   interface, never on adapter internals or legacy names.
 - `reporting` must not own data.
 - `barcode` is not an identity provider (see `identity-strategy.md`).
-- `partners`, `resources` (with its fixed categories) and `packing-forms` are
-  now implemented (`docs/partners.md`, `docs/resources.md`); the remaining rows
+- `partners`, `resources` (with administrator-managed categories),
+  `packing-forms`, `warehouses` and the first slice of `inventory`/`barcode`
+  (incoming batches + per-bag handling units) are now implemented
+  (`docs/partners.md`, `docs/resources.md`, `docs/batches.md`); the remaining rows
   are unconfirmed.
 - Do not create these modules until a slice needs them.
 

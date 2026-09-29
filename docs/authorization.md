@@ -107,6 +107,10 @@ username; role management stays ADMIN-only via `/users`.
 | Resource details | `GET /resources/:id` | authenticated |
 | Create resource | `POST /resources` | `ADMIN` |
 | Update resource (category / active / data) | `PATCH /resources/:id` | `ADMIN` |
+| List resource categories | `GET /resource-categories` | authenticated |
+| Resource-category details | `GET /resource-categories/:id` | authenticated |
+| Create resource category | `POST /resource-categories` | `ADMIN` |
+| Update resource category (name / active) | `PATCH /resource-categories/:id` | `ADMIN` |
 | List packing forms | `GET /packing-forms` | authenticated |
 | Packing-form details | `GET /packing-forms/:id` | authenticated |
 | Create packing form | `POST /packing-forms` | `ADMIN` |
@@ -114,6 +118,12 @@ username; role management stays ADMIN-only via `/users`.
 | List receipts | `GET /receipts` | authenticated |
 | Receipt details | `GET /receipts/:id` | authenticated |
 | Create receipt | `POST /receipts` | authenticated |
+| List batches | `GET /batches` | authenticated |
+| Batch details (with bags) | `GET /batches/:id` | authenticated |
+| Start a batch | `POST /batches` | `ADMIN` or `WAREHOUSE_WORKER` |
+| List a batch's bags | `GET /batches/:id/bags` | authenticated |
+| Add a bag | `POST /batches/:id/bags` | `ADMIN` or `WAREHOUSE_WORKER` |
+| Look up a bag by barcode | `GET /bags/by-barcode/:barcode` | authenticated |
 | List warehouses (with locations) | `GET /warehouses` | authenticated |
 | Warehouse details | `GET /warehouses/:id` | authenticated |
 | Create warehouse | `POST /warehouses` | `ADMIN` |
@@ -134,11 +144,14 @@ username; role management stays ADMIN-only via `/users`.
 ## Limitations / next steps
 
 - No permission model finer than roles (no per-resource permissions); none is
-  confirmed as required. Partner/resource/packing-form viewing is
-  authenticated-only and modification is `ADMIN`-only, using the same role
+  confirmed as required. Partner/resource/resource-category/packing-form viewing
+  is authenticated-only and modification is `ADMIN`-only, using the same role
   guard. Goods receipts (`Pajamavimas`) are listable/readable/creatable by any
   authenticated user — it is expected to become an operational warehouse
-  workflow, so creation is deliberately not `ADMIN`-restricted. Warehouse
+  workflow, so creation is deliberately not `ADMIN`-restricted. Batch/bag
+  **reads** are authenticated; **starting a batch** and **adding a bag** are
+  restricted to `ADMIN` or `WAREHOUSE_WORKER` (the operational shop-floor roles),
+  reusing the same role guard — no new permission framework. Warehouse
   master data (warehouses/locations) is listable/readable by authenticated
   users and modifiable by `ADMIN` only.
 - Role changes take effect at the user's next login/token expiry.

@@ -7,10 +7,14 @@ import {
   resourceToFormValues,
 } from "./resource-form";
 
+const CATEGORY_ID = "0f1f2f3f-0000-4000-8000-000000000000";
+
 const resource: Resource = {
-  id: "0f1f2f3f-0000-4000-8000-000000000000",
+  id: "1f1f2f3f-0000-4000-8000-000000000000",
   name: "Medvilninis audinys",
-  category: "RAW_MATERIAL",
+  categoryId: CATEGORY_ID,
+  categoryName: "Žaliava",
+  categoryActive: true,
   notes: null,
   active: true,
   createdAt: "2026-01-01T00:00:00.000Z",
@@ -18,10 +22,10 @@ const resource: Resource = {
 };
 
 describe("resource form values", () => {
-  it("defaults a new resource to active and the first category", () => {
+  it("defaults a new resource to active with no category selected", () => {
     expect(emptyResourceFormValues()).toEqual({
       name: "",
-      category: "RAW_MATERIAL",
+      categoryId: "",
       notes: "",
       active: true,
     });
@@ -31,11 +35,11 @@ describe("resource form values", () => {
     const values = resourceToFormValues(resource);
     expect(values.name).toBe("Medvilninis audinys");
     expect(values.notes).toBe("");
-    expect(values.category).toBe("RAW_MATERIAL");
+    expect(values.categoryId).toBe(CATEGORY_ID);
     expect(values.active).toBe(true);
   });
 
-  it("trims payload text", () => {
+  it("trims payload text and keeps the category id intact", () => {
     const payload = resourceFormToPayload({
       ...resourceToFormValues(resource),
       name: "  Audinys  ",
@@ -43,12 +47,16 @@ describe("resource form values", () => {
     });
     expect(payload.name).toBe("Audinys");
     expect(payload.notes).toBe("pastaba");
+    expect(payload.categoryId).toBe(CATEGORY_ID);
   });
 
-  it("requires a name", () => {
+  it("requires a name and a category", () => {
     expect(resourceFormError(resourceToFormValues(resource))).toBeNull();
-    expect(resourceFormError({ ...resourceToFormValues(resource), name: "  " })).toBe(
-      "Įveskite ištekliaus pavadinimą.",
-    );
+    expect(
+      resourceFormError({ ...resourceToFormValues(resource), name: "  " }),
+    ).toBe("Įveskite ištekliaus pavadinimą.");
+    expect(
+      resourceFormError({ ...resourceToFormValues(resource), categoryId: "" }),
+    ).toBe("Pasirinkite kategoriją.");
   });
 });

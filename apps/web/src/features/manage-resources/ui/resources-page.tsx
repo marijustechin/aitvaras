@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Resource } from "@aitvaras/contracts";
-import { EMPTY_RESOURCES_MESSAGE, resourceCategoryLabel } from "@/entities/resource";
+import { EMPTY_RESOURCES_MESSAGE } from "@/entities/resource";
 import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
 import { activeStatusLabel } from "@/shared/lib/format";
@@ -50,7 +50,10 @@ export function ResourcesPage() {
         ) : null}
       </div>
 
-      <div className="-mt-2">
+      <div className="-mt-2 flex gap-4">
+        <Link href="/resources/categories" className="text-sm hover:underline">
+          Kategorijos
+        </Link>
         <Link href="/resources/packing-forms" className="text-sm hover:underline">
           Pakavimo formos
         </Link>
@@ -91,7 +94,8 @@ export function ResourcesPage() {
                     </Link>
                   </td>
                   <td className="px-4 py-2">
-                    {resourceCategoryLabel(resource.category)}
+                    {resource.categoryName}
+                    {resource.categoryActive ? "" : " (neaktyvi)"}
                   </td>
                   <td className="px-4 py-2">{activeStatusLabel(resource.active)}</td>
                 </tr>

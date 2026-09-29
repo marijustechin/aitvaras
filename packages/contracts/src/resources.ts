@@ -1,31 +1,6 @@
 import { z } from "zod";
 import { optionalTextField } from "./fields";
 
-/**
- * Resource categories.
- *
- * A resource has **exactly one** category. This is a small, fixed domain
- * classification (a business/schema decision), deliberately represented as a
- * stable enum rather than a user-managed CRUD table. Adding a new category is a
- * domain/schema change, not ordinary end-user configuration.
- */
-export const RESOURCE_CATEGORY_KEYS = [
-  "RAW_MATERIAL",
-  "SEMI_FINISHED",
-  "FINISHED_PRODUCT",
-] as const;
-
-export const ResourceCategoryKeySchema = z.enum(RESOURCE_CATEGORY_KEYS);
-
-export type ResourceCategoryKey = z.infer<typeof ResourceCategoryKeySchema>;
-
-/** Human-readable labels (Lithuanian), for display only. */
-export const RESOURCE_CATEGORY_LABELS: Record<ResourceCategoryKey, string> = {
-  RAW_MATERIAL: "Žaliava",
-  SEMI_FINISHED: "Pusgaminis",
-  FINISHED_PRODUCT: "Gaminys",
-};
-
 /** Maximum lengths for resource fields. */
 export const RESOURCE_FIELD_LIMITS = {
   name: 255,
@@ -35,6 +10,11 @@ export const RESOURCE_FIELD_LIMITS = {
 /**
  * A resource as returned by the API.
  *
+ * A resource has exactly one **managed** category (see `resource-categories.ts`).
+ * The category is returned denormalised (`categoryId`, `categoryName`,
+ * `categoryActive`) so the UI can display an inactive category that is still
+ * assigned without losing it.
+ *
  * Only confirmed fields exist. Purchase/sales price, VAT, barcode, quantity,
  * stock, location, supplier, packing form, dimensions, weight, unit and reorder
  * level are deliberately absent until confirmed. `notes` is `null` when unset.
@@ -42,7 +22,9 @@ export const RESOURCE_FIELD_LIMITS = {
 export const ResourceSchema = z.object({
   id: z.uuid(),
   name: z.string(),
-  category: ResourceCategoryKeySchema,
+  categoryId: z.uuid(),
+  categoryName: z.string(),
+  categoryActive: z.boolean(),
   notes: z.string().nullable(),
   active: z.boolean(),
   createdAt: z.iso.datetime(),
@@ -56,11 +38,11 @@ const resourceName = z
   .min(1)
   .max(RESOURCE_FIELD_LIMITS.name);
 
-/** Request to create a resource. A category is required. */
+/** Request to create a resource. A category id is required. */
 export const CreateResourceRequestSchema = z
   .object({
     name: resourceName,
-    category: ResourceCategoryKeySchema,
+    categoryId: z.uuid(),
     notes: optionalTextField(RESOURCE_FIELD_LIMITS.notes),
     active: z.boolean().optional(),
   })
@@ -74,7 +56,7 @@ export type CreateResourceRequest = z.infer<typeof CreateResourceRequestSchema>;
 export const UpdateResourceRequestSchema = z
   .object({
     name: resourceName.optional(),
-    category: ResourceCategoryKeySchema.optional(),
+    categoryId: z.uuid().optional(),
     notes: optionalTextField(RESOURCE_FIELD_LIMITS.notes),
     active: z.boolean().optional(),
   })

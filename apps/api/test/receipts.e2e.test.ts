@@ -113,8 +113,11 @@ describe.skipIf(!dbAvailable)("Goods receipts (integration)", () => {
   }
 
   async function seedResource(suffix: string, active: boolean): Promise<string> {
+    const category = await prisma.resourceCategory.findFirstOrThrow({
+      where: { name: "Žaliava" },
+    });
     const resource = await prisma.resource.create({
-      data: { name: `${PREFIX}${suffix}`, category: "RAW_MATERIAL", active },
+      data: { name: `${PREFIX}${suffix}`, categoryId: category.id, active },
     });
     return resource.id;
   }

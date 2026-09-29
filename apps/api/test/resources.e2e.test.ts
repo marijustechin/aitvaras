@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
-import type { Resource, ResourceCategoryKey, RoleKey } from "@aitvaras/contracts";
+import type { Resource, RoleKey } from "@aitvaras/contracts";
 import { AUTH_COOKIE_NAME } from "../src/common/auth/auth-cookie";
 import { PrismaService } from "../src/infrastructure/prisma/prisma.service";
 import { LoginAttemptService } from "../src/modules/auth/login-attempt.service";
@@ -10,12 +10,7 @@ import { isTestDatabaseReachable } from "./support/test-db";
 
 const dbAvailable = await isTestDatabaseReachable();
 const PREFIX = "test_resources_";
-const UNKNOWN_UUID = "22222222-2222-4222-8222-222222222222";
-const CATEGORIES: ResourceCategoryKey[] = [
-  "RAW_MATERIAL",
-  "SEMI_FINISHED",
-  "FINISHED_PRODUCT",
-];
+const UNKNOWN_UUID = "99999999-9999-4999-8999-999999999999";
 
 describe.skipIf(!dbAvailable)("Resources (integration)", () => {
   let app: NestFastifyApplication;
@@ -51,6 +46,9 @@ describe.skipIf(!dbAvailable)("Resources (integration)", () => {
 
   async function cleanup(): Promise<void> {
     await prisma.resource.deleteMany({ where: { name: { startsWith: PREFIX } } });
+    await prisma.resourceCategory.deleteMany({
+      where: { name: { startsWith: PREFIX } },
+    });
     await prisma.user.deleteMany({ where: { username: { startsWith: PREFIX } } });
   }
 
@@ -90,16 +88,24 @@ describe.skipIf(!dbAvailable)("Resources (integration)", () => {
     return { cookies: { [AUTH_COOKIE_NAME]: cookie } };
   }
 
+  /** The three categories seeded by the managed-category migration. */
+  async function seededCategoryId(name: string): Promise<string> {
+    const category = await prisma.resourceCategory.findFirstOrThrow({
+      where: { name },
+    });
+    return category.id;
+  }
+
   async function createResource(
     name: string,
-    category: ResourceCategoryKey,
+    categoryId: string,
     extra: Record<string, unknown> = {},
   ): Promise<Resource> {
     const res = await app.inject({
       method: "POST",
       url: "/resources",
       ...auth(adminCookie),
-      payload: { name, category, ...extra },
+      payload: { name, categoryId, ...extra },
     });
     expect(res.statusCode).toBe(201);
     return res.json() as Resource;
@@ -112,7 +118,8 @@ describe.skipIf(!dbAvailable)("Resources (integration)", () => {
   });
 
   it("allows an authenticated non-admin to list and read resources", async () => {
-    const resource = await createResource(`${PREFIX}readable`, "RAW_MATERIAL");
+    const categoryId = await seededCategoryId("Žaliava");
+    const resource = await createResource(`${PREFIX}readable`, categoryId);
 
     const list = await app.inject({
       method: "GET",
@@ -120,9 +127,11 @@ describe.skipIf(!dbAvailable)("Resources (integration)", () => {
       ...auth(workerCookie),
     });
     expect(list.statusCode).toBe(200);
-    expect((list.json() as Resource[]).map((item) => item.name)).toContain(
-      `${PREFIX}readable`,
+    const found = (list.json() as Resource[]).find(
+      (item) => item.id === resource.id,
     );
+    expect(found?.categoryName).toBe("Žaliava");
+    expect(found?.categoryActive).toBe(true);
 
     const detail = await app.inject({
       method: "GET",
@@ -130,17 +139,18 @@ describe.skipIf(!dbAvailable)("Resources (integration)", () => {
       ...auth(workerCookie),
     });
     expect(detail.statusCode).toBe(200);
-    expect(detail.json().id).toBe(resource.id);
+    expect(detail.json().categoryId).toBe(categoryId);
   });
 
   it("forbids a non-admin from creating or updating", async () => {
-    const resource = await createResource(`${PREFIX}guarded`, "RAW_MATERIAL");
+    const categoryId = await seededCategoryId("Žaliava");
+    const resource = await createResource(`${PREFIX}guarded`, categoryId);
 
     const create = await app.inject({
       method: "POST",
       url: "/resources",
       ...auth(workerCookie),
-      payload: { name: `${PREFIX}nope`, category: "RAW_MATERIAL" },
+      payload: { name: `${PREFIX}nope`, categoryId },
     });
     expect(create.statusCode).toBe(403);
 
@@ -153,22 +163,26 @@ describe.skipIf(!dbAvailable)("Resources (integration)", () => {
     expect(update.statusCode).toBe(403);
   });
 
-  it("supports every confirmed category and defaults to active", async () => {
-    for (const category of CATEGORIES) {
-      const resource = await createResource(`${PREFIX}cat-${category}`, category);
-      expect(resource.category).toBe(category);
+  it("supports the seeded categories and defaults to active", async () => {
+    for (const name of ["Žaliava", "Pusgaminis", "Gaminys"]) {
+      const categoryId = await seededCategoryId(name);
+      const resource = await createResource(`${PREFIX}cat-${name}`, categoryId);
+      expect(resource.categoryId).toBe(categoryId);
+      expect(resource.categoryName).toBe(name);
       expect(resource.active).toBe(true);
       expect(resource.notes).toBeNull();
     }
   });
 
-  it("rejects invalid category, blank name, unknown fields and malformed ids", async () => {
+  it("rejects unknown category, blank name, unknown fields and malformed ids", async () => {
+    const categoryId = await seededCategoryId("Žaliava");
     for (const payload of [
-      { name: `${PREFIX}badcat`, category: "NOPE" },
-      { name: "   ", category: "RAW_MATERIAL" },
-      { category: "RAW_MATERIAL" },
-      { name: `${PREFIX}q`, category: "RAW_MATERIAL", quantity: 5 },
-      { name: `${PREFIX}id`, category: "RAW_MATERIAL", id: UNKNOWN_UUID },
+      { name: `${PREFIX}badcat`, categoryId: UNKNOWN_UUID },
+      { name: "   ", categoryId },
+      { categoryId },
+      { name: `${PREFIX}q`, categoryId, quantity: 5 },
+      { name: `${PREFIX}id`, categoryId, id: UNKNOWN_UUID },
+      { name: `${PREFIX}old`, category: "RAW_MATERIAL" },
     ]) {
       const res = await app.inject({
         method: "POST",
@@ -200,18 +214,84 @@ describe.skipIf(!dbAvailable)("Resources (integration)", () => {
     ).toBe(404);
   });
 
+  it("rejects creating a resource with an inactive category", async () => {
+    const inactive = await prisma.resourceCategory.create({
+      data: { name: `${PREFIX}inactive-cat`, active: false },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/resources",
+      ...auth(adminCookie),
+      payload: { name: `${PREFIX}with-inactive`, categoryId: inactive.id },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().message).toBe("Pasirinkta kategorija neaktyvi.");
+  });
+
+  it("keeps a resource's inactive category on read and name-only edit", async () => {
+    const category = await prisma.resourceCategory.create({
+      data: { name: `${PREFIX}retired-cat`, active: true },
+    });
+    const resource = await createResource(`${PREFIX}historical`, category.id);
+
+    await prisma.resourceCategory.update({
+      where: { id: category.id },
+      data: { active: false },
+    });
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/resources/${resource.id}`,
+      ...auth(workerCookie),
+    });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().categoryId).toBe(category.id);
+    expect(detail.json().categoryName).toBe(`${PREFIX}retired-cat`);
+    expect(detail.json().categoryActive).toBe(false);
+
+    // Editing other fields keeps the (now inactive) category.
+    const renamed = await app.inject({
+      method: "PATCH",
+      url: `/resources/${resource.id}`,
+      ...auth(adminCookie),
+      payload: { name: `${PREFIX}historical-renamed` },
+    });
+    expect(renamed.statusCode).toBe(200);
+    expect(renamed.json().categoryId).toBe(category.id);
+
+    // Reassigning the inactive category to another resource is rejected.
+    const other = await createResource(
+      `${PREFIX}other`,
+      await seededCategoryId("Žaliava"),
+    );
+    const reassign = await app.inject({
+      method: "PATCH",
+      url: `/resources/${other.id}`,
+      ...auth(adminCookie),
+      payload: { categoryId: category.id },
+    });
+    expect(reassign.statusCode).toBe(400);
+    expect(reassign.json().message).toBe("Pasirinkta kategorija neaktyvi.");
+  });
+
   it("lets an admin edit name, category and notes, and rejects empty updates", async () => {
-    const resource = await createResource(`${PREFIX}edit`, "RAW_MATERIAL");
+    const resource = await createResource(
+      `${PREFIX}edit`,
+      await seededCategoryId("Žaliava"),
+    );
+    const finished = await seededCategoryId("Gaminys");
 
     const updated = await app.inject({
       method: "PATCH",
       url: `/resources/${resource.id}`,
       ...auth(adminCookie),
-      payload: { name: `${PREFIX}edit-renamed`, category: "FINISHED_PRODUCT", notes: "  " },
+      payload: { name: `${PREFIX}edit-renamed`, categoryId: finished, notes: "  " },
     });
     expect(updated.statusCode).toBe(200);
     expect(updated.json().name).toBe(`${PREFIX}edit-renamed`);
-    expect(updated.json().category).toBe("FINISHED_PRODUCT");
+    expect(updated.json().categoryId).toBe(finished);
+    expect(updated.json().categoryName).toBe("Gaminys");
     expect(updated.json().notes).toBeNull();
 
     const empty = await app.inject({
@@ -232,7 +312,10 @@ describe.skipIf(!dbAvailable)("Resources (integration)", () => {
   });
 
   it("deactivates a resource without removing it", async () => {
-    const resource = await createResource(`${PREFIX}inactive`, "SEMI_FINISHED");
+    const resource = await createResource(
+      `${PREFIX}inactive`,
+      await seededCategoryId("Pusgaminis"),
+    );
 
     const deactivated = await app.inject({
       method: "PATCH",
@@ -250,21 +333,17 @@ describe.skipIf(!dbAvailable)("Resources (integration)", () => {
     });
     expect(detail.statusCode).toBe(200);
     expect(detail.json().active).toBe(false);
-
-    const list = await app.inject({
-      method: "GET",
-      url: "/resources",
-      ...auth(workerCookie),
-    });
-    const found = (list.json() as Resource[]).find(
-      (item) => item.id === resource.id,
-    );
-    expect(found?.active).toBe(false);
   });
 
   it("never mutates another resource on update", async () => {
-    const first = await createResource(`${PREFIX}first`, "RAW_MATERIAL");
-    const second = await createResource(`${PREFIX}second`, "FINISHED_PRODUCT");
+    const first = await createResource(
+      `${PREFIX}first`,
+      await seededCategoryId("Žaliava"),
+    );
+    const second = await createResource(
+      `${PREFIX}second`,
+      await seededCategoryId("Gaminys"),
+    );
 
     const res = await app.inject({
       method: "PATCH",
@@ -278,12 +357,13 @@ describe.skipIf(!dbAvailable)("Resources (integration)", () => {
       where: { id: second.id },
     });
     expect(untouched.name).toBe(`${PREFIX}second`);
-    expect(untouched.category).toBe("FINISHED_PRODUCT");
+    expect(untouched.categoryId).not.toBe(first.categoryId);
   });
 
   it("lists resources ordered by name ascending", async () => {
-    await createResource(`${PREFIX}ord-b`, "RAW_MATERIAL");
-    await createResource(`${PREFIX}ord-a`, "RAW_MATERIAL");
+    const categoryId = await seededCategoryId("Žaliava");
+    await createResource(`${PREFIX}ord-b`, categoryId);
+    await createResource(`${PREFIX}ord-a`, categoryId);
 
     const res = await app.inject({
       method: "GET",

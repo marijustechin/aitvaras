@@ -120,19 +120,41 @@ Status legend: **DONE** · **CURRENT** · **NEXT** · **LATER / DISCOVERY ONLY**
 - **Consistent active-work surfaces (ATV-026 / O-064)** — `shared/lib/surfaces.ts`
   applied to create/edit areas. UI-only.
 - **Administrator-driven password reset (ATV-027)** — admin-only
-  `PATCH /users/:id/password` sets a user's password using the shared ≥ 8-char
+  `PATCH /users/:id/password` sets a user's password using the shared ≥ 6-char
   policy. The target's existing sessions are invalidated immediately via a bumped
   `tokenVersion` (JWT `ver` claim checked by the auth guard). The old password is
   never requested/returned; no email recovery or reset tokens. Generic
   `PATCH /users/:id` no longer accepts a password. Inline reset form in the user
   edit panel. Docs: `authentication.md`, `authorization.md`.
+- **Administrator-managed resource categories (ATV-028)** — replaced the fixed
+  `ResourceCategoryKey` enum with a first-class `ResourceCategory` master-data
+  entity. `Resource.categoryId` is now a foreign key; the three historical
+  categories are seeded once by the `managed_resource_categories` migration,
+  which remaps existing resources without loss. New `resource-categories` API
+  (authenticated read, ADMIN write; no delete) and `/resources/categories` UI.
+  The resource form loads categories from the API (active-only for new; keeps an
+  inactive assigned category when editing). Docs: `resources.md`,
+  `domain-glossary.md`, `scope.md`.
+- **Receiving batches & bags (ATV-029)** — first slice of the confirmed
+  inventory direction. `Batch` (Partija) records one delivery of one resource
+  from one active `SUPPLIER` into one warehouse, with a system-generated
+  unique code (`P-<year>-<sequence>`), arrival date and `PENDING` status;
+  `Bag` (Maišas) is one physical handling unit with its own measured weight, an
+  optional location (must belong to the batch warehouse) and a unique
+  EAN-13-shaped barcode that encodes no business data. `GET/POST /batches`,
+  `GET /batches/:id` (+ `/bags`), `POST /batches/:id/bags` and
+  `GET /bags/by-barcode/:barcode` (reads authenticated; batch/bag creation
+  `ADMIN`/`WAREHOUSE_WORKER`). Migration `receiving_batches_and_bags`. UI
+  `/receipts/batches`, `/receipts/batches/[id]` (add bags + label preview/print)
+  reached from `Pajamavimas`. Totals are derived, never stored; **no stock
+  tables**. Confirmation, batch↔receipt link, scan-driven movement, production
+  lineage and costing deliberately out of scope. Docs: `batches.md`,
+  `domain-glossary.md`, `scope.md`, `receipts.md`.
 
 ## CURRENT
 
-- **Uncommitted business-domain work.** Goods receipts, warehouses/locations and
-  the receipt-placement adjustment, plus UI consistency polish (ATV-020…ATV-026
-  / O-058…O-064), are implemented and awaiting review/commit. They are **not
-  yet committed** on top of `736ffea`.
+- **Uncommitted work:** administrator-managed resource categories (ATV-028) and
+  receiving batches & bags (ATV-029) — implemented and awaiting review/commit.
 - The partner/resource/receipt relationship beyond the recorded fields is not
   designed. No further business scope is confirmed; stock balances, warehouse
   movements, purchasing/accounting, production, orders and sales remain
