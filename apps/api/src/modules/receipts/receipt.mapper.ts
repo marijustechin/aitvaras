@@ -19,6 +19,8 @@ export interface ReceiptLineRecord {
 export interface ReceiptRecord {
   id: string;
   partnerId: string;
+  documentDate: Date | null;
+  documentNumber: string | null;
   createdAt: Date;
   updatedAt: Date;
   partner: { name: string };
@@ -63,6 +65,8 @@ export function toGoodsReceipt(record: ReceiptRecord): GoodsReceipt {
     id: record.id,
     partnerId: record.partnerId,
     partnerName: record.partner.name,
+    documentDate: record.documentDate?.toISOString() ?? null,
+    documentNumber: record.documentNumber,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
     lines,

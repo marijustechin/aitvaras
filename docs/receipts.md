@@ -1,11 +1,18 @@
 # Goods Receipts (Pajamavimas)
 
-> Status: **implemented (first minimal iteration)** — task O-058. Records the
-> physical receipt of resources from a supplier partner.
+> Status: **internal formal-document model** — task O-058, reshaped by ATV-038.
+> The manual GoodsReceipt **creation UI was removed**: the ADMIN `Gavimai`
+> (`/receipts`) area is now the received-batch queue, and the formal
+> `GoodsReceipt`/`GoodsReceiptLine` records are created and linked **server-side**
+> by batch reconciliation. See [batches.md](batches.md).
 
 ## What a Pajamavimas is (and is not)
 
-A **Pajamavimas** records the **physical receipt of resources from a supplier**.
+A **Pajamavimas** (`GoodsReceipt`) is the **formal/documentary record of resources
+received from a supplier**. Physical incoming batches are created through the
+warehouse-worker `Registruoti sandėlyje` flow; the `Pajamavimas` record is the
+internal document anchor that reconciliation resolves or creates. The old
+business label `Pajamavimas` is superseded in the UI by `Gavimai`.
 
 It is **not** currently:
 
@@ -28,8 +35,11 @@ quantity-per-location. Those are designed separately later.
 Batch/lot and per-bag (handling-unit) identity **is** implemented, but as a
 **separate** receiving flow — see [batches.md](batches.md). A `Pajamavimas` and a
 `Partija` are independent records: a batch is created at the start of bag-by-bag
-registration and may later be reconciled with a receipt **without duplicating
-quantities**. The structural batch↔receipt link is not modelled yet.
+registration and may later be **reconciled** with a receipt line **without
+duplicating quantities** (the bags remain the physical quantity source). The link
+is modelled explicitly as `GoodsReceiptLine → Batch` (`Batch.receiptLineId`); a
+receipt may reconcile several batches via several lines. See
+[batches.md](batches.md#reconciliation-formal-confirmation).
 
 ## Domain model
 
@@ -37,6 +47,8 @@ quantities**. The structural batch↔receipt link is not modelled yet.
 GoodsReceipt
 ├── id
 ├── partnerId
+├── documentDate        (optional; formal supplier document date)
+├── documentNumber      (optional; formal supplier document number)
 ├── createdAt
 ├── updatedAt
 └── lines[]
@@ -140,7 +152,12 @@ functionality, and no currency column is required by the schema.
   screen.
 - **No status/lifecycle** (`DRAFT`/`POSTED`/`CONFIRMED`/`CANCELLED`). The first
   version is simply a saved record; lifecycle is designed when its operational
-  meaning is understood.
+  meaning is understood. (A `Partija` *does* have a status; that lifecycle lives
+  on the batch, not on the receipt — see [batches.md](batches.md).)
+- The optional `documentDate`/`documentNumber` are formal business-document
+  metadata, distinct from `createdAt` (system record time). They may be supplied
+  during [batch reconciliation](batches.md#reconciliation-formal-confirmation)
+  when not already set; the manual receipt form does not edit them yet.
 
 ## Save semantics
 
@@ -184,18 +201,16 @@ Errors are clear and do not leak Prisma internals.
   (unknown fields rejected), decimal strings, ≥1 line, quantity > 0,
   unit price ≥ 0, fixed units and centralised Lithuanian labels.
 - List is newest-first. No filters/search/pagination.
-- UI routes (inside the shell): `/receipts` (create form + recent receipts) and
-  `/receipts/[id]` (read-only detail). Navigation item: `Pajamavimas`
-  (authenticated), between `Sandėliai` and `Naudotojai`.
-- Each line selects `Išteklius`, `Kiekis`, `Matavimo vnt.`, `Vieneto kaina`,
-  `Sandėlis *` (required) and `Vieta` (optional). The `Vieta` selector lists
-  only the active locations of the selected warehouse, is disabled until a
-  warehouse is chosen, and offers `— Be konkrečios vietos —` so a line can be
-  saved without a specific location; changing the warehouse clears the location.
-  UI is Lithuanian and responsive: the line uses a two-row layout
-  (resource/quantity/unit/price, then warehouse/location) and stacks on narrow
-  screens. The detail view shows the warehouse and the location (or `—` when no
-  specific location was recorded).
+- **UI status (ATV-038):** the manual create-receipt form and the receipt
+  list/detail UI were removed from the primary admin workflow. Navigation item
+  `Gavimai` (`/receipts`) opens the **received-batch queue** (see
+  [batches.md](batches.md)), not a receipt form. `GoodsReceipt` records are now
+  produced internally by reconciliation; the `/receipts` API endpoints remain as
+  the persistence layer.
+- The former per-line create fields (`Išteklius`, `Kiekis`, `Matavimo vnt.`,
+  `Vieneto kaina`, `Sandėlis`, `Vieta`) are no longer part of the UI; they remain
+  the shape of a `GoodsReceiptLine` produced server-side when reconciliation
+  creates the formal document anchor.
 
 ## Referential behaviour
 

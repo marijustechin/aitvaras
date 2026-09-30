@@ -74,6 +74,8 @@ export const GoodsReceiptSchema = z.object({
   id: z.uuid(),
   partnerId: z.uuid(),
   partnerName: z.string(),
+  documentDate: z.iso.datetime().nullable(),
+  documentNumber: z.string().nullable(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   lines: z.array(GoodsReceiptLineSchema),

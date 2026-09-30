@@ -52,8 +52,10 @@ model User {
 
   roles UserRole[]
 
-  batches Batch[]
-  bags    Bag[]
+  batches        Batch[]
+  bags           Bag[]
+  voidedBags     Bag[]           @relation("BagVoidedBy")
+  bagCorrections BagCorrection[] @relation("BagCorrectionCreatedBy")
 
   @@map("users")
 }
@@ -223,12 +225,17 @@ model WarehouseLocation {
 // Pajamavimas — a record of the physical receipt of resources from a supplier
 // partner. It is NOT an accounting purchase, supplier invoice, payment, stock
 // ledger or warehouse balance, and it deliberately has no status/lifecycle yet.
-// Saves do not create or modify warehouse stock.
+// Saves do not create or modify warehouse stock. `documentDate`/`documentNumber`
+// are the formal business-document metadata (supplier document date/number),
+// distinct from `createdAt` (system record time); they may be supplied during
+// batch reconciliation and are otherwise empty.
 model GoodsReceipt {
-  id        String   @id @default(uuid()) @db.Uuid
-  partnerId String   @map("partner_id") @db.Uuid
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id             String    @id @default(uuid()) @db.Uuid
+  partnerId      String    @map("partner_id") @db.Uuid
+  documentDate   DateTime? @map("document_date")
+  documentNumber String?   @map("document_number") @db.VarChar(64)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   partner BusinessPartner   @relation(fields: [partnerId], references: [id])
   lines   GoodsReceiptLine[]
@@ -258,6 +265,7 @@ model GoodsReceiptLine {
   resource          Resource           @relation(fields: [resourceId], references: [id])
   warehouse         Warehouse          @relation(fields: [warehouseId], references: [id])
   warehouseLocation WarehouseLocation? @relation(fields: [warehouseLocationId], references: [id])
+  batch             Batch?
 
   @@index([goodsReceiptId])
   @@index([resourceId])
@@ -304,15 +312,24 @@ model Batch {
   warehouseId String      @map("warehouse_id") @db.Uuid
   arrivalDate DateTime    @map("arrival_date")
   status      BatchStatus @default(PENDING)
-  createdById String      @map("created_by_id") @db.Uuid
-  createdAt   DateTime    @default(now()) @map("created_at")
-  updatedAt   DateTime    @updatedAt @map("updated_at")
+  // Reconciliation with the formal GoodsReceipt. The linked line is the formal
+  // document anchor; `documentWeight`/`acquisitionAmount` are the accepted
+  // documentary values entered at reconciliation (distinct from the measured
+  // bag weight); `confirmedAt` is set only on a clean CONFIRMED result.
+  receiptLineId     String?   @unique @map("receipt_line_id") @db.Uuid
+  documentWeight    Decimal?  @map("document_weight") @db.Decimal(14, 3)
+  acquisitionAmount Decimal?  @map("acquisition_amount") @db.Decimal(14, 2)
+  confirmedAt       DateTime? @map("confirmed_at")
+  createdById       String    @map("created_by_id") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
-  resource  Resource        @relation(fields: [resourceId], references: [id])
-  supplier  BusinessPartner @relation(fields: [supplierId], references: [id])
-  warehouse Warehouse       @relation(fields: [warehouseId], references: [id])
-  createdBy User            @relation(fields: [createdById], references: [id])
-  bags      Bag[]
+  resource    Resource         @relation(fields: [resourceId], references: [id])
+  supplier    BusinessPartner  @relation(fields: [supplierId], references: [id])
+  warehouse   Warehouse        @relation(fields: [warehouseId], references: [id])
+  createdBy   User             @relation(fields: [createdById], references: [id])
+  receiptLine GoodsReceiptLine? @relation(fields: [receiptLineId], references: [id], onDelete: Restrict)
+  bags        Bag[]
 
   @@index([status])
   @@index([resourceId])
@@ -321,26 +338,81 @@ model Batch {
   @@map("batches")
 }
 
+// Measurement basis of a handling unit's quantity. `KG` is weight-based
+// (positive decimal, 3-decimal precision); `PCS` is count-based (positive whole
+// units). A batch uses a single unit: the first registered unit establishes it
+// for the whole batch (see BatchesService.createBag).
+enum HandlingUnitKey {
+  KG
+  PCS
+}
+
+// Lifecycle of a physical handling unit. A unit is never hard-deleted: an
+// erroneous unit is `VOIDED` (barcode and history preserved) and excluded from
+// the batch's active measured total.
+enum BagStatus {
+  ACTIVE
+  VOIDED
+}
+
+// A small, focused correction trail for handling units (no generic audit
+// framework). `QUANTITY`/`LOCATION` record previous → new values; `VOID` records
+// the reason a unit was voided.
+enum BagCorrectionKind {
+  QUANTITY
+  LOCATION
+  VOID
+}
+
 // A physical bag / handling unit (one bag of a batch). `barcode` uniquely
 // identifies ONE physical unit and encodes NO business data (no supplier,
-// resource, date, batch or cost) — the relationships provide that. Bags in one
-// batch may have different measured `weight`s. `warehouseLocation` is optional
-// and, when set, must belong to the batch's warehouse.
+// resource, date, batch or cost) — the relationships provide that. `quantity`
+// is a general measured amount; `unit` says whether it is `KG` or `PCS`. Every
+// unit must be placed in a `warehouseLocation` that belongs to the batch's
+// warehouse (required; `ON DELETE RESTRICT`).
 model Bag {
-  id                  String   @id @default(uuid()) @db.Uuid
-  barcode             String   @unique @db.VarChar(32)
-  batchId             String   @map("batch_id") @db.Uuid
-  weight              Decimal  @db.Decimal(14, 3)
-  warehouseLocationId String?  @map("warehouse_location_id") @db.Uuid
-  createdById         String   @map("created_by_id") @db.Uuid
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
+  id                  String          @id @default(uuid()) @db.Uuid
+  barcode             String          @unique @db.VarChar(32)
+  batchId             String          @map("batch_id") @db.Uuid
+  quantity            Decimal         @db.Decimal(14, 3)
+  unit                HandlingUnitKey @default(KG)
+  warehouseLocationId String          @map("warehouse_location_id") @db.Uuid
+  status              BagStatus       @default(ACTIVE)
+  voidedById          String?         @map("voided_by_id") @db.Uuid
+  voidedAt            DateTime?       @map("voided_at")
+  voidReason          String?         @map("void_reason") @db.VarChar(500)
+  createdById         String          @map("created_by_id") @db.Uuid
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
 
-  batch             Batch              @relation(fields: [batchId], references: [id])
-  warehouseLocation WarehouseLocation? @relation(fields: [warehouseLocationId], references: [id])
-  createdBy         User               @relation(fields: [createdById], references: [id])
+  batch             Batch            @relation(fields: [batchId], references: [id])
+  warehouseLocation WarehouseLocation @relation(fields: [warehouseLocationId], references: [id])
+  createdBy         User             @relation(fields: [createdById], references: [id])
+  voidedBy          User?            @relation("BagVoidedBy", fields: [voidedById], references: [id])
+  corrections       BagCorrection[]
 
   @@index([batchId])
   @@index([warehouseLocationId])
+  @@index([status])
   @@map("bags")
+}
+
+// An auditable handling-unit correction (quantity change, location change or
+// void). Values are stored as strings for a readable trail; `createdBy`/`createdAt`
+// record who/when.
+model BagCorrection {
+  id            String            @id @default(uuid()) @db.Uuid
+  bagId         String            @map("bag_id") @db.Uuid
+  kind          BagCorrectionKind
+  previousValue String?           @map("previous_value") @db.VarChar(255)
+  newValue      String?           @map("new_value") @db.VarChar(255)
+  reason        String?           @db.VarChar(500)
+  createdById   String            @map("created_by_id") @db.Uuid
+  createdAt     DateTime          @default(now()) @map("created_at")
+
+  bag       Bag  @relation(fields: [bagId], references: [id])
+  createdBy User @relation("BagCorrectionCreatedBy", fields: [createdById], references: [id])
+
+  @@index([bagId])
+  @@map("bag_corrections")
 }

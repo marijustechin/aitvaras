@@ -25,12 +25,29 @@ describe("visibleNavItems", () => {
     }
   });
 
-  it("shows Pajamavimas to every authenticated user", () => {
-    for (const roles of [[], ["WAREHOUSE_WORKER"], ["ACCOUNTING"]] as const) {
-      expect(
-        visibleNavItems([...roles]).map((item) => item.label),
-      ).toContain("Pajamavimas");
-    }
+  it("shows Gavimai to administrative roles but not to warehouse workers", () => {
+    expect(visibleNavItems([]).map((item) => item.label)).toContain("Gavimai");
+    expect(visibleNavItems(["ACCOUNTING"]).map((item) => item.label)).toContain(
+      "Gavimai",
+    );
+    expect(visibleNavItems(["ADMIN"]).map((item) => item.label)).toContain(
+      "Gavimai",
+    );
+    expect(
+      visibleNavItems(["WAREHOUSE_WORKER"]).map((item) => item.label),
+    ).not.toContain("Gavimai");
+  });
+
+  it("shows Registruoti sandėlyje only to receiving roles", () => {
+    expect(
+      visibleNavItems(["WAREHOUSE_WORKER"]).map((item) => item.label),
+    ).toContain("Registruoti sandėlyje");
+    expect(visibleNavItems(["ADMIN"]).map((item) => item.label)).toContain(
+      "Registruoti sandėlyje",
+    );
+    expect(
+      visibleNavItems(["ACCOUNTING"]).map((item) => item.label),
+    ).not.toContain("Registruoti sandėlyje");
   });
 
   it("shows Sandėliai to every authenticated user", () => {
@@ -59,9 +76,16 @@ describe("visibleNavItems", () => {
       "/partners",
       "/resources",
       "/warehouses",
+      "/receiving",
       "/receipts",
       "/admin/users",
     ]);
+  });
+
+  it("gives a warehouse worker a focused navigation without the formal flow", () => {
+    expect(visibleNavItems(["WAREHOUSE_WORKER"]).map((item) => item.href)).toEqual(
+      ["/", "/partners", "/resources", "/warehouses", "/receiving"],
+    );
   });
 });
 
@@ -104,7 +128,7 @@ describe("isNavItemActive", () => {
     expect(isNavItemActive("/resources", "/partners")).toBe(false);
   });
 
-  it("marks Pajamavimas active on the receipts routes", () => {
+  it("marks Gavimai active on the receipts routes", () => {
     expect(isNavItemActive("/receipts", "/receipts")).toBe(true);
     expect(isNavItemActive("/receipts", "/receipts/new")).toBe(true);
     expect(

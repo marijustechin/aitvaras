@@ -18,7 +18,8 @@ concise and operational; put durable knowledge in `docs/`.
   data), warehouses + locations
   (`Sandėliai`), the first minimal goods-receipt workflow (`Pajamavimas`)
   with physical placement, and incoming batches/lots with per-bag handling units
-  (`Partijos ir maišai`).** Identity/access is `docs/scope.md`,
+  (`Partijos ir maišai`) reconciled with a `Pajamavimas` line.** Identity/access is
+  `docs/scope.md`,
   `docs/authentication.md`, `docs/authorization.md`; business partners are
   [docs/partners.md](docs/partners.md); resources and packing forms are
   [docs/resources.md](docs/resources.md); goods receipts, warehouses and batches
@@ -31,13 +32,16 @@ concise and operational; put durable knowledge in `docs/`.
   and first slices in `docs/` are evidence, not a roadmap.
 - **Inventory/production principles are part-implemented.** Resource categories
   are **classification only** (no implicit `Žaliava -> Pusgaminis -> Gaminys`
-  lifecycle and no provenance). Incoming batch/lot identity and per-bag
-  EAN/handling-unit identity are implemented as a first slice
-  ([docs/batches.md](docs/batches.md)); the batch↔receipt link, scan-driven
-  movements, production lineage and batch/output-lot costing remain **confirmed
-  future direction** — do not implement, model or infer them without a scoped,
-  confirmed task. See the "Confirmed future inventory/production principles"
-  section in `docs/scope.md`.
+  lifecycle and no provenance). Incoming batch/lot identity, weight- or
+  count-based (`KG`/`PCS`) EAN handling units with a **required** warehouse
+  location, and formal **GoodsReceipt reconciliation** (documentary weight +
+  initial acquisition value, `CONFIRMED`/`DISCREPANCY`, `KG`-only) are
+  implemented, as is auditable physical handling-unit **correction/void**
+  (quantity/location/void; `PENDING`/`DISCREPANCY` only) ([docs/batches.md](docs/batches.md));
+  scan-driven movements, handling-unit **split/merge**, production lineage and
+  batch/output-lot **cost redistribution** remain **confirmed future direction** —
+  do not implement, model or infer them without a scoped, confirmed task. See the
+  "Confirmed future inventory/production principles" section in `docs/scope.md`.
 
 ## Boundaries
 
@@ -198,6 +202,12 @@ Default visual direction is **minimalist, high-contrast monochrome** (white,
 black, grey). Use colour only for semantic meaning (errors, warnings, success,
 status, destructive actions). Do not introduce gradients, colourful dashboards,
 illustrations, or new design systems/palettes without a confirmed requirement.
+
+**Pointer cursor:** all clickable buttons/actions must use `cursor-pointer`.
+shadcn defaults are not sufficient — verify the pointer cursor explicitly.
+Disabled controls retain their disabled cursor semantics. This is enforced once,
+app-wide, in `apps/web/src/app/globals.css` (`@layer base`); do not scatter
+`cursor-pointer` per button.
 
 ## Brand assets
 

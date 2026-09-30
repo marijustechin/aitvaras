@@ -55,4 +55,14 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /*
+   * Interactive controls must show a pointer cursor. shadcn-style button
+   * defaults do not reliably include it, so it is set once, app-wide.
+   * Disabled controls are excluded and keep their default (disabled) cursor.
+   */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
 }

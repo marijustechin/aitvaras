@@ -123,7 +123,10 @@ username; role management stays ADMIN-only via `/users`.
 | Start a batch | `POST /batches` | `ADMIN` or `WAREHOUSE_WORKER` |
 | List a batch's bags | `GET /batches/:id/bags` | authenticated |
 | Add a bag | `POST /batches/:id/bags` | `ADMIN` or `WAREHOUSE_WORKER` |
+| Correct a unit (quantity/location) | `PATCH /batches/:id/bags/:bagId` | `ADMIN` or `WAREHOUSE_WORKER` |
+| Void a unit (audited, never deleted) | `POST /batches/:id/bags/:bagId/void` | `ADMIN` or `WAREHOUSE_WORKER` |
 | Look up a bag by barcode | `GET /bags/by-barcode/:barcode` | authenticated |
+| Reconcile a batch (formal confirmation) | `POST /batches/:id/reconcile` | `ADMIN` |
 | List warehouses (with locations) | `GET /warehouses` | authenticated |
 | Warehouse details | `GET /warehouses/:id` | authenticated |
 | Create warehouse | `POST /warehouses` | `ADMIN` |
@@ -149,9 +152,18 @@ username; role management stays ADMIN-only via `/users`.
   guard. Goods receipts (`Pajamavimas`) are listable/readable/creatable by any
   authenticated user — it is expected to become an operational warehouse
   workflow, so creation is deliberately not `ADMIN`-restricted. Batch/bag
-  **reads** are authenticated; **starting a batch** and **adding a bag** are
-  restricted to `ADMIN` or `WAREHOUSE_WORKER` (the operational shop-floor roles),
-  reusing the same role guard — no new permission framework. Warehouse
+  **reads** are authenticated; **starting a batch**, **adding a bag** and
+  **correcting/voiding an active unit** are restricted to `ADMIN` or
+  `WAREHOUSE_WORKER` (the operational shop-floor roles), and formal **batch
+  reconciliation** (documentary/financial confirmation) is
+  `ADMIN`-only — all reusing the same role guard, no new permission framework. The
+  separation reflects the business split: warehouse workers record physical
+  truth, `ADMIN` records documentary truth. The warehouse worker's **navigation**
+  is role-scoped: it exposes the physical receiving action (`Registruoti
+  sandėlyje`) and hides the administrative `Gavimai` queue — a UI convenience
+  only; the server endpoints and their requirements are unchanged. `Gavimai`
+  (`/receipts`) is the ADMIN received-batch queue + formal reconciliation; the
+  former manual receipt-creation UI was removed. Warehouse
   master data (warehouses/locations) is listable/readable by authenticated
   users and modifiable by `ADMIN` only.
 - Role changes take effect at the user's next login/token expiry.

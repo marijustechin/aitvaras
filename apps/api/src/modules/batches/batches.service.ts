@@ -9,31 +9,56 @@ import type {
   Bag,
   Batch,
   BatchDetail,
+  BatchReconciliation,
   BatchStatus,
   CreateBagRequest,
   CreateBatchRequest,
+  HandlingUnitKey,
+  ReconcileBatchRequest,
+  UpdateBagRequest,
+  VoidBagRequest,
 } from "@aitvaras/contracts";
 import { PrismaService } from "../../infrastructure/prisma/prisma.service";
 import { generateBagBarcode } from "./bag-barcode";
 import { formatBatchCode, parseBatchSequence } from "./batch-code";
-import { toBag, toBatch } from "./batch.mapper";
+import { toBag, toBagCorrection, toBatch } from "./batch.mapper";
 
 const MAX_CODE_ATTEMPTS = 5;
 const MAX_BARCODE_ATTEMPTS = 5;
 
 const batchInclude = {
-  resource: true,
+  resource: { include: { category: true } },
   supplier: true,
   warehouse: true,
   createdBy: true,
-  _count: { select: { bags: true } },
+  receiptLine: {
+    select: {
+      id: true,
+      goodsReceiptId: true,
+      receipt: { select: { documentDate: true, documentNumber: true } },
+    },
+  },
 } satisfies Prisma.BatchInclude;
 
 const bagInclude = {
   batch: { select: { code: true } },
   warehouseLocation: true,
   createdBy: true,
+  voidedBy: true,
 } satisfies Prisma.BagInclude;
+
+/** Bag include for a correction: also needs the batch's status/warehouse. */
+const correctableBagInclude = {
+  batch: { select: { code: true, warehouseId: true, status: true } },
+  warehouseLocation: true,
+  createdBy: true,
+  voidedBy: true,
+} satisfies Prisma.BagInclude;
+
+const bagCorrectionInclude = {
+  createdBy: true,
+  bag: { select: { barcode: true } },
+} satisfies Prisma.BagCorrectionInclude;
 
 function isUniqueConstraintError(error: unknown): boolean {
   return (
@@ -55,7 +80,11 @@ function isUniqueConstraintError(error: unknown): boolean {
 export class BatchesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** All batches, newest first (deterministic), optionally filtered by status. */
+  /**
+   * All batches, newest first (deterministic), optionally filtered by status.
+   * Totals are derived from the units; because a batch uses a single unit at a
+   * time, grouping by `(batchId, unit)` yields one row per batch.
+   */
   async list(status?: BatchStatus): Promise<Batch[]> {
     const batches = await this.prisma.batch.findMany({
       where: status ? { status } : undefined,
@@ -66,24 +95,39 @@ export class BatchesService {
       return [];
     }
 
-    const totals = await this.prisma.bag.groupBy({
-      by: ["batchId"],
-      where: { batchId: { in: batches.map((batch) => batch.id) } },
-      _sum: { weight: true },
+    const groups = await this.prisma.bag.groupBy({
+      by: ["batchId", "unit"],
+      where: {
+        batchId: { in: batches.map((batch) => batch.id) },
+        status: "ACTIVE",
+      },
+      _sum: { quantity: true },
+      _count: { _all: true },
     });
-    const weightByBatch = new Map(
-      totals.map((total) => [
-        total.batchId,
-        total._sum.weight ?? new Prisma.Decimal(0),
+    const summaryByBatch = new Map(
+      groups.map((group) => [
+        group.batchId,
+        {
+          unit: group.unit as HandlingUnitKey,
+          totalQuantity: group._sum.quantity ?? new Prisma.Decimal(0),
+          bagCount: group._count._all,
+        },
       ]),
     );
 
     return batches.map((batch) =>
-      toBatch(batch, weightByBatch.get(batch.id) ?? new Prisma.Decimal(0)),
+      toBatch(
+        batch,
+        summaryByBatch.get(batch.id) ?? {
+          unit: null,
+          totalQuantity: new Prisma.Decimal(0),
+          bagCount: 0,
+        },
+      ),
     );
   }
 
-  /** One batch with its bags. */
+  /** One batch with its units. */
   async get(id: string): Promise<BatchDetail> {
     const batch = await this.prisma.batch.findUnique({
       where: { id },
@@ -98,12 +142,34 @@ export class BatchesService {
       include: bagInclude,
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
-    const totalWeight = bags.reduce(
-      (sum, bag) => sum.add(bag.weight),
+    // Voided units are preserved for the audit trail but never counted in the
+    // measured total or the active unit count.
+    const activeBags = bags.filter((bag) => bag.status === "ACTIVE");
+    const totalQuantity = activeBags.reduce(
+      (sum, bag) => sum.add(bag.quantity),
       new Prisma.Decimal(0),
     );
+    const firstUnit = bags[0]?.unit;
+    const lastActiveBag = activeBags[activeBags.length - 1];
 
-    return { ...toBatch(batch, totalWeight), bags: bags.map(toBag) };
+    const corrections = await this.prisma.bagCorrection.findMany({
+      where: { bag: { batchId: id } },
+      include: bagCorrectionInclude,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    });
+
+    return {
+      ...toBatch(batch, {
+        totalQuantity,
+        bagCount: activeBags.length,
+        unit: firstUnit ? (firstUnit as HandlingUnitKey) : null,
+      }),
+      bags: bags.map(toBag),
+      corrections: corrections.map(toBagCorrection),
+      suggestedLocationId: lastActiveBag
+        ? lastActiveBag.warehouseLocationId
+        : null,
+    };
   }
 
   /**
@@ -132,7 +198,11 @@ export class BatchesService {
           },
           include: batchInclude,
         });
-        return toBatch(batch, new Prisma.Decimal(0));
+        return toBatch(batch, {
+          totalQuantity: new Prisma.Decimal(0),
+          bagCount: 0,
+          unit: null,
+        });
       } catch (error) {
         if (isUniqueConstraintError(error)) {
           continue;
@@ -157,9 +227,11 @@ export class BatchesService {
   }
 
   /**
-   * Add one physical bag to a pending batch. The barcode is generated here; a
-   * database unique-conflict is retried. A location, when supplied, must exist,
-   * be active and belong to the batch's warehouse.
+   * Add one physical bag to a not-yet-confirmed batch. Adding is allowed while
+   * the batch is `PENDING` or `DISCREPANCY` (a worker registering a forgotten
+   * unit is a physical correction); a `CONFIRMED` batch is frozen. The barcode is
+   * generated here; a database unique-conflict is retried. A location, when
+   * supplied, must exist, be active and belong to the batch's warehouse.
    */
   async createBag(
     batchId: string,
@@ -170,17 +242,33 @@ export class BatchesService {
     if (!batch) {
       throw new NotFoundException("Partija nerasta.");
     }
-    if (batch.status !== "PENDING") {
-      throw new BadRequestException(
-        "Maišus galima pridėti tik į laukiančią partiją.",
-      );
+    if (batch.status === "CONFIRMED") {
+      throw new BadRequestException({
+        code: "BATCH_CONFIRMED",
+        message: "Į patvirtintą partiją maišų pridėti negalima.",
+      });
     }
-    if (input.warehouseLocationId) {
-      await this.assertLocationInWarehouse(
-        input.warehouseLocationId,
-        batch.warehouseId,
-      );
+    await this.assertLocationInWarehouse(
+      input.warehouseLocationId,
+      batch.warehouseId,
+    );
+
+    // A batch uses a single measurement unit: the first unit establishes it and
+    // every later unit must match (no mixed KG/PCS totals).
+    const established = await this.prisma.bag.findFirst({
+      where: { batchId },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { unit: true },
+    });
+    if (established && established.unit !== input.unit) {
+      throw new BadRequestException({
+        code: "UNIT_MISMATCH",
+        message: "Partijoje jau naudojamas kitas matavimo vienetas.",
+      });
     }
+    const unit: HandlingUnitKey = established
+      ? (established.unit as HandlingUnitKey)
+      : input.unit;
 
     for (let attempt = 0; attempt < MAX_BARCODE_ATTEMPTS; attempt += 1) {
       const barcode = generateBagBarcode();
@@ -189,8 +277,9 @@ export class BatchesService {
           data: {
             barcode,
             batchId,
-            weight: input.weight,
-            warehouseLocationId: input.warehouseLocationId ?? null,
+            quantity: input.quantity,
+            unit,
+            warehouseLocationId: input.warehouseLocationId,
             createdById: actorId,
           },
           include: bagInclude,
@@ -209,6 +298,118 @@ export class BatchesService {
     );
   }
 
+  /**
+   * Correct one active handling unit (quantity and/or location) while the batch
+   * is not yet `CONFIRMED`. Physical reality is authoritative: a worker fixes
+   * what they physically measure/place. Each effective change is recorded as an
+   * auditable `BagCorrection`; a no-op returns the unit unchanged with no trail.
+   * The batch status is not changed here — a `DISCREPANCY` batch stays
+   * discrepant until the ADMIN re-reconciles it.
+   */
+  async correctBag(
+    batchId: string,
+    bagId: string,
+    input: UpdateBagRequest,
+    actorId: string,
+  ): Promise<Bag> {
+    const bag = await this.loadCorrectableBag(batchId, bagId);
+    const unit = bag.unit as HandlingUnitKey;
+    const data: Prisma.BagUpdateInput = {};
+    const corrections: Prisma.BagCorrectionCreateManyInput[] = [];
+
+    if (input.quantity !== undefined) {
+      if (unit === "PCS" && !/^\d+$/.test(input.quantity)) {
+        throw new BadRequestException({
+          code: "UNIT_MISMATCH",
+          message: "Vienetų kiekis turi būti sveikas skaičius.",
+        });
+      }
+      const next = new Prisma.Decimal(input.quantity);
+      if (!next.equals(bag.quantity)) {
+        data.quantity = next;
+        corrections.push({
+          bagId: bag.id,
+          kind: "QUANTITY",
+          previousValue: bag.quantity.toString(),
+          newValue: next.toString(),
+          createdById: actorId,
+        });
+      }
+    }
+
+    const targetLocationId = input.warehouseLocationId;
+    if (
+      targetLocationId !== undefined &&
+      targetLocationId !== bag.warehouseLocationId
+    ) {
+      const location = await this.assertLocationInWarehouse(
+        targetLocationId,
+        bag.batch.warehouseId,
+      );
+      data.warehouseLocation = { connect: { id: targetLocationId } };
+      corrections.push({
+        bagId: bag.id,
+        kind: "LOCATION",
+        previousValue: bag.warehouseLocation.name,
+        newValue: location.name,
+        createdById: actorId,
+      });
+    }
+
+    if (corrections.length === 0) {
+      return toBag(bag);
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.bagCorrection.createMany({ data: corrections });
+      return tx.bag.update({
+        where: { id: bag.id },
+        data,
+        include: bagInclude,
+      });
+    });
+    return toBag(updated);
+  }
+
+  /**
+   * Void (annul) one active handling unit while the batch is not yet
+   * `CONFIRMED`. The unit is never deleted: its barcode and history are kept and
+   * it is excluded from the measured total. Who/when/why is recorded.
+   */
+  async voidBag(
+    batchId: string,
+    bagId: string,
+    input: VoidBagRequest,
+    actorId: string,
+  ): Promise<Bag> {
+    const bag = await this.loadCorrectableBag(batchId, bagId);
+    const reason = input.reason ?? null;
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.bagCorrection.create({
+        data: {
+          bagId: bag.id,
+          kind: "VOID",
+          previousValue: `${bag.quantity.toString()} ${bag.unit}`,
+          newValue: null,
+          reason,
+          createdById: actorId,
+        },
+      });
+      return tx.bag.update({
+        where: { id: bag.id },
+        data: {
+          status: "VOIDED",
+          voidedById: actorId,
+          voidedAt: new Date(),
+          voidReason: reason,
+        },
+        include: bagInclude,
+      });
+    });
+    return toBag(updated);
+  }
+
   /** Look up one bag by its unique barcode. */
   async getBagByBarcode(barcode: string): Promise<Bag> {
     const bag = await this.prisma.bag.findUnique({
@@ -221,6 +422,243 @@ export class BatchesService {
       );
     }
     return toBag(bag);
+  }
+
+  /**
+   * Reconcile a batch with the formal GoodsReceipt (Eimantas' documentary
+   * confirmation). Resolves or creates the internal receipt-line anchor from the
+   * batch context and the formal data (`resolveReceiptLine`), records the
+   * accepted documentary weight/acquisition value, and derives the status.
+   *
+   * The measured weight is always derived from the batch's bags here — it is
+   * never sent by the client. The physical quantity lives in the bags; the
+   * receipt is the formal document, so reconciliation creates **no** new bags and
+   * no stock. It links to (or creates) exactly one receipt line, reusing it on a
+   * discrepancy retry.
+   *
+   * `CONFIRMED` is a terminal state (re-confirmation is rejected); a
+   * `DISCREPANCY` batch may be reconciled again once the documentary value is
+   * corrected, which is how a discrepancy is resolved without an irreversible
+   * trap.
+   */
+  async reconcile(
+    batchId: string,
+    input: ReconcileBatchRequest,
+  ): Promise<BatchReconciliation> {
+    const batch = await this.prisma.batch.findUnique({ where: { id: batchId } });
+    if (!batch) {
+      throw new NotFoundException({
+        code: "BATCH_NOT_FOUND",
+        message: "Partija nerasta.",
+      });
+    }
+    if (batch.status === "CONFIRMED") {
+      throw new ConflictException({
+        code: "BATCH_ALREADY_CONFIRMED",
+        message: "Partija jau patvirtinta ir negali būti patvirtinta pakartotinai.",
+      });
+    }
+
+    const bags = await this.prisma.bag.findMany({
+      where: { batchId, status: "ACTIVE" },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { unit: true, quantity: true },
+    });
+    if (bags.length === 0) {
+      throw new BadRequestException({
+        code: "BATCH_EMPTY",
+        message: "Partijoje dar nėra nė vieno maišo.",
+      });
+    }
+    // Weight reconciliation applies to KG batches only; PCS quantities are never
+    // summed into kilograms and no mixed-unit total is produced.
+    if (bags[0]?.unit !== "KG") {
+      throw new BadRequestException({
+        code: "BATCH_NOT_WEIGHT",
+        message:
+          "Pajamavimo patvirtinimas šiuo metu galimas tik kg partijoms.",
+      });
+    }
+    const bagCount = bags.length;
+    const measuredWeight = bags.reduce(
+      (sum, bag) => sum.add(bag.quantity),
+      new Prisma.Decimal(0),
+    );
+
+    const documentWeight = new Prisma.Decimal(input.documentWeight);
+    const acquisitionAmount = new Prisma.Decimal(input.acquisitionAmount);
+    const difference = documentWeight.sub(measuredWeight);
+    const status: BatchStatus = difference.isZero() ? "CONFIRMED" : "DISCREPANCY";
+    const confirmedAt = status === "CONFIRMED" ? new Date() : null;
+    const requestedDocumentDate = input.documentDate
+      ? new Date(input.documentDate)
+      : null;
+    const requestedDocumentNumber = input.documentNumber ?? null;
+
+    // Resolve or create the internal formal-document anchor from the batch
+    // context and formal data — the client never selects a receipt line.
+    const anchor = await this.resolveReceiptLine(batch, {
+      documentWeight,
+      acquisitionAmount,
+      documentDate: requestedDocumentDate,
+      documentNumber: requestedDocumentNumber,
+    });
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      // Populate the formal document metadata only when it is missing; an
+      // already-recorded document date/number is never overwritten.
+      if (
+        (requestedDocumentDate && !anchor.receipt.documentDate) ||
+        (requestedDocumentNumber && !anchor.receipt.documentNumber)
+      ) {
+        await tx.goodsReceipt.update({
+          where: { id: anchor.receiptId },
+          data: {
+            documentDate: anchor.receipt.documentDate ?? requestedDocumentDate,
+            documentNumber:
+              anchor.receipt.documentNumber ?? requestedDocumentNumber,
+          },
+        });
+      }
+      return tx.batch.update({
+        where: { id: batchId },
+        data: {
+          receiptLineId: anchor.receiptLineId,
+          documentWeight,
+          acquisitionAmount,
+          status,
+          confirmedAt,
+        },
+        include: batchInclude,
+      });
+    });
+
+    return {
+      batchId: updated.id,
+      code: updated.code,
+      status,
+      bagCount,
+      measuredWeight: measuredWeight.toString(),
+      documentWeight: documentWeight.toString(),
+      difference: difference.toString(),
+      acquisitionAmount: acquisitionAmount.toString(),
+      receiptId: anchor.receiptId,
+      receiptLineId: anchor.receiptLineId,
+      documentDate:
+        updated.receiptLine?.receipt.documentDate?.toISOString() ?? null,
+      documentNumber: updated.receiptLine?.receipt.documentNumber ?? null,
+      confirmedAt: confirmedAt ? confirmedAt.toISOString() : null,
+    };
+  }
+
+  /**
+   * Resolve the internal formal-document anchor (`GoodsReceipt -> line -> batch`)
+   * without exposing a technical selector to the user. Deterministic order:
+   *
+   *  1. retry — reuse the line the batch is already linked to (no duplicates);
+   *  2. reuse an existing compatible, **unlinked** receipt line (same supplier
+   *     via the receipt partner, resource and warehouse);
+   *  3. otherwise create a `GoodsReceipt` with one line from the formal values
+   *     (KG, quantity = documentary weight, unit price = value ÷ weight).
+   *
+   * A reused line is never mutated; the accepted documentary values live on the
+   * batch (`documentWeight`/`acquisitionAmount`).
+   */
+  private async resolveReceiptLine(
+    batch: {
+      resourceId: string;
+      supplierId: string;
+      warehouseId: string;
+      receiptLineId: string | null;
+    },
+    formal: {
+      documentWeight: Prisma.Decimal;
+      acquisitionAmount: Prisma.Decimal;
+      documentDate: Date | null;
+      documentNumber: string | null;
+    },
+  ): Promise<{
+    receiptId: string;
+    receiptLineId: string;
+    receipt: { documentDate: Date | null; documentNumber: string | null };
+  }> {
+    if (batch.receiptLineId) {
+      const existing = await this.prisma.goodsReceiptLine.findUnique({
+        where: { id: batch.receiptLineId },
+        select: {
+          id: true,
+          goodsReceiptId: true,
+          receipt: { select: { documentDate: true, documentNumber: true } },
+        },
+      });
+      if (existing) {
+        return {
+          receiptId: existing.goodsReceiptId,
+          receiptLineId: existing.id,
+          receipt: existing.receipt,
+        };
+      }
+    }
+
+    const compatible = await this.prisma.goodsReceiptLine.findFirst({
+      where: {
+        resourceId: batch.resourceId,
+        warehouseId: batch.warehouseId,
+        receipt: { partnerId: batch.supplierId },
+        batch: { is: null },
+      },
+      orderBy: { id: "desc" },
+      select: {
+        id: true,
+        goodsReceiptId: true,
+        receipt: { select: { documentDate: true, documentNumber: true } },
+      },
+    });
+    if (compatible) {
+      return {
+        receiptId: compatible.goodsReceiptId,
+        receiptLineId: compatible.id,
+        receipt: compatible.receipt,
+      };
+    }
+
+    const unitPrice = formal.documentWeight.isZero()
+      ? new Prisma.Decimal(0)
+      : formal.acquisitionAmount.div(formal.documentWeight);
+    const receipt = await this.prisma.goodsReceipt.create({
+      data: {
+        partnerId: batch.supplierId,
+        documentDate: formal.documentDate,
+        documentNumber: formal.documentNumber,
+        lines: {
+          create: [
+            {
+              resourceId: batch.resourceId,
+              warehouseId: batch.warehouseId,
+              quantity: formal.documentWeight,
+              unit: "KG",
+              unitPrice,
+            },
+          ],
+        },
+      },
+      include: { lines: { select: { id: true } } },
+    });
+    const line = receipt.lines[0];
+    if (!line) {
+      throw new ConflictException({
+        code: "RECEIPT_CREATE_FAILED",
+        message: "Nepavyko sukurti pajamavimo įrašo.",
+      });
+    }
+    return {
+      receiptId: receipt.id,
+      receiptLineId: line.id,
+      receipt: {
+        documentDate: receipt.documentDate,
+        documentNumber: receipt.documentNumber,
+      },
+    };
   }
 
   private async nextBatchCode(year: number): Promise<string> {
@@ -288,7 +726,7 @@ export class BatchesService {
   private async assertLocationInWarehouse(
     locationId: string,
     warehouseId: string,
-  ): Promise<void> {
+  ): Promise<{ id: string; name: string }> {
     const location = await this.prisma.warehouseLocation.findUnique({
       where: { id: locationId },
     });
@@ -303,5 +741,36 @@ export class BatchesService {
         "Sandėlio vieta nepriklauso pasirinktam sandėliui.",
       );
     }
+    return { id: location.id, name: location.name };
+  }
+
+  /**
+   * Load one bag within a batch and assert it is updatable: the batch must not be
+   * `CONFIRMED` and the unit must still be `ACTIVE` (a voided unit is frozen).
+   */
+  private async loadCorrectableBag(batchId: string, bagId: string) {
+    const bag = await this.prisma.bag.findFirst({
+      where: { id: bagId, batchId },
+      include: correctableBagInclude,
+    });
+    if (!bag) {
+      throw new NotFoundException({
+        code: "BAG_NOT_FOUND",
+        message: "Maišas nerastas.",
+      });
+    }
+    if (bag.batch.status === "CONFIRMED") {
+      throw new ConflictException({
+        code: "BATCH_CONFIRMED",
+        message: "Patvirtintos partijos maišų keisti negalima.",
+      });
+    }
+    if (bag.status === "VOIDED") {
+      throw new BadRequestException({
+        code: "BAG_VOIDED",
+        message: "Anuliuotas maišas negali būti koreguojamas.",
+      });
+    }
+    return bag;
   }
 }

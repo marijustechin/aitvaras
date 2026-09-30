@@ -1,22 +1,10 @@
-"use client";
-
-import { useAuth } from "@/features/auth";
+import { HomePage } from "@/features/home";
 import { AppShell } from "@/widgets/app-shell";
 
-export default function HomePage() {
-  const { user } = useAuth();
-
+export default function Page() {
   return (
     <AppShell>
-      <div className="space-y-2">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Sveiki, {user?.firstName}.
-        </h1>
-        <p className="text-muted-foreground">
-          Tai Aitvaro pradžia. Kol kas įgyvendinti naudotojų, partnerių ir
-          išteklių moduliai.
-        </p>
-      </div>
+      <HomePage />
     </AppShell>
   );
 }

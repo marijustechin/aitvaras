@@ -11,9 +11,10 @@ from legacy code.
 > (packing-form reference data), **Sandėliai** (warehouses + locations), the
 > first minimal **Pajamavimas** (goods receipt) workflow with physical placement,
 > and **Partijos ir maišai** (incoming batches/lots with per-bag handling units
-> and barcodes). No other business functionality (stock, movements, production,
-> orders, sales, accounting, integration) is approved or implemented. See
-> [docs/scope.md](docs/scope.md).
+> and barcodes) that are formally reconciled with a **Pajamavimas** line
+> (documentary weight + initial acquisition value). No other business
+> functionality (stock, movements, production, orders, sales, accounting,
+> integration) is approved or implemented. See [docs/scope.md](docs/scope.md).
 
 After login, Aitvaras runs as an application: a **sticky top bar** with
 role-aware navigation (`Pradžia`, `Partneriai`, `Ištekliai`, `Sandėliai`,

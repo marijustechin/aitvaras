@@ -81,15 +81,27 @@ registration with individual physical bags/handling units**:
   `SUPPLIER` into one warehouse, with an arrival date and a system-generated,
   human-readable, unique code; it starts `PENDING`;
 - a **Maišas** (bag/handling unit) is one physical unit of a batch with its own
-  measured weight (bags of one batch may differ), an optional warehouse location
-  and a unique barcode that identifies the physical unit only and encodes **no**
-  business data;
-- batches and bags are **not** stock: creating them does not change any balance,
-  and batch/bag totals are derived from the bag rows, never stored.
+  quantity measured in `KG` (weight) or `PCS` (count) — units of one batch may
+  differ in quantity, but a batch uses a **single** measurement unit — a
+  **required** warehouse location and a unique barcode that identifies the
+  physical unit only and encodes **no** business data;
+- a **PENDING** `KG` batch is formally **reconciled** with a `Pajamavimas` line:
+  the accepted **documentary weight** and **initial acquisition value** are
+  recorded and compared with the measured total, setting `CONFIRMED` (exact match)
+  or `DISCREPANCY`; reconciliation creates no new units or stock and the measured
+  and documentary weights stay separate (`PCS` batches are not weight-reconciled);
+- while a batch is not `CONFIRMED`, a warehouse worker may **correct** an active
+  unit (quantity/location) or **void** it (audited, never deleted); corrections
+  are appended to an audit trail and a voided unit is excluded from the totals;
+  a physical correction does not by itself clear a `DISCREPANCY` (an `ADMIN`
+  re-reconciles afterwards);
+- batches and bags are **not** stock: creating them (or reconciling) does not
+  change any balance, and batch/bag totals are derived from the bag rows, never
+  stored.
 
-See [batches.md](batches.md). Only `PENDING` is functional; confirmation,
-reconciliation, the batch↔receipt link, scan-driven movements, production lineage
-and costing are **not** implemented.
+See [batches.md](batches.md). Scan-driven warehouse movements, bag split/merge,
+tolerance handling, production lineage and cost redistribution are **not**
+implemented.
 
 **Not** confirmed (still out of scope): purchasing/accounting, supplier
 invoices, payments, stock balances, warehouse **movements**, quantities on
@@ -108,9 +120,10 @@ string keys, never by numeric ids with implicit meaning.
 These principles are **confirmed domain direction**, recorded before the future
 inventory/production work is designed. They are **not** a complete production
 design and must not be read as current behaviour. The current implemented scope
-is listed above. **Principle 2 and 3 have a first implemented slice** (incoming
-batch/lot + per-bag handling-unit identity, ATV-029 / [batches.md](batches.md));
-the rest remain unbuilt.
+is listed above. **Principle 2 and 3 are implemented** (incoming batch/lot +
+per-bag handling-unit identity, with GoodsReceipt reconciliation and physical
+correction/void, ATV-029/ATV-030/ATV-041 / [batches.md](batches.md)); the rest
+remain unbuilt.
 
 1. **Resource category is classification only.** `ResourceCategory` is managed
    master data used to classify resources; it must **not** encode or drive the
@@ -123,9 +136,11 @@ the rest remain unbuilt.
    receipt/purchase origin, receipt date, original quantity, acquisition cost and
    a unique batch/lot number. The batch/lot number must remain traceable through
    downstream movements and transformations. Category does **not** provide
-   provenance. *First slice implemented (ATV-029): batch/lot with supplier,
-   warehouse, arrival date and a unique code — but the receipt origin link,
-   original quantity and acquisition cost are not modelled yet.*
+   provenance. *Implemented (ATV-029/ATV-030): batch/lot with supplier,
+   warehouse, arrival date, unique code, and a formal receipt-line link carrying
+   the documentary weight and initial acquisition value (reconciliation). The
+   batch/lot number is not yet traceable through downstream movements — there are
+   none yet.*
 3. **Individual physical bags/handling units.** Incoming raw material may arrive
    as many physical bags belonging to the same batch; bags of the same batch may
    have different actual weights. Each physical bag receives its own unique

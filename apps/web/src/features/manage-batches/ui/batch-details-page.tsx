@@ -6,55 +6,53 @@ import { useParams, useRouter } from "next/navigation";
 import type {
   Bag,
   BatchDetail,
-  WarehouseWithLocations,
+  BatchReconciliation,
 } from "@aitvaras/contracts";
 import {
-  bagLocationLabel,
+  bagStatusClass,
+  bagStatusLabel,
   batchStatusLabel,
+  correctionKindLabel,
   EMPTY_BAGS_MESSAGE,
+  EMPTY_CORRECTIONS_MESSAGE,
   formatArrivalDate,
   formatBatchDateTime,
+  formatQuantity,
   formatWeight,
-  isBatchOpen,
+  formatWeightDifference,
+  GAVIMAI_ACTION,
+  handlingUnitLabel,
+  isBatchConfirmed,
+  weightsMatch,
 } from "@/entities/batch";
-import { locationsForWarehouse } from "@/entities/warehouse";
+import { formatMoney } from "@/entities/receipt";
 import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
 import { workSurfaceClass } from "@/shared/lib/surfaces";
+import { CONFIRM_RECEIPT_LABEL } from "../lib/batch-list";
 import {
-  bagFormError,
-  createDraftBag,
-  toCreateBagPayload,
-  type DraftBag,
+  createDraftReconciliation,
+  reconciliationFormError,
+  toReconcilePayload,
+  type DraftReconciliation,
 } from "../lib/batch-form";
+import { bagLabelData } from "../lib/receiving";
+import { BagLabel } from "./bag-label";
 
 const inputClass =
   "w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60";
 
-const CREATOR_ROLES = ["ADMIN", "WAREHOUSE_WORKER"] as const;
-
-function Label({ batch, bag }: { batch: BatchDetail; bag: Bag }) {
-  return (
-    <div className="w-full max-w-sm rounded-lg border border-border bg-card p-4">
-      <p className="text-xs uppercase tracking-wide text-muted-foreground">
-        Etiketė
-      </p>
-      <p className="mt-2 text-lg font-semibold">{batch.resourceName}</p>
-      <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-        <dt className="text-muted-foreground">Partija</dt>
-        <dd className="font-medium">{batch.code}</dd>
-        <dt className="text-muted-foreground">Svoris</dt>
-        <dd>{formatWeight(bag.weight)}</dd>
-        <dt className="text-muted-foreground">Priėmimo data</dt>
-        <dd>{formatArrivalDate(batch.arrivalDate)}</dd>
-      </dl>
-      <p className="mt-3 text-xs text-muted-foreground">Brūkšninis kodas</p>
-      <p className="font-mono text-base tracking-widest">{bag.barcode}</p>
-    </div>
-  );
-}
-
-/** Batch (partija) detail: register bags and preview/print labels. */
+/**
+ * ADMIN batch (partija) review: batch context, a read-only list of the registered
+ * units, and — for ADMIN — formal reconciliation/confirmation.
+ *
+ * Physical bag registration belongs exclusively to the warehouse-worker
+ * `Registruoti sandėlyje` flow and is deliberately **not** present here. The
+ * reconciliation form exposes formal/business data only; the internal
+ * `GoodsReceiptLine` anchor is resolved server-side. The measured weight is
+ * always the server-derived SUM of the units' quantities; the client never sends
+ * it.
+ */
 export function BatchDetailsPage() {
   const params = useParams();
   const id = typeof params.id === "string" ? params.id : "";
@@ -62,17 +60,15 @@ export function BatchDetailsPage() {
   const { user, clearSession } = useAuth();
 
   const [batch, setBatch] = useState<BatchDetail | null>(null);
-  const [warehouses, setWarehouses] = useState<WarehouseWithLocations[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [draftBag, setDraftBag] = useState<DraftBag>(createDraftBag);
+  const [draftReconciliation, setDraftReconciliation] =
+    useState<DraftReconciliation>(createDraftReconciliation);
   const [labelBag, setLabelBag] = useState<Bag | null>(null);
-  const [adding, setAdding] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const canCreate = Boolean(
-    user && CREATOR_ROLES.some((role) => user.roles.includes(role)),
-  );
+  const canReconcile = Boolean(user?.roles.includes("ADMIN"));
 
   const handleError = useCallback(
     (caught: unknown, fallback: string): void => {
@@ -99,15 +95,11 @@ export function BatchDetailsPage() {
     async function load(): Promise<void> {
       setLoading(true);
       try {
-        const [batchResult, warehouseList] = await Promise.all([
-          apiFetch<BatchDetail>(`/batches/${id}`),
-          apiFetch<WarehouseWithLocations[]>("/warehouses"),
-        ]);
+        const batchResult = await apiFetch<BatchDetail>(`/batches/${id}`);
         if (!active) {
           return;
         }
         setBatch(batchResult);
-        setWarehouses(warehouseList);
         setError(null);
       } catch (caught) {
         if (active) {
@@ -125,30 +117,51 @@ export function BatchDetailsPage() {
     };
   }, [handleError, id]);
 
-  async function submitBag(event: FormEvent<HTMLFormElement>): Promise<void> {
+  // Keep the reconciliation draft aligned with the loaded batch (existing
+  // documentary values prefill the form on a discrepancy retry).
+  useEffect(() => {
+    if (!batch) {
+      return;
+    }
+    setDraftReconciliation({
+      documentWeight: batch.documentWeight ?? "",
+      acquisitionAmount: batch.acquisitionAmount ?? "",
+      documentDate: batch.documentDate ? batch.documentDate.slice(0, 10) : "",
+      documentNumber: batch.documentNumber ?? "",
+    });
+  }, [batch]);
+
+  async function submitReconciliation(
+    event: FormEvent<HTMLFormElement>,
+  ): Promise<void> {
     event.preventDefault();
-    const validation = bagFormError(draftBag);
+    const validation = reconciliationFormError(draftReconciliation);
     if (validation) {
       setError(validation);
       setNotice(null);
       return;
     }
-    setAdding(true);
+    setReconciling(true);
     setError(null);
     setNotice(null);
     try {
-      const created = await apiFetch<Bag>(`/batches/${id}/bags`, {
-        method: "POST",
-        body: JSON.stringify(toCreateBagPayload(draftBag)),
-      });
-      setDraftBag(createDraftBag());
-      setLabelBag(created);
-      setNotice(`Maišas pridėtas: ${created.barcode}`);
+      const result = await apiFetch<BatchReconciliation>(
+        `/batches/${id}/reconcile`,
+        {
+          method: "POST",
+          body: JSON.stringify(toReconcilePayload(draftReconciliation)),
+        },
+      );
+      setNotice(
+        result.status === "CONFIRMED"
+          ? "Gavimas patvirtintas."
+          : "Užfiksuotas neatitikimas — dokumentinis ir faktiškas svoris nesutampa.",
+      );
       await loadBatch();
     } catch (caught) {
-      handleError(caught, "Nepavyko pridėti maišo");
+      handleError(caught, "Nepavyko patvirtinti gavimo");
     } finally {
-      setAdding(false);
+      setReconciling(false);
     }
   }
 
@@ -162,8 +175,8 @@ export function BatchDetailsPage() {
         <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
-        <Link href="/receipts/batches" className="text-sm hover:underline">
-          ← Partijos
+        <Link href={GAVIMAI_ACTION.href} className="text-sm hover:underline">
+          ← {GAVIMAI_ACTION.label}
         </Link>
       </div>
     );
@@ -173,16 +186,24 @@ export function BatchDetailsPage() {
     return <p className="text-sm text-muted-foreground">Partija nerasta.</p>;
   }
 
-  const open = isBatchOpen(batch.status);
-  const locationOptions = warehouses
-    ? locationsForWarehouse(warehouses, batch.warehouseId)
-    : [];
+  const confirmed = isBatchConfirmed(batch.status);
+  const totalQuantityLabel = batch.unit
+    ? formatQuantity(batch.totalQuantity, batch.unit)
+    : "—";
+  const draftDocumentWeight = draftReconciliation.documentWeight.trim();
+  const liveDifference =
+    draftDocumentWeight === ""
+      ? null
+      : formatWeightDifference(draftDocumentWeight, batch.totalQuantity);
+  const liveMatches =
+    draftDocumentWeight !== "" &&
+    weightsMatch(draftDocumentWeight, batch.totalQuantity);
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-1">
-        <Link href="/receipts/batches" className="text-sm hover:underline">
-          ← Partijos
+        <Link href={GAVIMAI_ACTION.href} className="text-sm hover:underline">
+          ← {GAVIMAI_ACTION.label}
         </Link>
         <h1 className="text-2xl font-semibold tracking-tight">
           Partija {batch.code}
@@ -233,70 +254,194 @@ export function BatchDetailsPage() {
             </dd>
           </div>
           <div>
-            <dt className="text-sm font-medium">Maišai / svoris</dt>
+            <dt className="text-sm font-medium">Maišai / kiekis</dt>
             <dd className="text-sm text-muted-foreground">
-              {batch.bagCount} · {formatWeight(batch.totalWeight)}
+              {batch.bagCount} · {totalQuantityLabel}
             </dd>
           </div>
         </dl>
       </section>
 
-      {canCreate && open ? (
+      {confirmed ? (
+        <section className="rounded-xl border border-border bg-card p-6">
+          <h2 className="text-lg font-medium">Gavimo patvirtinimas</h2>
+          <dl className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2">
+            <div>
+              <dt className="text-sm font-medium">Faktiškai susverta</dt>
+              <dd className="text-sm text-muted-foreground">
+                {totalQuantityLabel}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-sm font-medium">Dokumentuose</dt>
+              <dd className="text-sm text-muted-foreground">
+                {batch.documentWeight ? formatWeight(batch.documentWeight) : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-sm font-medium">Skirtumas</dt>
+              <dd className="text-sm text-muted-foreground">
+                {batch.difference ? formatWeight(batch.difference) : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-sm font-medium">Įsigijimo vertė</dt>
+              <dd className="text-sm text-muted-foreground">
+                {batch.acquisitionAmount ? formatMoney(batch.acquisitionAmount) : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-sm font-medium">Dokumentas</dt>
+              <dd className="text-sm text-muted-foreground">
+                {batch.documentNumber ??
+                  (batch.receiptId ? `#${batch.receiptId.slice(0, 8)}` : "—")}
+                {batch.documentDate
+                  ? ` · ${formatArrivalDate(batch.documentDate)}`
+                  : ""}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-sm font-medium">Patvirtinta</dt>
+              <dd className="text-sm text-muted-foreground">
+                {batch.confirmedAt
+                  ? formatBatchDateTime(batch.confirmedAt)
+                  : "—"}
+              </dd>
+            </div>
+          </dl>
+        </section>
+      ) : null}
+
+      {!confirmed && canReconcile ? (
         <section className={workSurfaceClass()}>
-          <form onSubmit={submitBag} className="grid gap-4">
-            <h2 className="text-lg font-medium">Pridėti maišą</h2>
-            <div className="grid gap-3 sm:grid-cols-12">
-              <label className="grid gap-1 text-sm sm:col-span-3">
-                <span className="font-medium">Svoris (kg)</span>
-                <input
-                  required
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step="0.001"
-                  value={draftBag.weight}
-                  onChange={(event) =>
-                    setDraftBag({ ...draftBag, weight: event.target.value })
-                  }
-                  className={inputClass}
-                />
-              </label>
-              <label className="grid gap-1 text-sm sm:col-span-5">
-                <span className="font-medium">Vieta</span>
-                <select
-                  value={draftBag.warehouseLocationId}
-                  onChange={(event) =>
-                    setDraftBag({
-                      ...draftBag,
-                      warehouseLocationId: event.target.value,
-                    })
-                  }
-                  className={inputClass}
-                >
-                  <option value="">— Be konkrečios vietos —</option>
-                  {locationOptions.map((location) => (
-                    <option key={location.id} value={location.id}>
-                      {location.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="flex items-end sm:col-span-4">
+          {batch.bagCount === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Patvirtinti galima tik partiją su bent vienu maišu.
+            </p>
+          ) : (
+            <form onSubmit={submitReconciliation} className="grid gap-4">
+              <h2 className="text-lg font-medium">{CONFIRM_RECEIPT_LABEL}</h2>
+              {batch.status === "DISCREPANCY" ? (
+                <p role="status" className="text-sm text-muted-foreground">
+                  Užfiksuotas neatitikimas. Pataisykite dokumentinį svorį ir
+                  patvirtinkite iš naujo.
+                </p>
+              ) : null}
+
+              <div className="grid gap-3 sm:grid-cols-12">
+                <label className="grid gap-1 text-sm sm:col-span-3">
+                  <span className="font-medium">Dokumentinis svoris</span>
+                  <input
+                    required
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="0.001"
+                    value={draftReconciliation.documentWeight}
+                    onChange={(event) =>
+                      setDraftReconciliation({
+                        ...draftReconciliation,
+                        documentWeight: event.target.value,
+                      })
+                    }
+                    className={inputClass}
+                  />
+                </label>
+                <label className="grid gap-1 text-sm sm:col-span-3">
+                  <span className="font-medium">Įsigijimo vertė</span>
+                  <input
+                    required
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="0.01"
+                    value={draftReconciliation.acquisitionAmount}
+                    onChange={(event) =>
+                      setDraftReconciliation({
+                        ...draftReconciliation,
+                        acquisitionAmount: event.target.value,
+                      })
+                    }
+                    className={inputClass}
+                  />
+                </label>
+                <label className="grid gap-1 text-sm sm:col-span-3">
+                  <span className="font-medium">Dokumento data</span>
+                  <input
+                    type="date"
+                    value={draftReconciliation.documentDate}
+                    onChange={(event) =>
+                      setDraftReconciliation({
+                        ...draftReconciliation,
+                        documentDate: event.target.value,
+                      })
+                    }
+                    className={inputClass}
+                  />
+                </label>
+                <label className="grid gap-1 text-sm sm:col-span-3">
+                  <span className="font-medium">Dokumento Nr.</span>
+                  <input
+                    type="text"
+                    maxLength={64}
+                    value={draftReconciliation.documentNumber}
+                    onChange={(event) =>
+                      setDraftReconciliation({
+                        ...draftReconciliation,
+                        documentNumber: event.target.value,
+                      })
+                    }
+                    className={inputClass}
+                  />
+                </label>
+              </div>
+
+              <dl className="grid gap-x-8 gap-y-2 border-t border-border pt-4 sm:grid-cols-3">
+                <div>
+                  <dt className="text-sm font-medium">Faktiškai susverta</dt>
+                  <dd className="text-sm text-muted-foreground">
+                    {totalQuantityLabel}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium">Dokumentuose</dt>
+                  <dd className="text-sm text-muted-foreground">
+                    {draftDocumentWeight === ""
+                      ? "—"
+                      : formatWeight(draftDocumentWeight)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium">Skirtumas</dt>
+                  <dd
+                    className={
+                      liveDifference && !liveMatches
+                        ? "text-sm text-destructive"
+                        : "text-sm text-muted-foreground"
+                    }
+                  >
+                    {liveDifference ?? "—"}
+                    {liveDifference && !liveMatches ? " (neatitikimas)" : ""}
+                  </dd>
+                </div>
+              </dl>
+
+              <div className="flex items-center justify-end border-t border-border pt-4">
                 <button
                   type="submit"
-                  disabled={adding}
+                  disabled={reconciling}
                   className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
                 >
-                  {adding ? "Pridedama…" : "Pridėti maišą"}
+                  {reconciling ? "Tvirtinama…" : CONFIRM_RECEIPT_LABEL}
                 </button>
               </div>
-            </div>
-          </form>
+            </form>
+          )}
         </section>
       ) : null}
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-lg font-medium">Maišai</h2>
+        <h2 className="text-lg font-medium">Partijos maišai</h2>
         {batch.bags.length === 0 ? (
           <p className="text-sm text-muted-foreground">{EMPTY_BAGS_MESSAGE}</p>
         ) : (
@@ -304,20 +449,38 @@ export function BatchDetailsPage() {
             <table className="w-full text-left text-sm">
               <thead className="bg-muted text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-2 font-medium">Brūkšninis kodas</th>
-                  <th className="px-4 py-2 font-medium">Svoris</th>
+                  <th className="px-4 py-2 font-medium">Barkodas</th>
                   <th className="px-4 py-2 font-medium">Vieta</th>
-                  <th className="px-4 py-2 font-medium">Pridėta</th>
+                  <th className="px-4 py-2 font-medium">Kiekis</th>
+                  <th className="px-4 py-2 font-medium">Mato vnt.</th>
+                  <th className="px-4 py-2 font-medium">Būsena</th>
+                  <th className="px-4 py-2 font-medium">Užregistruota</th>
                   <th className="px-4 py-2 font-medium">Etiketė</th>
                 </tr>
               </thead>
               <tbody>
                 {batch.bags.map((bag) => (
-                  <tr key={bag.id} className="border-t border-border">
+                  <tr
+                    key={bag.id}
+                    className={
+                      bag.status === "VOIDED"
+                        ? "border-t border-border text-muted-foreground"
+                        : "border-t border-border"
+                    }
+                  >
                     <td className="px-4 py-2 font-mono">{bag.barcode}</td>
-                    <td className="px-4 py-2">{formatWeight(bag.weight)}</td>
+                    <td className="px-4 py-2">{bag.warehouseLocationName}</td>
+                    <td className="px-4 py-2">{bag.quantity}</td>
+                    <td className="px-4 py-2">{handlingUnitLabel(bag.unit)}</td>
                     <td className="px-4 py-2">
-                      {bagLocationLabel(bag.warehouseLocationName)}
+                      <span className={bagStatusClass(bag.status)}>
+                        {bagStatusLabel(bag.status)}
+                      </span>
+                      {bag.status === "VOIDED" && bag.voidReason ? (
+                        <span className="block text-xs text-muted-foreground">
+                          {bag.voidReason}
+                        </span>
+                      ) : null}
                     </td>
                     <td className="px-4 py-2">
                       {formatBatchDateTime(bag.createdAt)}
@@ -339,10 +502,53 @@ export function BatchDetailsPage() {
         )}
       </section>
 
+      <section className="flex flex-col gap-3">
+        <h2 className="text-lg font-medium">Pataisymų istorija</h2>
+        {batch.corrections.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {EMPTY_CORRECTIONS_MESSAGE}
+          </p>
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-border">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-muted text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-2 font-medium">Tipas</th>
+                  <th className="px-4 py-2 font-medium">Barkodas</th>
+                  <th className="px-4 py-2 font-medium">Buvo</th>
+                  <th className="px-4 py-2 font-medium">Dabar</th>
+                  <th className="px-4 py-2 font-medium">Priežastis</th>
+                  <th className="px-4 py-2 font-medium">Atliko</th>
+                </tr>
+              </thead>
+              <tbody>
+                {batch.corrections.map((correction) => (
+                  <tr key={correction.id} className="border-t border-border">
+                    <td className="px-4 py-2">
+                      {correctionKindLabel(correction.kind)}
+                    </td>
+                    <td className="px-4 py-2 font-mono">
+                      {correction.bagBarcode}
+                    </td>
+                    <td className="px-4 py-2">{correction.previousValue ?? "—"}</td>
+                    <td className="px-4 py-2">{correction.newValue ?? "—"}</td>
+                    <td className="px-4 py-2">{correction.reason ?? "—"}</td>
+                    <td className="px-4 py-2">
+                      {correction.createdByName} ·{" "}
+                      {formatBatchDateTime(correction.createdAt)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       {labelBag ? (
         <section className="flex flex-col gap-3">
           <h2 className="text-lg font-medium">Etiketės peržiūra</h2>
-          <Label batch={batch} bag={labelBag} />
+          <BagLabel label={bagLabelData(batch, labelBag)} />
           <div>
             <button
               type="button"

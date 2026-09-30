@@ -45,9 +45,11 @@ packages/database/       Prisma 7, generated client + adapter (see ADR-008)
   canonical `RoleKey` enum, `UserRole` many-to-many), business partners
   (`BusinessPartner`, `PartnerRole`), resources (`Resource` with a `categoryId`
   reference to the managed `ResourceCategory` table), reference data
-  (`PackingForm`), goods receipts (`GoodsReceipt`, `GoodsReceiptLine`,
-  `MeasurementUnitKey`), warehouses (`Warehouse`, `WarehouseLocation`) and
-  receiving batches/bags (`Batch`/`BatchStatus`, `Bag`). No other tables exist.
+  (`PackingForm`), goods receipts (`GoodsReceipt` with optional
+  `documentDate`/`documentNumber`, `GoodsReceiptLine`, `MeasurementUnitKey`),
+  warehouses (`Warehouse`, `WarehouseLocation`) and receiving batches/bags
+  (`Batch`/`BatchStatus`, `Bag`; `Batch.receiptLineId` links a reconciled batch
+  to its `GoodsReceiptLine`). No other tables exist.
 - `AppModule` composes `PrismaModule`, `AccessModule`, `AuthModule`,
   `UsersModule`, `PartnersModule`, `ResourceCategoriesModule`, `ResourcesModule`,
   `PackingFormsModule`, `ReceiptsModule`, `BatchesModule`, `WarehousesModule`,
@@ -99,12 +101,12 @@ concerns; the `access` module owns the role catalogue.
   `/resources` (`docs/resources.md`).
 - The web frontend follows **FSD-lite** (`app`, `widgets`, `features`,
   `entities`, `shared`); see [frontend-architecture.md](frontend-architecture.md).
-- The database has nine migrations: `initial_identity_access`,
+- The database has ten migrations: `initial_identity_access`,
   `business_partners`, `resources_and_packing_forms`, `goods_receipts`,
   `warehouse_placement`, `optional_receipt_location`, `add_user_token_version`,
-  `managed_resource_categories` and `receiving_batches_and_bags`. Applied
-  migrations become immutable after the first shared/production deployment
-  (ADR-010).
+  `managed_resource_categories`, `receiving_batches_and_bags` and
+  `batch_reconciliation`. Applied migrations become immutable after the first
+  shared/production deployment (ADR-010).
 
 ## Purpose
 
