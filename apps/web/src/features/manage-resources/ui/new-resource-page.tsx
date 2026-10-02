@@ -8,6 +8,7 @@ import { activeResourceCategories } from "@/entities/resource-category";
 import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
 import { workSurfaceClass } from "@/shared/lib/surfaces";
+import { SECONDARY_NAV_BUTTON_CLASS } from "@/shared/ui";
 import {
   emptyResourceFormValues,
   resourceFormError,
@@ -97,7 +98,7 @@ export function NewResourcePage() {
           <p className="text-sm text-muted-foreground">
             Nėra aktyvių kategorijų. Pirmiausia sukurkite kategoriją.
           </p>
-          <Link href="/resources/categories" className="text-sm hover:underline">
+          <Link href="/resources/categories" className={SECONDARY_NAV_BUTTON_CLASS}>
             ← Kategorijos
           </Link>
         </div>

@@ -22,7 +22,9 @@ import {
 function batch(overrides: Partial<Batch> = {}): Batch {
   return {
     id: "11111111-1111-4111-8111-111111111111",
-    code: "P-2026-000001",
+    code: "P01",
+    deliveryId: "99999999-9999-4999-8999-999999999999",
+    deliveryCode: "G2609-01",
     resourceId: "22222222-2222-4222-8222-222222222222",
     resourceName: "Cukrus",
     resourceCategoryName: "Žaliava",
@@ -32,9 +34,10 @@ function batch(overrides: Partial<Batch> = {}): Batch {
     warehouseName: "Pagrindinis",
     arrivalDate: "2026-09-29T00:00:00.000Z",
     status: "PENDING",
-    unit: "KG",
     documentWeight: null,
+    documentPieces: null,
     difference: null,
+    hasOpenDiscrepancy: false,
     acquisitionAmount: null,
     receiptId: null,
     receiptLineId: null,
@@ -44,7 +47,7 @@ function batch(overrides: Partial<Batch> = {}): Batch {
     createdById: "55555555-5555-4555-8555-555555555555",
     createdByName: "Vardas Pavardė",
     bagCount: 2,
-    totalQuantity: "19.75",
+    totalNetWeight: "19.75",
     createdAt: "2026-09-29T09:00:00.000Z",
     updatedAt: "2026-09-29T09:00:00.000Z",
     ...overrides,
@@ -77,64 +80,64 @@ describe("reset filters", () => {
     expect(
       hasActiveBatchFilters({ ...defaults, arrivalFrom: "2026-09-01" }),
     ).toBe(true);
-    expect(hasActiveBatchFilters({ ...defaults, code: "P-2026" })).toBe(true);
+    expect(hasActiveBatchFilters({ ...defaults, code: "P01" })).toBe(true);
+  });
+
+  it("keeps arrival date filters empty by default (no forced range)", () => {
+    const defaults = createBatchListFilters();
+    expect(defaults.arrivalFrom).toBe("");
+    expect(defaults.arrivalTo).toBe("");
+  });
+
+  it("resets to the default status and clears the date filters", () => {
+    const reset = createBatchListFilters();
+    expect(reset.status).toBe(DEFAULT_BATCH_STATUS_FILTER);
+    expect(reset.arrivalFrom).toBe("");
+    expect(reset.arrivalTo).toBe("");
   });
 });
 
 describe("statusesForFilter", () => {
-  it("maps Reikia patvirtinti to PENDING + DISCREPANCY", () => {
-    expect(statusesForFilter("NEEDS_CONFIRMATION")).toEqual([
-      "PENDING",
-      "DISCREPANCY",
-    ]);
+  it("maps Reikia patvirtinti to the not-yet-confirmed PENDING batches", () => {
+    expect(statusesForFilter("NEEDS_CONFIRMATION")).toEqual(["PENDING"]);
   });
 
   it("maps the individual status filters", () => {
     expect(statusesForFilter("PENDING")).toEqual(["PENDING"]);
-    expect(statusesForFilter("DISCREPANCY")).toEqual(["DISCREPANCY"]);
     expect(statusesForFilter("CONFIRMED")).toEqual(["CONFIRMED"]);
-    expect(statusesForFilter("ALL")).toEqual([
-      "PENDING",
-      "CONFIRMED",
-      "DISCREPANCY",
-    ]);
+    expect(statusesForFilter("ALL")).toEqual(["PENDING", "CONFIRMED"]);
   });
 });
 
 describe("filterBatches", () => {
-  const pending = batch({ id: "p", code: "P-2026-000001", status: "PENDING" });
-  const discrepancy = batch({
-    id: "d",
-    code: "P-2026-000002",
-    status: "DISCREPANCY",
-  });
+  const pending = batch({ id: "p", code: "P01", status: "PENDING" });
   const confirmed = batch({
     id: "c",
-    code: "P-2026-000003",
+    code: "P03",
     status: "CONFIRMED",
     confirmedAt: "2026-09-30T10:00:00.000Z",
   });
 
-  it("applies the default Reikia patvirtinti queue (PENDING + DISCREPANCY)", () => {
-    const visible = filterBatches([pending, discrepancy, confirmed], {
+  it("applies the default Reikia patvirtinti queue (PENDING only)", () => {
+    const visible = filterBatches([pending, confirmed], {
       ...createBatchListFilters(),
     });
-    expect(visible.map((item) => item.id)).toEqual(["p", "d"]);
+    expect(visible.map((item) => item.id)).toEqual(["p"]);
   });
 
   it("filters by an individual status", () => {
     expect(
-      filterBatches([pending, discrepancy, confirmed], {
+      filterBatches([pending, confirmed], {
         ...createBatchListFilters(),
         status: "CONFIRMED",
       }).map((item) => item.id),
     ).toEqual(["c"]);
     expect(
-      filterBatches([pending, discrepancy, confirmed], {
+      filterBatches([pending, confirmed], {
         ...createBatchListFilters(),
-        status: "DISCREPANCY",
+        status: "ALL",
       }).map((item) => item.id),
-    ).toEqual(["d"]);
+    ).toEqual(["p", "c"]);
   });
 
   it("filters by supplier, resource and warehouse", () => {
@@ -197,14 +200,14 @@ describe("filterBatches", () => {
       filterBatches([pending, confirmed], {
         ...createBatchListFilters(),
         status: "ALL",
-        code: "00003",
+        code: "P03",
       }).map((item) => item.id),
     ).toEqual(["c"]);
     expect(
       filterBatches([pending, confirmed], {
         ...createBatchListFilters(),
         status: "ALL",
-        code: "p-2026-000001",
+        code: "p01",
       }).map((item) => item.id),
     ).toEqual(["p"]);
   });
@@ -235,13 +238,11 @@ describe("batchDetailHref", () => {
 describe("batch status display", () => {
   it("maps statuses to Lithuanian labels", () => {
     expect(batchStatusLabel("CONFIRMED")).toBe("Patvirtinta");
-    expect(batchStatusLabel("DISCREPANCY")).toBe("Neatitikimas");
     expect(batchStatusLabel("PENDING")).toBe("Laukiama patvirtinimo");
   });
 
   it("maps statuses to restrained semantic colours", () => {
     expect(batchStatusClass("CONFIRMED")).toContain("emerald");
-    expect(batchStatusClass("DISCREPANCY")).toContain("rose");
     expect(batchStatusClass("PENDING")).toContain("muted");
   });
 });
@@ -265,6 +266,14 @@ describe("Gavimai row rendering (source)", () => {
   it("offers a filter reset control", () => {
     expect(source).toContain("RESET_FILTERS_LABEL");
     expect(source).toContain("hasActiveBatchFilters");
+  });
+
+  it("shows the delivery code as the grouping reference", () => {
+    expect(source).toContain("batch.deliveryCode");
+  });
+
+  it("uses masculine Visi for the generic supplier/resource/warehouse options", () => {
+    expect(source).toContain(">Visi<");
   });
 });
 
@@ -296,5 +305,39 @@ describe("Gavimai detail page (source)", () => {
     expect(source).toContain("Pataisymų istorija");
     expect(source).toContain("correctionKindLabel");
     expect(source).toContain("bagStatusLabel");
+  });
+
+  it("shows the human-facing delivery code", () => {
+    expect(source).toContain("batch.deliveryCode");
+  });
+});
+
+describe("receiving terminology in the ADMIN views (source)", () => {
+  const gavimai = readFileSync(
+    fileURLToPath(new URL("../ui/gavimai-page.tsx", import.meta.url)),
+    "utf8",
+  );
+  const details = readFileSync(
+    fileURLToPath(new URL("../ui/batch-details-page.tsx", import.meta.url)),
+    "utf8",
+  );
+
+  it("uses generic Pakuotės wording, not bag-specific Maišai", () => {
+    expect(gavimai).toContain("Pakuotės");
+    expect(gavimai).not.toContain("Maišai");
+    expect(details).toContain("Partijos pakuotės");
+    expect(details).not.toContain("Partijos maišai");
+  });
+
+  it("never uses bag-specific Maišas wording for physical packages", () => {
+    expect(gavimai).not.toMatch(/[Mm]aiš/);
+    expect(details).not.toMatch(/[Mm]aiš/);
+  });
+
+  it("shows the compact delivery-local batch code (P01)", () => {
+    expect(gavimai).toContain("batch.code");
+    expect(details).toContain("batch.code");
+    expect(gavimai).not.toMatch(/P-\d{4}/);
+    expect(details).not.toMatch(/P-\d{4}/);
   });
 });

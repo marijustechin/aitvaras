@@ -81,6 +81,8 @@ Status legend: **DONE** · **CURRENT** · **NEXT** · **LATER / DISCOVERY ONLY**
   a resource property. `GET/POST/PATCH /resources` and `/packing-forms`; UI
   `/resources`, `/resources/new`, `/resources/[id]`, `/resources/packing-forms`;
   navigation `Ištekliai`. Docs: `resources.md`, `domain-glossary.md`.
+  *(Superseded: the redundant `PackingForm` concept and its seed were removed in
+  ATV-049; `PackagingType` / `Tara` is now canonical.)*
 - **User administration fix + ADMIN role UX (ATV-017 / O-053)** — root-caused the
   `Naudotojai` edit/disable failures to Fastify's CORS default methods
   (`GET,HEAD,POST`); fixed by setting allowed methods explicitly (browser
@@ -96,9 +98,9 @@ Status legend: **DONE** · **CURRENT** · **NEXT** · **LATER / DISCOVERY ONLY**
 - **Goods receipts / Pajamavimas (ATV-020 / O-058)** — first minimal receipt
   workflow: one supplier partner (active + `SUPPLIER`) and 1..n lines (resource,
   quantity, unit `kg`/`vnt.`, unit price); decimal-safe persistence; atomic save;
-  list + read-only detail. No stock, packing-form link, status lifecycle,
-  accounting or `PATCH`/`DELETE`. Auth: authenticated (not ADMIN) for
-  list/read/create. Docs: `receipts.md`, `domain-glossary.md`.
+  list + read-only detail. No stock, status lifecycle, accounting or
+  `PATCH`/`DELETE`. Auth: authenticated (not ADMIN) for list/read/create. Docs:
+  `receipts.md`, `domain-glossary.md`.
 - **Warehouses & receipt placement (ATV-021 / O-059)** — `Warehouse` +
   `WarehouseLocation` (a location always belongs to exactly one warehouse;
   names unique per warehouse, not globally) with active/inactive lifecycle;
@@ -138,7 +140,8 @@ Status legend: **DONE** · **CURRENT** · **NEXT** · **LATER / DISCOVERY ONLY**
 - **Receiving batches & bags (ATV-029)** — first slice of the confirmed
   inventory direction. `Batch` (Partija) records one delivery of one resource
   from one active `SUPPLIER` into one warehouse, with a system-generated
-  unique code (`P-<year>-<sequence>`), arrival date and `PENDING` status;
+  unique code (now compact/delivery-local `P01`..`P99`; see ATV-047), arrival
+  date and `PENDING` status;
   `Bag` (Maišas) is one physical handling unit with its own measured weight, an
   optional location (must belong to the batch warehouse) and a unique
   EAN-13-shaped barcode that encodes no business data. `GET/POST /batches`,
@@ -277,18 +280,152 @@ Status legend: **DONE** · **CURRENT** · **NEXT** · **LATER / DISCOVERY ONLY**
   `Pataisymų istorija` table. Migration `handling_unit_corrections`. Docs:
   `batches.md`, `scope.md`, `domain-glossary.md`, `authorization.md`, `AGENTS.md`.
   Out of scope: bag split/merge, post-confirmation corrections, barcode hardware.
+- **Incoming deliveries (Gavimas) with multiple resource batches (ATV-042,
+  corrected)** — the confirmed real workflow: one physical arrival = **one
+  supplier + one arrival date**, containing several resources; each resource goes
+  into **one warehouse per batch**. New `IncomingDelivery` (`Gavimas`) aggregate,
+  human-facing code `GYYMM-NN` (month-sequenced, unique, max 99). `Batch` owns
+  `deliveryId`, `resourceId` and `warehouseId` (+ `@@unique(deliveryId,
+  resourceId, warehouseId)`) and an optional nullable `documentPieces`. Physical
+  receiving is **weight-based**: `Bag.weight` (no KG/PCS unit; the
+  `HandlingUnitKey` enum and unit selectors were removed; `bags.quantity` renamed
+  to `bags.weight`, correction kind `QUANTITY`→`WEIGHT`). New `/deliveries` API
+  (`POST` supplier+arrival, `GET`, `GET /:id`, `POST /:id/batches` resource+
+  warehouse); the old `POST /batches` was removed and `POST /batches/:id/bags`
+  takes `{weight, warehouseLocationId}`. Delivery-centric worker UI (`Naujas
+  gavimas`/`Pradėti gavimą`, `Registruojama rūšis` resource+warehouse,
+  `Kitas išteklius`, `Gavimo turinys`, package `Vieta`+`Svoris`); labels show
+  `Gavimas: GYYMM-NN` + actual weight; ADMIN queue/detail show the delivery code
+  and the optional `Dokumentiniai vienetai`. Migration `incoming_deliveries`
+  (rewritten, uncommitted) backfills one delivery per existing batch, keeps the
+  batch warehouse, and preserves every package weight. Out of scope: the
+  long-lived discrepancy register, historical delivery grouping, vehicles, bag
+  split/merge, per-package piece allocation.
+- **Packaging / tare master data (ATV-043)** — new `PackagingType` (`Tara`) master
+  data (name, `tareWeightKg` Decimal(14,3), active) with ADMIN list/create/edit/
+  activate (`/packaging-types`) and a `/resources/packaging-types` page. Handling
+  units store `packagingTypeId`, `grossWeight` and the server-derived
+  `netWeight = gross − tare`; gross ≤ 0 / gross ≤ tare (`GROSS_NOT_ABOVE_TARE`) and
+  inactive packaging (`PACKAGING_INACTIVE`) are rejected for new receiving, while
+  historical packages may reference inactive packaging. Measured/reconciliation
+  totals use **netWeight**; labels show net (gross/tare secondary). Corrections
+  allow packaging/gross/location and recompute net, appending `PACKAGING`/
+  `GROSS_WEIGHT`/`LOCATION` audit rows. Migration `packaging_types` attaches
+  historical packages to an inactive `Nežinoma tara` (tare 0). Docs:
+  `packaging-types.md`, `batches.md`, `domain-glossary.md`, `scope.md`,
+  `authorization.md`, `AGENTS.md`. Out of scope: per-package piece allocation,
+  packaging-type hard delete.
+- **Bag tare snapshot (ATV-044)** — narrow follow-up. `Bag.tareWeightKg`
+  (Decimal(14,3)) snapshots the tare used for the bag's current net weight, so
+  `grossWeight − tareWeightKg = netWeight` stays true historically even if the
+  PackagingType master tare is edited later. Creation snapshots the active type's
+  tare; a packaging correction re-snapshots the selected type's tare and recomputes
+  net, recording the previous/new packaging name **and tare** in the `PACKAGING`
+  audit row. Reads/labels use the bag snapshot (packaging name still from the
+  referenced type). Integrated into the uncommitted `packaging_types` migration
+  (`tare_weight_kg`, historical rows = 0.000, gross = net preserved); local dev/test
+  DBs rebuilt (consented). No workflow/architecture change. Docs:
+  `packaging-types.md`, `batches.md`.
+- **Receiving `Pakuotė` terminology and tare persistence (ATV-045)** — narrow UX
+  follow-up. Active receiving UI uses the generic term **`Pakuotė`** instead of
+  the bag-specific `Maišas` (`Nauja pakuotė`, `Partijos pakuotės`, `Pakuotės`
+  headers, `Anuliuotos pakuotės`, `Anuliuoti pakuotę`, `Koreguoti pakuotę`);
+  `Tara` stays the packaging selector label; internal `Bag` is unchanged. After
+  save the active batch/`Tara`/location are preserved and only the gross weight is
+  cleared. New server-derived `BatchDetail.suggestedPackagingTypeId` (latest
+  **active** package; `null` when none) makes the tare selection survive
+  refresh/re-entry; a voided package is never suggested; `Kitas išteklius` does
+  not inherit the previous batch's tare. No schema change. Docs: `batches.md`,
+  `packaging-types.md`, `domain-glossary.md`.
+- **Non-blocking discrepancy confirmation + register (ATV-046)** — a mismatch no
+  longer blocks confirmation. Exact match confirms with no discrepancy; a mismatch
+  requires explicit `acknowledgeDiscrepancy: true`, then confirms and records a
+  long-lived `ReceivingDiscrepancy` (OPEN) with measured/document/signed difference
+  (`measured − document`). `BatchStatus` simplified to `PENDING | CONFIRMED` (the
+  `DISCREPANCY` value removed); the physical stock stays the measured net weight.
+  Confirm + discrepancy creation are one transaction (unique `batchId`), so retry
+  cannot duplicate. ADMIN detail shows a modal on a non-zero difference and the
+  signed-difference success message; `Gavimai` shows confirmed-with-discrepancy as
+  confirmed + `Neatitikimas` marker. Migration `receiving_discrepancies`. Docs:
+  `batches.md`, `domain-glossary.md`, `scope.md`, `AGENTS.md`. Out of scope:
+  discrepancy settlement UI (weight/money) — documented as the next slice.
+- **Compact delivery-local batch codes + receiving UI cleanup (ATV-047)** — narrow
+  UI/identifier cleanup. Human-facing batch code shortened to the delivery-local
+  `P01`..`P99` (first batch `P01`, resets per delivery, max `P99` with
+  `BATCH_CODE_EXHAUSTED`; concurrency-safe via a composite unique
+  `@@unique([deliveryId, code])` + retry; the UUID stays the technical identity).
+  Migration `batch_delivery_local_code` reassigns existing codes deterministically
+  per delivery and replaces the global unique `code` index. `Gavimai` filters use
+  masculine `Visos`→`Visi` for the generic supplier/resource/warehouse options; the
+  default pending queue stays **not date-bounded** (arrival-date filters empty).
+  Signed difference shows an explicit `+` for positive (`+19,200 kg`) and `−`
+  (U+2212) for negative; mismatch stays rose/red. No stale user-facing
+  `Maišas`/`Maišai`; `Pakuotė` = physical package, `Tara` = packaging type/master
+  data. Docs: `batches.md`, `domain-glossary.md`, `scope.md`, `AGENTS.md`.
+- **Top-navigation information-architecture cleanup (ATV-048)** — focused web IA
+  cleanup; routes, authorization and page content unchanged. Top navigation groups
+  administration under parents: operational `Pradžia`, `Registruoti sandėlyje`,
+  `Gavimai` stay top-level; `Žinynai` (reference data → `Partneriai`, `Ištekliai`,
+  `Sandėliai`); `Ataskaitos` (reserved, empty — the future discrepancy
+  register/report belongs here); `Sistema` (system administration → `Naudotojai`,
+  later `Nustatymai`). New discriminated `NavEntry` model with
+  `visibleNavEntries`/`isNavGroupActive`; compact desktop dropdowns
+  (`aria-haspopup`/`aria-expanded`, `Escape`, outside-click, active-parent
+  highlight) plus a responsive `Meniu` disclosure below `md`. Role visibility
+  preserved. Docs: `frontend-architecture.md`, `architecture.md`, `batches.md`,
+  `AGENTS.md`.
+- **Receiving queue, delivery routes, button hierarchy & PackingForm removal
+  (ATV-049)** — receiving/UI consistency pass. (1) `Nepatvirtinti gavimai` is now
+  **derived from the child batches** (`pendingBatchCount`, not a stored status): a
+  delivery with any `PENDING` batch (or none yet) stays; an all-`CONFIRMED`
+  delivery disappears (API `IncomingDelivery.pendingBatchCount`). (2) The selected
+  delivery has its own route `/receiving/[deliveryId]` (`/receiving` is the list),
+  so the top-level nav/Back work, with a secondary `← Gavimų sąrašas` action
+  replacing `Kitas gavimas`. (3) A shared button hierarchy
+  (`shared/ui/button.ts`: primary / secondary filled-gray / outline /
+  destructive) is adopted for child-nav and back actions. (4) The redundant
+  `PackingForm` / `Pakavimo formos` concept was removed (`drop_packing_forms`
+  migration): distinct legacy names preserved as `PackagingType` (tare 0, no
+  duplicates); `PackagingType` / `Tara` is canonical. Docs: `batches.md`,
+  `resources.md`, `packaging-types.md`, `domain-glossary.md`, `scope.md`,
+  `architecture.md`, `frontend-architecture.md`, `authorization.md`, `AGENTS.md`.
+- **Neatitikimai — discrepancy register + settlement ledger (ATV-050)** — the
+  `ReceivingDiscrepancy` register and an append-only `DiscrepancySettlement`
+  ledger. Direction `Trūkumas`/`Perteklius` from the immutable signed
+  `measured − document`; server-derived balance (`original = |difference|`,
+  `settled = Σ coveredWeightKg`, `remaining`) drives `OPEN → PARTIALLY_SETTLED →
+  SETTLED` (+`settledAt`). `WEIGHT` (optional link to a confirmed same-supplier
+  batch; no stock added) and `MONEY` (amount+currency; no money↔weight
+  conversion); settlements never change inventory or the original discrepancy.
+  Transactional creation with a row lock prevents over-settlement. ADMIN
+  `Ataskaitos → Neatitikimai` register (`/reports/discrepancies`) with filters
+  (default `Atviri`, no date bound) and detail + `Padengimų istorija` + settlement
+  form. API `GET /receiving-discrepancies`, `GET /:id`,
+  `POST /:id/settlements`; migration `discrepancy_settlements`. Docs:
+  `discrepancies.md`, `batches.md`, `scope.md`, `domain-glossary.md`,
+  `architecture.md`, `authorization.md`, `backend-architecture.md`,
+  `frontend-architecture.md`, `AGENTS.md`.
 
 ## CURRENT
 
-- **Uncommitted work:** batch ↔ GoodsReceipt reconciliation (ATV-030), the
+- **Uncommitted work:** receiving discrepancy register + settlement ledger
+  (ATV-050) on top of receiving queue + delivery routes + button hierarchy +
+  PackingForm removal (ATV-049) on top of top-navigation IA cleanup (ATV-048) on
+  top of compact delivery-local batch codes + receiving UI cleanup (ATV-047) on
+  top of
+  non-blocking discrepancy confirmation + register (ATV-046)
+  within receiving `Pakuotė` terminology + tare persistence
+  (ATV-045) within bag tare snapshot (ATV-044) within packaging / tare master
+  data (ATV-043) on top of the
+  delivery/multi-resource receiving slice (ATV-042) on
+  top of the previously uncommitted batch ↔ GoodsReceipt reconciliation (ATV-030),
   warehouse-worker receiving UI (ATV-031), handling-unit quantities + required
-  location + labels (ATV-032), the save→label surface flow (ATV-033), the batch
-  units list (ATV-034), the split save action + icons (ATV-035), the pointer
-  cursor convention (ATV-036), the ADMIN reconciliation boundary cleanup
-  (ATV-037), the `Gavimai` admin queue (ATV-038), the `Gavimai` row
-  interaction/status colours (ATV-039), the `Gavimai` detail links/confirmation
-  wording (ATV-040) and the filter reset + physical unit correction/void
-  (ATV-041) — implemented and awaiting review/commit.
+  location + labels (ATV-032), save→label surface (ATV-033), batch units list
+  (ATV-034), split save action + icons (ATV-035), pointer cursor convention
+  (ATV-036), ADMIN reconciliation boundary cleanup (ATV-037), `Gavimai` admin
+  queue (ATV-038), row interaction/status colours (ATV-039), detail
+  links/confirmation wording (ATV-040) and filter reset + physical unit
+  correction/void (ATV-041) — implemented and awaiting review/commit.
 - The partner/resource/receipt relationship beyond the recorded fields is not
   designed. No further business scope is confirmed; stock balances, warehouse
   movements, purchasing/accounting, production, orders and sales remain

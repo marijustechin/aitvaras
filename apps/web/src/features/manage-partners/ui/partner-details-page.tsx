@@ -9,6 +9,7 @@ import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
 import { EMPTY_VALUE, activeStatusLabel, valueOrPlaceholder } from "@/shared/lib/format";
 import { workSurfaceClass } from "@/shared/lib/surfaces";
+import { SECONDARY_NAV_BUTTON_CLASS } from "@/shared/ui";
 import {
   partnerFormError,
   partnerFormToPayload,
@@ -104,7 +105,7 @@ export function PartnerDetailsPage() {
         <p role="alert" className="text-sm text-destructive">
           {loadError ?? "Partneris nerastas."}
         </p>
-        <Link href="/partners" className="text-sm hover:underline">
+        <Link href="/partners" className={SECONDARY_NAV_BUTTON_CLASS}>
           ← Partneriai
         </Link>
       </div>
@@ -176,7 +177,7 @@ export function PartnerDetailsPage() {
         </section>
       )}
 
-      <Link href="/partners" className="text-sm hover:underline">
+      <Link href="/partners" className={SECONDARY_NAV_BUTTON_CLASS}>
         ← Partneriai
       </Link>
     </div>

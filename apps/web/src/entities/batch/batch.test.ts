@@ -8,11 +8,10 @@ import {
   correctionKindLabel,
   EMPTY_BATCHES_MESSAGE,
   EMPTY_CORRECTIONS_MESSAGE,
-  formatQuantity,
+  formatSignedWeight,
   formatWeight,
   formatWeightDifference,
   GAVIMAI_ACTION,
-  handlingUnitLabel,
   isBatchConfirmed,
   isBatchOpen,
   RECEIVE_ACTION,
@@ -24,18 +23,15 @@ describe("batch status", () => {
   it("maps status keys to Lithuanian labels", () => {
     expect(batchStatusLabel("PENDING")).toBe("Laukiama patvirtinimo");
     expect(batchStatusLabel("CONFIRMED")).toBe("Patvirtinta");
-    expect(batchStatusLabel("DISCREPANCY")).toBe("Neatitikimas");
   });
 
-  it("treats pending and discrepant batches as open for bag changes", () => {
+  it("treats only pending batches as open for package changes", () => {
     expect(isBatchOpen("PENDING")).toBe(true);
-    expect(isBatchOpen("DISCREPANCY")).toBe(true);
     expect(isBatchOpen("CONFIRMED")).toBe(false);
   });
 
   it("treats only CONFIRMED as confirmed (terminal)", () => {
     expect(isBatchConfirmed("CONFIRMED")).toBe(true);
-    expect(isBatchConfirmed("DISCREPANCY")).toBe(false);
     expect(isBatchConfirmed("PENDING")).toBe(false);
   });
 });
@@ -52,7 +48,8 @@ describe("handling unit status and corrections", () => {
   });
 
   it("maps correction kinds to Lithuanian labels and has an empty state", () => {
-    expect(correctionKindLabel("QUANTITY")).toBe("Kiekio pataisymas");
+    expect(correctionKindLabel("PACKAGING")).toBe("Taros pataisymas");
+    expect(correctionKindLabel("GROSS_WEIGHT")).toBe("Bruto svorio pataisymas");
     expect(correctionKindLabel("LOCATION")).toBe("Vietos pataisymas");
     expect(correctionKindLabel("VOID")).toBe("Anuliavimas");
     expect(EMPTY_CORRECTIONS_MESSAGE).toBe("Pataisymų dar nėra.");
@@ -60,18 +57,26 @@ describe("handling unit status and corrections", () => {
 });
 
 describe("reconciliation difference", () => {
-  it("formats a signed difference with the weight precision", () => {
-    expect(formatWeightDifference("10.25", "10")).toContain("0,250");
+  it("formats a signed difference (measured − document) with the weight precision", () => {
+    // Received more than documented -> explicit leading plus.
+    expect(
+      (formatWeightDifference("199.200", "180.000") ?? "").replace(/\s/g, ""),
+    ).toBe("+19,200kg");
+    // lt-LT renders the minus sign as U+2212; measured below document is negative.
+    expect(
+      (formatWeightDifference("170.000", "180.000") ?? "").replace(/\s/g, ""),
+    ).toBe("\u221210,000kg");
+    // Exact match is unsigned.
     expect(formatWeightDifference("10", "10")).toContain("0,000");
-    // lt-LT renders the minus sign as U+2212.
-    expect((formatWeightDifference("9.5", "10") ?? "").replace(/\s/g, "")).toContain(
-      "\u22120,500",
+    expect(formatSignedWeight("10.25")).toContain("+");
+    expect(formatSignedWeight("-10.25").replace(/\s/g, "")).toContain(
+      "\u221210,250",
     );
   });
 
   it("returns null when there is no documentary weight", () => {
-    expect(formatWeightDifference(null, "10")).toBeNull();
-    expect(formatWeightDifference("", "10")).toBeNull();
+    expect(formatWeightDifference("10", null)).toBeNull();
+    expect(formatWeightDifference("10", "")).toBeNull();
   });
 
   it("matches weights exactly (no tolerance)", () => {
@@ -89,28 +94,6 @@ describe("formatWeight", () => {
 
   it("returns an empty string for a non-numeric value", () => {
     expect(formatWeight("nope")).toBe("");
-  });
-});
-
-describe("formatQuantity", () => {
-  it("formats KG with the 3-decimal weight convention", () => {
-    expect(formatQuantity("48.725", "KG").replace(/\s/g, "")).toBe("48,725kg");
-  });
-
-  it("formats PCS as whole units", () => {
-    expect(formatQuantity("12", "PCS")).toBe("12 vnt");
-    expect(formatQuantity(7, "PCS")).toBe("7 vnt");
-  });
-
-  it("returns an empty string for a non-numeric value", () => {
-    expect(formatQuantity("nope", "KG")).toBe("");
-  });
-});
-
-describe("handlingUnitLabel", () => {
-  it("maps units to Lithuanian short labels", () => {
-    expect(handlingUnitLabel("KG")).toBe("kg");
-    expect(handlingUnitLabel("PCS")).toBe("vnt");
   });
 });
 

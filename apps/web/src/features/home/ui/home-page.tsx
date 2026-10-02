@@ -32,8 +32,8 @@ export function HomePage() {
             {RECEIVE_ACTION.label}
           </Link>
           <p className="mt-3 text-sm text-muted-foreground">
-            Registruokite atvežtus maišus: pasirinkite partiją arba pradėkite
-            naują ir suveskite maišų svorius.
+            Registruokite atvežtas pakuotes: pasirinkite partiją arba pradėkite
+            naują ir suveskite pakuočių svorius.
           </p>
         </section>
       ) : (

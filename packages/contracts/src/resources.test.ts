@@ -67,7 +67,7 @@ describe("UpdateResourceRequestSchema", () => {
   it("rejects an empty update and unknown fields, allows a single change", () => {
     expect(UpdateResourceRequestSchema.safeParse({}).success).toBe(false);
     expect(
-      UpdateResourceRequestSchema.safeParse({ packingFormId: "x" }).success,
+      UpdateResourceRequestSchema.safeParse({ unknownField: "x" }).success,
     ).toBe(false);
     expect(
       UpdateResourceRequestSchema.safeParse({ active: false }).success,

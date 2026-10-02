@@ -50,32 +50,33 @@ provenance. **Status: implemented** (`docs/resources.md`); the surrounding
 inventory/production principles are confirmed future direction, not implemented —
 see [scope.md](scope.md).
 
-## Pakavimo forma (packing form)
-
-How goods are physically packed/presented for handling/storage. **Independent
-reference/master data** — deliberately **not** a permanent property of a
-resource (a later delivery may use a different form). Confirmed initial forms:
-
-```text
-Dėžė
-Maišas
-Metalinis narvas
-Rulonas
-```
-
-**Status: implemented** as reference data with an explicit idempotent seed
-(`pnpm seed:reference`); see `docs/resources.md`. Packing forms are **not yet**
-linked to resources or receipt lines.
-
 ## Gavimai (received batches)
 
-The ADMIN administrative queue of physical receiving batches created through
+The ADMIN administrative queue of physical receiving records created through
 `Registruoti sandėlyje`. It is a review/history and work-queue view (filter by
 status / supplier / resource / warehouse / arrival date / batch code; default
-`Reikia patvirtinti` = `PENDING` + `DISCREPANCY`) whose rows open the batch's
-formal **reconciliation**. `Gavimai` replaced the former top-level `Pajamavimas`
-label; it is **not** a place to create physical batches (that is the warehouse
-worker's task).
+`Reikia patvirtinti` = the not-yet-confirmed `PENDING` batches) whose rows open the batch's
+formal **reconciliation**, with the human-facing `Gavimas` code shown as the
+grouping reference. The default pending queue is **not date-bounded** (the
+`Priėmimo data` filters are empty by default) so old pending items are never
+silently hidden. `Gavimai` replaced the former top-level `Pajamavimas` label;
+it is **not** a place to create receiving records (that is the warehouse worker's
+task).
+
+**Status: implemented** (`docs/batches.md`).
+
+## Gavimas (incoming delivery)
+
+One physical incoming **arrival**: the goods of **one** supplier on **one**
+arrival date, registered by a warehouse worker. It is the **user-facing receiving
+unit** (container) and carries the **main human-facing receipt identifier**, the
+code `G<YY><MM>-<NN>` (e.g. `G2609-01`, month-sequenced, unique, encodes no
+business data). One `Gavimas` may
+contain **several resources**, and different resources from the same delivery may
+go to **different warehouses** (the warehouse belongs to the batch, not the
+delivery). A `Gavimas` is **not** the formal `Pajamavimas` and is **not** stock.
+The **vehicle/truck is outside system scope** and is not modelled. Denominations:
+`Gavimas`, `Gavimai`.
 
 **Status: implemented** (`docs/batches.md`).
 
@@ -95,48 +96,80 @@ label `Pajamavimas` is superseded in the UI by `Gavimai`.
 
 ## Partija (batch / lot)
 
-A receiving **batch/lot**: one physical delivery of **one** resource from **one**
-supplier (Tiekėjas) into **one** warehouse (`Sandėlis`), registered bag by bag and
-initially `PENDING` (Laukiama patvirtinimo). A batch has a unique, human-readable,
-system-generated `Kodas` (`P-<year>-<sequence>`) and an `arrivalDate` (physical
-arrival, independent of creation time). It is created independently of the
-`Pajamavimas` and later **reconciled** with a formal receipt line **without
-duplicating quantities**. A batch is **not** stock.
+An **internal** grouping inside one `Gavimas`: exactly **one** resource
+(`Išteklius`) into **one** warehouse (`Sandėlis`), registered package by package
+and initially `PENDING` (Laukiama patvirtinimo). A delivery may contain several
+batches; the same resource into different warehouses is different batches. A batch
+has a compact, system-generated `Kodas` (`P<NN>`, e.g. `P01`) that is **local to
+its delivery** (reset per delivery, max `P99`) and **secondary** to the
+human-facing delivery code. It is created independently of
+the `Pajamavimas` and later **reconciled** with a formal receipt line **without
+duplicating quantities**, optionally storing a documentary piece count. A batch is
+**not** stock.
 
 **Status: implemented** (`docs/batches.md`).
 
-## Maišas (bag / handling unit)
+## Pakuotė (package / handling unit)
 
-One physical **handling unit** inside exactly one `Partija`. A unit carries a
-**quantity** measured in one of two units — `KG` (weight, label `kg`) or `PCS`
-(count, label `vnt`), default `KG`. A batch uses a **single** unit: the first
-registered unit establishes it and every later unit must match. The `Sandėlio
-vieta` is **required** (and must belong to the batch's warehouse). Each unit has a
-unique, opaque `Brūkšninis kodas`; the next unit's location is suggested from the
-most recently registered unit. Units are **not deleted**: they are added or
-corrected while the batch is `PENDING` or `DISCREPANCY`, and an erroneous unit is
-**voided** (`Anuliuotas`) rather than removed.
+The **user-facing** term is **`Pakuotė`** (plural `Pakuotės`; a package — bag, box,
+pallet, other); `Maišas` was too bag-specific. `Tara` is **not** the physical
+instance — it is the packaging **type/master data** (see below). The internal
+model/API/module name remains `Bag`.
+One physical package sits inside exactly one `Partija`. Physical receiving is
+**always by actual weight**: every package references one `Tara` and stores
+`Bruto svoris` (gross, the value entered) plus the snapshotted tare and `Neto
+svoris` (`netWeight = grossWeight − tare snapshot`, computed server-side); there is
+**no KG/PCS unit selector** and no count-based physical receiving. The `Sandėlio
+vieta` is **required** (and must belong to the batch's warehouse; it may differ per
+package). Each package has a unique, opaque `Brūkšninis kodas`; the next package's
+packaging type and location are suggested from the batch's latest **active**
+package. Packages are **not deleted**: they are added or corrected while the batch
+is `PENDING`, and an erroneous one is **voided** (`Anuliuota`) rather than removed.
+Measured totals use **net** weight.
 
 **Status: implemented** (`docs/batches.md`).
 
-## Anuliuotas maišas / Pataisymas (voided unit / correction)
+## Tara (packaging / tare type)
 
-A physical unit is **never hard-deleted**. While the batch is not `CONFIRMED`, a
-warehouse worker may **correct** an active unit (its `Kiekis` and/or `Sandėlio
-vieta`) or **void** it (`Anuliuoti`) with an optional reason. A voided
-(`Anuliuotas`) unit keeps its barcode and history but is excluded from the batch's
-measured total and active unit count; each effective change is appended to an
-auditable **correction trail** (`Pataisymų istorija`: kind, unit barcode,
-previous/new value, reason, who, when). Correcting physical units does not by
-itself clear a `DISCREPANCY` — an `ADMIN` re-reconciles afterwards.
+**The canonical physical-packaging master data** (`PackagingType`). The former,
+overlapping `Pakavimo forma` (`PackingForm`) concept was removed (ATV-049);
+`Tara` now covers both the physical package type and its tare. A name and a precise
+`tareWeightKg` (Decimal 14,3 — never floating point), with an active flag, e.g.
+`Maišas` (`0.800 kg`) or `EPAL` (`27.000 kg`). Each handling unit references one;
+the tare is subtracted from the entered gross weight to derive the net weight. A
+`Tara` is deactivated, never hard-deleted, so historical packages keep valid
+references. Denominations: `Tara`.
+
+**Status: implemented** (`docs/packaging-types.md`).
+
+## Dokumentiniai vienetai (documentary piece count)
+
+An optional positive whole-number piece count (`Batch.documentPieces`) recorded
+during ADMIN confirmation. It is **additional documentary/business information**
+(e.g. "500 pieces") and is **not** a physical receiving unit: it does not replace
+the document weight, does not replace the measured physical weight and does not
+drive any package or batch total.
+
+**Status: implemented** (`docs/batches.md`).
+
+## Anuliuota pakuotė / Pataisymas (voided package / correction)
+
+A physical package is **never hard-deleted**. While the batch is not `CONFIRMED`,
+a warehouse worker may **correct** an active package (its `Tara`, `Bruto svoris`
+and/or `Sandėlio vieta`) or **void** it (`Anuliuoti`) with an optional reason. A
+voided (`Anuliuota`) package keeps its barcode and history but is excluded from the
+batch's measured weight and active count; each effective change is appended to an
+auditable **correction trail** (`Pataisymų istorija`: kind, package barcode,
+previous/new value, reason, who, when). A documentary mismatch is recorded
+separately in `Gavimo neatitikimas` and does not keep the batch open.
 
 **Status: implemented** (`docs/batches.md`).
 
 ## Registruoti sandėlyje (physical warehouse receiving)
 
 The warehouse worker's operational action: the **physical** receiving step —
-starting a `Partija`, registering individual `Maišai` with measured weights and
-printing bag labels. It is deliberately **not** the formal `Pajamavimas`
+starting a `Partija`, registering individual `Pakuotės` with measured weights and
+printing package labels. It is deliberately **not** the formal `Pajamavimas`
 documentary flow: documentary weight, acquisition value, document number/date and
 reconciliation are administrative and belong to `ADMIN`. Use the term
 `Registruoti sandėlyje`; do not use `Perkelti į gamybą` (production transfer is
@@ -148,25 +181,44 @@ out of scope).
 
 The formal/documentary confirmation that links a physical `Partija` to a
 `Pajamavimas` (GoodsReceipt) line. A warehouse worker records the physical truth
-(bags and measured weights); the confirmation (by `ADMIN`/Eimantas) records the
-**accepted documentary weight** (`Dokumentinis svoris`) and **initial acquisition
-value**, and compares them with the measured total. It creates no bags or stock:
-the **bags are the physical quantity source**, the receipt is the documentary/
-financial record. An exact match becomes `CONFIRMED` (Patvirtinta); any difference
-becomes `DISCREPANCY` (Neatitikimas) and can be corrected and retried. It is
-weight-based and applies to **`KG`** batches only; `PCS` batches are not
-weight-reconciled.
+(packages and measured net weights); the confirmation (by `ADMIN`/Eimantas) records
+the **accepted documentary weight** (`Dokumentinis svoris`), an optional
+**`Dokumentiniai vienetai`** piece count and the **initial acquisition value**, and
+confirms the batch. It creates no packages or stock: the **packages are the
+physical quantity source**, the receipt is the documentary/financial record. An
+exact match confirms directly; a **mismatch does not block confirmation** — it also
+confirms (with an explicit acknowledgement) and records a separate
+`Gavimo neatitikimas` (discrepancy). The signed difference is
+`measuredWeight − documentWeight`. Everything is weight-based; the piece count is
+documentary only.
 
 **Status: implemented** (`docs/batches.md#reconciliation-formal-confirmation`).
 
+## Gavimo neatitikimas (receiving discrepancy)
+
+A long-lived record created when a `Partija` is **confirmed** with a non-zero
+`measuredWeight − documentWeight`. Fields: batch (unique), supplier, measured /
+document / difference weights (signed), `status` (`OPEN` | `PARTIALLY_SETTLED` |
+`SETTLED`), creator, `createdAt`, `settledAt?`. The signed difference is immutable;
+negative is a `Trūkumas` (shortage), positive a `Perteklius` (overage). It is
+**separate** from the confirmation lifecycle: the batch is already `CONFIRMED`, the
+physical stock stays the measured net weight, and the discrepancy may stay open for
+a long time. It is settled through the append-only **`DiscrepancySettlement`**
+ledger — `WEIGHT` (optional link to the later confirmed same-supplier batch; no
+stock is added) or `MONEY` (a money/credit amount; **no money↔weight conversion**).
+Each entry's `coveredWeightKg` is always positive and reduces the remaining
+magnitude; the status moves `OPEN → PARTIALLY_SETTLED → SETTLED`.
+
+**Status: implemented** (`docs/discrepancies.md`).
+
 ## Brūkšninis kodas (bag barcode)
 
-The unique identifier of a **physical handling unit** (13-digit, EAN-13-shaped,
-GS1 `20` restricted-circulation prefix), rendered as a scannable EAN-13 graphic on
-the label. It identifies the physical unit only and **encodes no business data**
-(no supplier, resource, date, batch or cost) — the relationships provide that. The
-label also carries human-readable metadata (warehouse, location, category,
-resource, batch code and quantity with unit); none of it is encoded into the
+The unique identifier of a **physical package** (13-digit, EAN-13-shaped, GS1 `20`
+restricted-circulation prefix), rendered as a scannable EAN-13 graphic on the
+label. It identifies the physical package only and **encodes no business data**
+(no supplier, delivery, resource, date, batch or cost) — the relationships provide
+that. The label also carries human-readable metadata (delivery code, warehouse,
+location, category, resource and actual weight); none of it is encoded into the
 barcode. It is not the resource type or the batch.
 
 **Status: implemented** (`docs/batches.md`).
@@ -185,7 +237,7 @@ A physical location inside **exactly one** warehouse (e.g. `Stelažas A1`,
 Deactivated, never hard-deleted.
 
 **Status: implemented** (`docs/warehouses.md`). Used as the placement of a
-goods-receipt line and, optionally, of a `Maišas` (bag).
+goods-receipt line and of a physical `Pakuotė`.
 
 ## Not yet implemented
 
@@ -194,8 +246,8 @@ purchasing/accounting, supplier invoices, payments, stock balances, warehouse
 movements, quantities on hand, production (and production lineage), order/dispatch,
 sales, batch/output-lot costing, reporting.
 
-Bag/handling-unit identity, barcodes, GoodsReceipt **reconciliation** and
-auditable unit **correction/void** are implemented **for incoming batches only**;
+Package/`Pakuotė` identity, barcodes, GoodsReceipt **reconciliation** and
+auditable package **correction/void** are implemented **for incoming batches only**;
 scan-driven warehouse movements, bag split/merge, tolerance handling and cost
 redistribution remain open (`docs/batches.md`).
 
@@ -210,8 +262,8 @@ redistribution remain open (`docs/batches.md`).
 
 - [scope.md](scope.md) — confirmed scope
 - [partners.md](partners.md) — the partner module
-- [resources.md](resources.md) — resources, categories and packing forms
+- [resources.md](resources.md) — resources and categories
 - [receipts.md](receipts.md) — goods receipts (Pajamavimas)
-- [batches.md](batches.md) — batches (Partijos) and bags (Maišai)
+- [batches.md](batches.md) — batches (Partijos) and packages (Pakuotės)
 - [warehouses.md](warehouses.md) — warehouses and locations
 - [legacy-as-reference.md](legacy-as-reference.md) — reference, not blueprint

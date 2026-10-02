@@ -111,22 +111,28 @@ username; role management stays ADMIN-only via `/users`.
 | Resource-category details | `GET /resource-categories/:id` | authenticated |
 | Create resource category | `POST /resource-categories` | `ADMIN` |
 | Update resource category (name / active) | `PATCH /resource-categories/:id` | `ADMIN` |
-| List packing forms | `GET /packing-forms` | authenticated |
-| Packing-form details | `GET /packing-forms/:id` | authenticated |
-| Create packing form | `POST /packing-forms` | `ADMIN` |
-| Update packing form (name / active) | `PATCH /packing-forms/:id` | `ADMIN` |
+| List packaging types (`Tara`) | `GET /packaging-types` | authenticated |
+| Packaging-type details | `GET /packaging-types/:id` | authenticated |
+| Create packaging type (name / tare weight) | `POST /packaging-types` | `ADMIN` |
+| Update packaging type (name / tare weight / active) | `PATCH /packaging-types/:id` | `ADMIN` |
 | List receipts | `GET /receipts` | authenticated |
 | Receipt details | `GET /receipts/:id` | authenticated |
 | Create receipt | `POST /receipts` | authenticated |
+| List deliveries | `GET /deliveries` | authenticated |
+| Delivery details (with batches) | `GET /deliveries/:id` | authenticated |
+| Start a delivery (supplier + arrival date) | `POST /deliveries` | `ADMIN` or `WAREHOUSE_WORKER` |
+| Start/resolve a resource + warehouse batch in a delivery | `POST /deliveries/:id/batches` | `ADMIN` or `WAREHOUSE_WORKER` |
 | List batches | `GET /batches` | authenticated |
 | Batch details (with bags) | `GET /batches/:id` | authenticated |
-| Start a batch | `POST /batches` | `ADMIN` or `WAREHOUSE_WORKER` |
 | List a batch's bags | `GET /batches/:id/bags` | authenticated |
-| Add a bag | `POST /batches/:id/bags` | `ADMIN` or `WAREHOUSE_WORKER` |
-| Correct a unit (quantity/location) | `PATCH /batches/:id/bags/:bagId` | `ADMIN` or `WAREHOUSE_WORKER` |
+| Add a package (packaging + gross weight + location) | `POST /batches/:id/bags` | `ADMIN` or `WAREHOUSE_WORKER` |
+| Correct a package (packaging/gross/location) | `PATCH /batches/:id/bags/:bagId` | `ADMIN` or `WAREHOUSE_WORKER` |
 | Void a unit (audited, never deleted) | `POST /batches/:id/bags/:bagId/void` | `ADMIN` or `WAREHOUSE_WORKER` |
 | Look up a bag by barcode | `GET /bags/by-barcode/:barcode` | authenticated |
 | Reconcile a batch (formal confirmation) | `POST /batches/:id/reconcile` | `ADMIN` |
+| List receiving discrepancies (register) | `GET /receiving-discrepancies` | authenticated |
+| Discrepancy details (origin + balance + settlements) | `GET /receiving-discrepancies/:id` | authenticated |
+| Record a discrepancy settlement | `POST /receiving-discrepancies/:id/settlements` | `ADMIN` |
 | List warehouses (with locations) | `GET /warehouses` | authenticated |
 | Warehouse details | `GET /warehouses/:id` | authenticated |
 | Create warehouse | `POST /warehouses` | `ADMIN` |
@@ -147,21 +153,24 @@ username; role management stays ADMIN-only via `/users`.
 ## Limitations / next steps
 
 - No permission model finer than roles (no per-resource permissions); none is
-  confirmed as required. Partner/resource/resource-category/packing-form viewing
-  is authenticated-only and modification is `ADMIN`-only, using the same role
+  confirmed as required. Partner/resource/resource-category viewing and
+  modification is `ADMIN`-only on write and authenticated on read (the same
+  applies to packaging types / `Tara`), using the same role
   guard. Goods receipts (`Pajamavimas`) are listable/readable/creatable by any
   authenticated user — it is expected to become an operational warehouse
-  workflow, so creation is deliberately not `ADMIN`-restricted. Batch/bag
-  **reads** are authenticated; **starting a batch**, **adding a bag** and
-  **correcting/voiding an active unit** are restricted to `ADMIN` or
+  workflow, so creation is deliberately not `ADMIN`-restricted. Delivery/batch/
+  package **reads** are authenticated; **starting a delivery**, **starting/
+  resolving a resource + warehouse batch**, **adding a package** and
+  **correcting/voiding an active package** are restricted to `ADMIN` or
   `WAREHOUSE_WORKER` (the operational shop-floor roles), and formal **batch
   reconciliation** (documentary/financial confirmation) is
   `ADMIN`-only — all reusing the same role guard, no new permission framework. The
   separation reflects the business split: warehouse workers record physical
   truth, `ADMIN` records documentary truth. The warehouse worker's **navigation**
   is role-scoped: it exposes the physical receiving action (`Registruoti
-  sandėlyje`) and hides the administrative `Gavimai` queue — a UI convenience
-  only; the server endpoints and their requirements are unchanged. `Gavimai`
+  sandėlyje`) and hides the administrative `Gavimai` queue and the `Ataskaitos`
+  reporting group (`Neatitikimai`) — a UI convenience only; the server endpoints
+  and their requirements are unchanged. `Gavimai`
   (`/receipts`) is the ADMIN received-batch queue + formal reconciliation; the
   former manual receipt-creation UI was removed. Warehouse
   master data (warehouses/locations) is listable/readable by authenticated

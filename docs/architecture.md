@@ -14,9 +14,10 @@ apps/api/src/
 │   ├── partners/               business partners (/partners)
 │   ├── resources/              resources (/resources)
 │   ├── resource-categories/    managed resource categories (/resource-categories)
-│   ├── packing-forms/          packing forms reference data (/packing-forms)
+│   ├── packaging-types/        packaging / tare master data (Tara) (/packaging-types)
 │   ├── receipts/               goods receipts / Pajamavimas (/receipts)
-│   ├── batches/                batches + bags / Partijos ir maišai (/batches, /bags)
+│   ├── batches/                receiving: deliveries + batches + bags (/deliveries, /batches, /bags)
+│   ├── receiving-discrepancies/ discrepancy register + settlement (/receiving-discrepancies)
 │   ├── warehouses/             warehouses + locations (/warehouses)
 │   ├── access/                 role catalogue + access domain primitives
 │   └── health/                 /health (public)
@@ -30,7 +31,7 @@ apps/api/src/
 ├── app.module.ts               composes modules; registers global guards
 └── main.ts
 
-packages/contracts/src/  roles.ts, auth.ts, users.ts, partners.ts, resources.ts, resource-categories.ts, packing-forms.ts, warehouses.ts, receipts.ts, batches.ts, health.ts
+packages/contracts/src/  roles.ts, auth.ts, users.ts, partners.ts, resources.ts, resource-categories.ts, packaging-types.ts, warehouses.ts, receipts.ts, batches.ts, incoming-deliveries.ts, receiving-discrepancies.ts, health.ts
 packages/database/       Prisma 7, generated client + adapter (see ADR-008)
 ```
 
@@ -44,16 +45,19 @@ packages/database/       Prisma 7, generated client + adapter (see ADR-008)
   unique `username` + `firstName`/`lastName` + `active`, `Role` with the
   canonical `RoleKey` enum, `UserRole` many-to-many), business partners
   (`BusinessPartner`, `PartnerRole`), resources (`Resource` with a `categoryId`
-  reference to the managed `ResourceCategory` table), reference data
-  (`PackingForm`), goods receipts (`GoodsReceipt` with optional
+  reference to the managed `ResourceCategory` table), packaging/tare master data
+  (`PackagingType`), goods receipts (`GoodsReceipt` with optional
   `documentDate`/`documentNumber`, `GoodsReceiptLine`, `MeasurementUnitKey`),
-  warehouses (`Warehouse`, `WarehouseLocation`) and receiving batches/bags
-  (`Batch`/`BatchStatus`, `Bag`; `Batch.receiptLineId` links a reconciled batch
-  to its `GoodsReceiptLine`). No other tables exist.
+  warehouses (`Warehouse`, `WarehouseLocation`) and receiving
+  (`IncomingDelivery`, `Batch`/`BatchStatus`, `Bag`, `BagCorrection`,
+  `ReceivingDiscrepancy`, `DiscrepancySettlement`/`DiscrepancySettlementType`;
+  `Batch.receiptLineId` links a reconciled batch to its `GoodsReceiptLine`). No
+  other tables exist.
 - `AppModule` composes `PrismaModule`, `AccessModule`, `AuthModule`,
   `UsersModule`, `PartnersModule`, `ResourceCategoriesModule`, `ResourcesModule`,
-  `PackingFormsModule`, `ReceiptsModule`, `BatchesModule`, `WarehousesModule`,
-  `HealthModule` and registers the global guards.
+  `PackagingTypesModule`, `ReceiptsModule`, `BatchesModule`,
+  `ReceivingDiscrepanciesModule`, `WarehousesModule`, `HealthModule` and registers
+  the global guards.
 - See `authentication.md`, `authorization.md` and `scope.md`.
 
 ## API module conventions (NestJS)
@@ -95,17 +99,24 @@ concerns; the `access` module owns the role catalogue.
   [branding.md](branding.md) for the variant usage convention.
 - Authenticated pages use a shared **application shell**
   (`widgets/app-shell/`: sticky top header + role-aware navigation + user menu +
-  content). Navigation contains only implemented, confirmed functionality.
+  content). Navigation contains only implemented, confirmed functionality. The top
+  bar groups administration under `Žinynai` (reference data), `Ataskaitos`
+  (reports/registers, reserved) and `Sistema` (system administration), while the
+  operational workflows (`Pradžia`, `Registruoti sandėlyje`, `Gavimai`) stay
+  top-level (`docs/frontend-architecture.md`).
   Self-service profile lives at `/profile`; the implemented partner module lives
-  at `/partners` (`docs/partners.md`); resources and packing forms live under
+  at `/partners` (`docs/partners.md`); resources and packaging types live under
   `/resources` (`docs/resources.md`).
 - The web frontend follows **FSD-lite** (`app`, `widgets`, `features`,
   `entities`, `shared`); see [frontend-architecture.md](frontend-architecture.md).
-- The database has ten migrations: `initial_identity_access`,
+- The database has eighteen migrations: `initial_identity_access`,
   `business_partners`, `resources_and_packing_forms`, `goods_receipts`,
   `warehouse_placement`, `optional_receipt_location`, `add_user_token_version`,
-  `managed_resource_categories`, `receiving_batches_and_bags` and
-  `batch_reconciliation`. Applied migrations become immutable after the first
+  `managed_resource_categories`, `receiving_batches_and_bags`,
+  `batch_reconciliation`, `handling_unit_corrections`, `handling_unit_quantity`,
+  `incoming_deliveries`, `packaging_types`, `receiving_discrepancies`,
+  `batch_delivery_local_code`, `drop_packing_forms` and
+  `discrepancy_settlements`. Applied migrations become immutable after the first
   shared/production deployment (ADR-010).
 
 ## Purpose
@@ -188,11 +199,13 @@ empty layers in advance.
   never be used as the model for Aitvaras entities.
 - The schema contains the confirmed models only: identity/access (`User`,
   `Role`, `UserRole`), business partners (`BusinessPartner`, `PartnerRole`),
-  resources (`Resource`), reference data (`PackingForm`), goods receipts
-  (`GoodsReceipt`, `GoodsReceiptLine`), warehouses (`Warehouse`,
-  `WarehouseLocation`) and receiving batches/bags (`Batch`, `Bag`). No other
-  business-domain tables were created. Receipts and batches record the transaction
-  and intended placement/identity only — no stock tables exist.
+  resources (`Resource`), packaging/tare master data (`PackagingType`), goods
+  receipts (`GoodsReceipt`, `GoodsReceiptLine`), warehouses (`Warehouse`,
+  `WarehouseLocation`) and physical receiving (`IncomingDelivery`, `Batch`, `Bag`,
+  `BagCorrection`, `ReceivingDiscrepancy`). No other business-domain tables were
+  created. Deliveries,
+  receipts and batches record the transaction and intended placement/identity only
+  — no stock tables exist.
 - Money, identifiers and domain vocabulary are Aitvaras decisions, not inherited
   from legacy conventions (e.g. legacy seeded numeric IDs or integer cents).
 
@@ -249,7 +262,7 @@ Rules:
 - `reporting` must not own data.
 - `barcode` is not an identity provider (see `identity-strategy.md`).
 - `partners`, `resources` (with administrator-managed categories),
-  `packing-forms`, `warehouses` and the first slice of `inventory`/`barcode`
+  `packaging-types`, `warehouses` and the first slice of `inventory`/`barcode`
   (incoming batches + per-bag handling units) are now implemented
   (`docs/partners.md`, `docs/resources.md`, `docs/batches.md`); the remaining rows
   are unconfirmed.

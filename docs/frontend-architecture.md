@@ -27,7 +27,7 @@ src/
 |---|---|---|
 | `app` | routing, layouts, route params, minimal page wiring (`page.tsx`) | business/UI implementations |
 | `widgets` | large composition blocks (e.g. the application shell) | domain rules or use-case logic |
-| `features` | user actions/use cases (login, manage users/partners/resources/packing forms, profile) | reusable domain vocabulary |
+| `features` | user actions/use cases (login, manage users/partners/resources/packaging types, profile) | reusable domain vocabulary |
 | `entities` | domain concepts, label mappings, small read-oriented helpers | feature workflows |
 | `shared` | `api/`, `ui/`, `lib/` — domain-agnostic infrastructure and utilities | partner/resource/user-specific logic |
 
@@ -55,18 +55,26 @@ itself never imports other features, so this stays acyclic. It is a same-layer
 
 ```text
 entities/
-  user/          system access-role label summary
-  partner/       partner business-role labels/summary
-  resource/      resource category labels
-  packing-form/  packing-form empty-state text
+  user/              system access-role label summary
+  partner/           partner business-role labels/summary
+  resource/          resource category labels
+  resource-category/ resource-category labels
+  packaging-type/    packaging/tare (`Tara`) helpers
+  warehouse/         warehouse/location helpers
+  receipt/           receipt money formatting
+  batch/             batch/package labels, weights, status helpers
 
 features/
-  auth/                AuthProvider, useAuth, RequireAuth, LoginPage, login messages
-  user-profile/        ProfilePage (self-service names + password)
-  manage-users/        UsersPage + role/state helpers (ADMIN)
-  manage-partners/     partners list/create/details + partner form
-  manage-resources/    resources list/create/details + resource form
-  manage-packing-forms/ packing-form reference-data administration
+  auth/                    AuthProvider, useAuth, RequireAuth, LoginPage, login messages
+  user-profile/            ProfilePage (self-service names + password)
+  manage-users/            UsersPage + role/state helpers (ADMIN)
+  manage-partners/         partners list/create/details + partner form
+  manage-resources/        resources list/create/details + resource form
+  manage-resource-categories/ managed resource categories (ADMIN)
+  manage-packaging-types/  packaging/tare master data (ADMIN)
+  manage-warehouses/       warehouses + locations
+  manage-batches/          receiving, batches, packages, reconciliation
+  home/                    role-aware home
 
 widgets/
   app-shell/     AppShell, AppHeader, AppFooter, MainNavigation, UserMenu,
@@ -110,6 +118,48 @@ for symmetry.
   deep barrel hierarchies and cycles.
 - **No generic dumping grounds.** `src/components/` and `src/lib/` no longer
   exist; domain code lives in `entities`/`features`, generic code in `shared`.
+
+## Button / action hierarchy
+
+One shared hierarchy lives in `shared/ui/button.ts` (`buttonClass` plus the
+`*_BUTTON_CLASS` constants). Do not invent one-off colours per page.
+
+- **primary** (`PRIMARY_BUTTON_CLASS`) — the main action of a page/form (solid
+  black): `Naujas gavimas`, `Pradėti registruoti`, `Išsaugoti ir spausdinti`,
+  `Patvirtinti gavimą`, `Sukurti`.
+- **secondary** (`SECONDARY_BUTTON_CLASS`, compact `SECONDARY_NAV_BUTTON_CLASS`) —
+  navigation/context/helper actions: filled dark/medium neutral gray with white
+  text, lighter than black but still clearly a button. Used for `Kategorijos`,
+  `Tara`, `← Ištekliai`, `← Gavimų sąrašas` and comparable actions.
+- **outline** (`OUTLINE_BUTTON_CLASS`) — compact neutral row actions
+  (`Redaguoti`, `Taisyti`, `Anuliuoti`).
+- **destructive** (`DESTRUCTIVE_BUTTON_CLASS`) — irreversible/danger actions
+  (solid red), e.g. `Anuliuoti pakuotę`.
+
+Not every link becomes a filled button: apply the hierarchy where the element is
+an explicit action/navigation choice. Pointer cursor is enforced app-wide in
+`globals.css`.
+
+## Information architecture (top navigation)
+
+Authenticated navigation is defined in
+`widgets/app-shell/model/navigation.ts` (`NAV_ENTRIES`) and rendered by
+`MainNavigation` — a compact desktop bar with grouped dropdowns and a responsive
+`Meniu` disclosure on narrow screens.
+
+- **Operational workflows stay top-level**: `Pradžia`, `Registruoti sandėlyje`
+  and `Gavimai` are the primary daily flows and are not buried under parents.
+- **`Žinynai`** — master/reference data: `Partneriai`, `Ištekliai`, `Sandėliai`.
+- **`Ataskaitos`** — reporting/registers: currently the ADMIN discrepancy register
+  `Neatitikimai` (`/reports/discrepancies`, `/reports/discrepancies/[id]`); hidden
+  from `WAREHOUSE_WORKER`.
+- **`Sistema`** — system administration: `Naudotojai` (later `Nustatymai` and
+  other system-admin pages).
+
+Groups are role-filtered; a populated group whose children are all out of scope is
+hidden, while a deliberately reserved empty group is still shown. The active child
+highlights its parent. Menu visibility is a UI convenience only — server
+authorization remains authoritative (`docs/authorization.md`).
 
 ## Tests
 

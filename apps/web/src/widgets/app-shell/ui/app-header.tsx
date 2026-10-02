@@ -8,7 +8,7 @@ import { UserMenu } from "./user-menu";
 export function AppHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background">
-      <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-3 px-4 sm:gap-6 sm:px-6">
+      <div className="relative mx-auto flex h-14 w-full max-w-6xl items-center gap-3 px-4 sm:gap-6 sm:px-6">
         <BrandMark href="/" />
         <MainNavigation className="min-w-0" />
         <div className="ml-auto flex items-center">

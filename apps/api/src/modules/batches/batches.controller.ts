@@ -14,7 +14,6 @@ import {
 import {
   BatchStatusSchema,
   CreateBagRequestSchema,
-  CreateBatchRequestSchema,
   ReconcileBatchRequestSchema,
   UpdateBagRequestSchema,
   VoidBagRequestSchema,
@@ -24,7 +23,6 @@ import {
   type BatchReconciliation,
   type BatchStatus,
   type CreateBagRequest,
-  type CreateBatchRequest,
   type ReconcileBatchRequest,
   type UpdateBagRequest,
   type VoidBagRequest,
@@ -38,11 +36,13 @@ import { BatchesService } from "./batches.service";
 /**
  * Batches (Partijos) and their bags (Maišai).
  *
- * Reading requires authentication only. Starting a batch, adding bags and
- * correcting/voiding a unit are operational warehouse actions, allowed for ADMIN
- * and warehouse workers. Formal reconciliation with a GoodsReceipt is a
- * documentary/financial act and is ADMIN-only. Bags are never deleted — an
- * erroneous unit is voided and preserved.
+ * A batch is the internal, homogeneous resource/unit group inside an
+ * IncomingDelivery (`Gavimas`); it is started/resolved through the delivery
+ * endpoints (`DeliveriesController`). Reading requires authentication only.
+ * Adding bags and correcting/voiding a unit are operational warehouse actions,
+ * allowed for ADMIN and warehouse workers. Formal reconciliation with a
+ * GoodsReceipt is a documentary/financial act and is ADMIN-only. Bags are never
+ * deleted — an erroneous unit is voided and preserved.
  */
 @Controller("batches")
 export class BatchesController {
@@ -56,16 +56,6 @@ export class BatchesController {
   @Get(":id")
   get(@Param("id", ParseUUIDPipe) id: string): Promise<BatchDetail> {
     return this.batchesService.get(id);
-  }
-
-  @Post()
-  @Roles("ADMIN", "WAREHOUSE_WORKER")
-  create(
-    @Body(new ZodValidationPipe(CreateBatchRequestSchema))
-    body: CreateBatchRequest,
-    @CurrentUser() actor: AuthenticatedUser,
-  ): Promise<Batch> {
-    return this.batchesService.create(body, actor.id);
   }
 
   @Get(":id/bags")
@@ -116,8 +106,9 @@ export class BatchesController {
     @Param("id", ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(ReconcileBatchRequestSchema))
     body: ReconcileBatchRequest,
+    @CurrentUser() actor: AuthenticatedUser,
   ): Promise<BatchReconciliation> {
-    return this.batchesService.reconcile(id, body);
+    return this.batchesService.reconcile(id, body, actor.id);
   }
 
   private parseStatus(status?: string): BatchStatus | undefined {

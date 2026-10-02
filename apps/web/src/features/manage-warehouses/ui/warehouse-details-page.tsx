@@ -13,6 +13,7 @@ import { ApiError, apiFetch } from "@/shared/api";
 import { activeStatusLabel } from "@/shared/lib/format";
 import { inactiveRowClass, toggleActionClass } from "@/shared/lib/row-styles";
 import { workSurfaceClass } from "@/shared/lib/surfaces";
+import { SECONDARY_NAV_BUTTON_CLASS } from "@/shared/ui";
 
 /** Warehouse detail: rename/activate the warehouse and manage its locations. */
 export function WarehouseDetailsPage() {
@@ -161,7 +162,7 @@ export function WarehouseDetailsPage() {
         <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
-        <Link href="/warehouses" className="text-sm hover:underline">
+        <Link href="/warehouses" className={SECONDARY_NAV_BUTTON_CLASS}>
           ← Sandėliai
         </Link>
       </div>
@@ -326,7 +327,7 @@ export function WarehouseDetailsPage() {
         )}
       </section>
 
-      <Link href="/warehouses" className="text-sm hover:underline">
+      <Link href="/warehouses" className={SECONDARY_NAV_BUTTON_CLASS}>
         ← Sandėliai
       </Link>
     </div>

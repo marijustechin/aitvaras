@@ -306,7 +306,7 @@ describe.skipIf(!dbAvailable)("Resources (integration)", () => {
       method: "PATCH",
       url: `/resources/${resource.id}`,
       ...auth(adminCookie),
-      payload: { packingFormId: UNKNOWN_UUID },
+      payload: { unknownField: UNKNOWN_UUID },
     });
     expect(unknown.statusCode).toBe(400);
   });

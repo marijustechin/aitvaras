@@ -8,7 +8,7 @@ import {
   batchStatusLabel,
   formatArrivalDate,
   formatBatchDateTime,
-  formatQuantity,
+  formatWeight,
 } from "@/entities/batch";
 import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
@@ -38,7 +38,9 @@ const filterInputClass =
  *
  * The batches here are the physical receipts created through the warehouse-worker
  * `Registruoti sandėlyje` flow; ADMIN does not create batches here. The page opens
- * on the `Reikia patvirtinti` queue (PENDING + DISCREPANCY) and links each row to
+ * on the `Reikia patvirtinti` queue (the not-yet-confirmed `PENDING` batches; a
+ * documentary mismatch is recorded separately and does not keep a batch
+ * unconfirmed) and links each row to
  * the batch detail / formal reconciliation screen. Filtering is client-side over
  * the small received-batch dataset.
  */
@@ -108,7 +110,7 @@ export function GavimaiPage() {
           onChange={(event) => onChange(event.target.value)}
           className={filterInputClass}
         >
-          <option value="">Visos</option>
+          <option value="">Visi</option>
           {options.map((option) => (
             <option key={option.id} value={option.id}>
               {option.name}
@@ -179,7 +181,7 @@ export function GavimaiPage() {
             type="search"
             value={filters.code}
             onChange={(event) => update({ code: event.target.value })}
-            placeholder="P-2026-…"
+            placeholder="P01"
             className={filterInputClass}
           />
         </label>
@@ -204,6 +206,7 @@ export function GavimaiPage() {
           <table className="w-full text-left text-sm">
             <thead className="bg-muted text-muted-foreground">
               <tr>
+                <th className="whitespace-nowrap px-4 py-2 font-medium">Gavimas</th>
                 <th className="whitespace-nowrap px-4 py-2 font-medium">Partija</th>
                 <th className="whitespace-nowrap px-4 py-2 font-medium">
                   Priėmimo data
@@ -212,7 +215,7 @@ export function GavimaiPage() {
                 <th className="px-4 py-2 font-medium">Išteklius</th>
                 <th className="px-4 py-2 font-medium">Sandėlis</th>
                 <th className="whitespace-nowrap px-4 py-2 font-medium">
-                  Maišai / kiekis
+                  Pakuotės / kiekis
                 </th>
                 <th className="whitespace-nowrap px-4 py-2 font-medium">Būsena</th>
               </tr>
@@ -223,6 +226,9 @@ export function GavimaiPage() {
                   key={batch.id}
                   className="relative border-t border-border transition-colors hover:bg-accent/50 focus-within:bg-accent/50"
                 >
+                  <td className="whitespace-nowrap px-4 py-2">
+                    {batch.deliveryCode}
+                  </td>
                   <td className="whitespace-nowrap px-4 py-2 font-medium">
                     <Link
                       href={batchDetailHref(batch.id)}
@@ -240,15 +246,17 @@ export function GavimaiPage() {
                   <td className="px-4 py-2">{batch.resourceName}</td>
                   <td className="px-4 py-2">{batch.warehouseName}</td>
                   <td className="whitespace-nowrap px-4 py-2">
-                    {batch.bagCount} ·{" "}
-                    {batch.unit
-                      ? formatQuantity(batch.totalQuantity, batch.unit)
-                      : "—"}
+                    {batch.bagCount} · {formatWeight(batch.totalNetWeight)}
                   </td>
                   <td className="whitespace-nowrap px-4 py-2">
                     <span className={batchStatusClass(batch.status)}>
                       {batchStatusLabel(batch.status)}
                     </span>
+                    {batch.hasOpenDiscrepancy ? (
+                      <span className="block text-xs text-rose-500">
+                        Neatitikimas
+                      </span>
+                    ) : null}
                     {batch.status === "CONFIRMED" && batch.confirmedAt ? (
                       <span className="block text-xs text-muted-foreground">
                         {formatBatchDateTime(batch.confirmedAt)}

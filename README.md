@@ -7,14 +7,18 @@ from legacy code.
 > **Status: identity & access foundation implemented, plus core business
 > modules.** The confirmed functional scope is users, credential login, roles
 > and authorization, **Partneriai** (business partners), **Ištekliai**
-> (resources) with administrator-managed categories and **Pakavimo formos**
-> (packing-form reference data), **Sandėliai** (warehouses + locations), the
+> (resources) with administrator-managed categories and packaging/tare master
+> data (`Tara` / `PackagingType`), **Sandėliai** (warehouses + locations), the
 > first minimal **Pajamavimas** (goods receipt) workflow with physical placement,
-> and **Partijos ir maišai** (incoming batches/lots with per-bag handling units
-> and barcodes) that are formally reconciled with a **Pajamavimas** line
-> (documentary weight + initial acquisition value). No other business
-> functionality (stock, movements, production, orders, sales, accounting,
-> integration) is approved or implemented. See [docs/scope.md](docs/scope.md).
+> and physical receiving: **Gavimai** (incoming deliveries containing several
+> resource **batches**, each into one warehouse, with weight-based handling
+> packages, managed **Tara** packaging/tare and barcodes) that are formally
+> reconciled with a **Pajamavimas** line (documentary weight + optional piece
+> count + initial acquisition value), plus the **`Neatitikimai`** discrepancy
+> register with its append-only weight/money settlement ledger. No
+> other business functionality (stock, movements,
+> production, orders, sales, accounting, integration) is approved or implemented.
+> See [docs/scope.md](docs/scope.md).
 
 After login, Aitvaras runs as an application: a **sticky top bar** with
 role-aware navigation (`Pradžia`, `Partneriai`, `Ištekliai`, `Sandėliai`,
@@ -53,7 +57,7 @@ contains only confirmed, implemented functionality.
 aitvaras/
 ├── apps/
 │   ├── api/                 NestJS + Fastify API
-│   │   └── src/{auth,users,partners,resources,packing-forms,access,prisma,common,health}
+│   │   └── src/{auth,users,partners,resources,packaging-types,access,prisma,common,health}
 │   └── web/                 Next.js App Router (login, shell, partners, resources, admin users)
 ├── packages/
 │   ├── config/              shared tsconfig + ESLint base
@@ -79,7 +83,6 @@ pnpm db:migrate            # create/apply migrations (development DB)
 pnpm db:test:create        # create the isolated test database (integration tests)
 pnpm db:test:migrate       # apply migrations to the test database
 pnpm seed:dev              # local dev login: localdev / localdev (guarded)
-pnpm seed:reference        # packing-form reference data (idempotent)
 pnpm dev:api               # API    → http://localhost:3010
 pnpm dev:web               # web    → http://localhost:3011
 pnpm verify                # lint + prisma validate + typecheck + test + build
@@ -102,9 +105,10 @@ Full setup details: [docs/development.md](docs/development.md).
 - [docs/scope.md](docs/scope.md) — what is and is not confirmed scope
 - [docs/architecture.md](docs/architecture.md) — applications, packages, rules
 - [docs/partners.md](docs/partners.md) — the business-partner module
-- [docs/resources.md](docs/resources.md) — resources, categories and packing forms
+- [docs/resources.md](docs/resources.md) — resources and categories
 - [docs/receipts.md](docs/receipts.md) — goods receipts (Pajamavimas)
-- [docs/batches.md](docs/batches.md) — batches (Partijos) and bags (Maišai)
+- [docs/batches.md](docs/batches.md) — receiving: deliveries, batches and packages
+- [docs/discrepancies.md](docs/discrepancies.md) — discrepancy register + settlement ledger
 - [docs/warehouses.md](docs/warehouses.md) — warehouses and locations
 - [docs/domain-glossary.md](docs/domain-glossary.md) — confirmed domain terminology
 - [docs/authentication.md](docs/authentication.md) — auth model and login flow

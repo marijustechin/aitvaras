@@ -29,7 +29,7 @@ The first confirmed business-domain module is **business partners**:
 See [partners.md](partners.md). **Only partners are confirmed**; no other
 business module is approved.
 
-### Resources, categories and packing forms
+### Resources and categories
 
 The second confirmed business-domain scope is **resources** plus supporting
 master data:
@@ -39,10 +39,11 @@ master data:
 - **resource categories** as **administrator-managed master data** (`Žaliava`,
   `Pusgaminis`, `Gaminys` are seeded defaults, not the complete set); categories
   are deactivated, never hard-deleted, and inactive ones remain valid for
-  existing resources but cannot be selected for new ones;
-- **packing forms** (`Dėžė`, `Maišas`, `Metalinis narvas`, `Rulonas`) as
-  independent reference data — deliberately **not** a permanent resource
-  property.
+  existing resources but cannot be selected for new ones.
+
+Physical packaging is **not** a resource property: it is `PackagingType` / `Tara`
+master data used by the receiving flow (see the receiving section and
+[packaging-types.md](packaging-types.md)).
 
 See [resources.md](resources.md).
 
@@ -72,34 +73,50 @@ The confirmed supporting master data for physical placement:
 
 See [warehouses.md](warehouses.md).
 
-### Batches and bags (Partijos ir maišai)
+### Receiving: deliveries, batches and packages (Gavimai, partijos ir pakuotės)
 
-The first slice of the confirmed inventory direction: **incoming batch/lot
-registration with individual physical bags/handling units**:
+The first slice of the confirmed inventory direction: **incoming arrival
+registration** with a delivery container, internal batches and individual physical
+packages:
 
-- a **Partija** (batch/lot) records one delivery of one resource from one active
-  `SUPPLIER` into one warehouse, with an arrival date and a system-generated,
-  human-readable, unique code; it starts `PENDING`;
-- a **Maišas** (bag/handling unit) is one physical unit of a batch with its own
-  quantity measured in `KG` (weight) or `PCS` (count) — units of one batch may
-  differ in quantity, but a batch uses a **single** measurement unit — a
-  **required** warehouse location and a unique barcode that identifies the
-  physical unit only and encodes **no** business data;
-- a **PENDING** `KG` batch is formally **reconciled** with a `Pajamavimas` line:
-  the accepted **documentary weight** and **initial acquisition value** are
-  recorded and compared with the measured total, setting `CONFIRMED` (exact match)
-  or `DISCREPANCY`; reconciliation creates no new units or stock and the measured
-  and documentary weights stay separate (`PCS` batches are not weight-reconciled);
-- while a batch is not `CONFIRMED`, a warehouse worker may **correct** an active
-  unit (quantity/location) or **void** it (audited, never deleted); corrections
-  are appended to an audit trail and a voided unit is excluded from the totals;
-  a physical correction does not by itself clear a `DISCREPANCY` (an `ADMIN`
-  re-reconciles afterwards);
-- batches and bags are **not** stock: creating them (or reconciling) does not
-  change any balance, and batch/bag totals are derived from the bag rows, never
-  stored.
+- a **Gavimas** (`IncomingDelivery`) is one physical arrival of one active
+  `SUPPLIER` on one arrival date, with a system-generated, unique, human-facing
+  code `GYYMM-NN` that is the **main human-facing receipt identifier**; it may
+  contain several resources, and different resources may go to different
+  warehouses (no vehicle is modelled);
+- a **Partija** (batch/lot) is the **internal** grouping of one resource into one
+  warehouse within a delivery, with a compact, **delivery-local** code
+  (`P01`..`P99`) and `PENDING` status;
+- a **Pakuotė** (package/handling unit) is one physical package (bag, box, pallet,
+  …) of a batch, received by **actual weight** — no KG/PCS measurement-unit
+  selector — referencing one managed **`Tara`** (`PackagingType`) so that
+  `netWeight = grossWeight − tare`, with a **required** warehouse location and a
+  unique barcode that identifies the physical package only and encodes **no**
+  business data;
+- a **PENDING** batch is formally **confirmed** against a `Pajamavimas` line: the
+  accepted **documentary weight**, **initial acquisition value** and optional
+  documentary **piece count** are recorded and compared with the measured net
+  weight; an exact match confirms directly, and a **mismatch does not block
+  confirmation** — it confirms (with an explicit acknowledgement) and records a
+  long-lived **`ReceivingDiscrepancy`** (`OPEN`); the physical stock stays the
+  measured net weight and the signed difference is `measured − document`. No new
+  packages or stock are created (pieces are documentary only);
+- a long-lived discrepancy is settled through an append-only
+  **`DiscrepancySettlement`** ledger (ADMIN `Ataskaitos → Neatitikimai`): `WEIGHT`
+  (optional link to the later confirmed same-supplier batch; no stock is added) or
+  `MONEY` (a money/credit amount; **no money↔weight conversion**). Settlement never
+  changes package/batch weights, inventory or the original document;
+- while a batch is `PENDING`, a warehouse worker may **correct** an active package
+  (packaging/gross weight/location) or **void** it (audited, never deleted);
+  corrections are appended to an audit trail and a voided package is excluded from
+  the totals;
+- deliveries, batches and packages are **not** stock: creating them (or
+  confirming) does not change any balance, and batch totals are derived from the
+  package rows, never stored.
 
-See [batches.md](batches.md). Scan-driven warehouse movements, bag split/merge,
+See [batches.md](batches.md) and [discrepancies.md](discrepancies.md).
+Vehicles/transport, scan-driven warehouse movements, package split/merge,
+settlement reversal/correction, overage-specific return/write-off semantics,
 tolerance handling, production lineage and cost redistribution are **not**
 implemented.
 

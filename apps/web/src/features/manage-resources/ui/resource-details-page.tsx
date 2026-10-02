@@ -8,6 +8,7 @@ import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
 import { activeStatusLabel, valueOrPlaceholder } from "@/shared/lib/format";
 import { workSurfaceClass } from "@/shared/lib/surfaces";
+import { SECONDARY_NAV_BUTTON_CLASS } from "@/shared/ui";
 import {
   resourceFormError,
   resourceFormToPayload,
@@ -109,7 +110,7 @@ export function ResourceDetailsPage() {
         <p role="alert" className="text-sm text-destructive">
           {loadError ?? "Išteklius nerastas."}
         </p>
-        <Link href="/resources" className="text-sm hover:underline">
+        <Link href="/resources" className={SECONDARY_NAV_BUTTON_CLASS}>
           ← Ištekliai
         </Link>
       </div>
@@ -172,7 +173,7 @@ export function ResourceDetailsPage() {
         </section>
       )}
 
-      <Link href="/resources" className="text-sm hover:underline">
+      <Link href="/resources" className={SECONDARY_NAV_BUTTON_CLASS}>
         ← Ištekliai
       </Link>
     </div>

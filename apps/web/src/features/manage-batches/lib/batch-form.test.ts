@@ -1,25 +1,23 @@
 import { describe, expect, it } from "vitest";
-import type {
-  Bag,
-  Batch,
-  BatchDetail,
-  HandlingUnitKey,
-} from "@aitvaras/contracts";
+import type { Bag, BatchDetail } from "@aitvaras/contracts";
 import {
   arrivalDateToIso,
   bagFormError,
-  batchFormError,
   correctionChanged,
   correctionDraftFromBag,
   correctionFormError,
   createDraftBag,
-  createDraftBatch,
+  createDraftDelivery,
   createDraftReconciliation,
+  createDraftResource,
+  deliveryFormError,
   initialBagDraft,
   reconciliationFormError,
+  resourceFormError,
   toCreateBagPayload,
-  toCreateBatchPayload,
+  toCreateDeliveryPayload,
   toReconcilePayload,
+  toResolveBatchPayload,
   toUpdateBagPayload,
   toVoidBagPayload,
 } from "./batch-form";
@@ -39,39 +37,32 @@ describe("arrivalDateToIso", () => {
   });
 });
 
-describe("batchFormError", () => {
-  it("requires resource, supplier, warehouse and a valid date", () => {
-    const valid = {
-      resourceId: "r",
-      supplierId: "s",
-      warehouseId: "w",
-      arrivalDate: "2026-09-29",
-    };
-    expect(batchFormError(valid)).toBeNull();
-    expect(batchFormError({ ...valid, resourceId: "" })).toBe(
-      "Pasirinkite išteklių.",
-    );
-    expect(batchFormError({ ...valid, supplierId: "" })).toBe(
+describe("delivery form", () => {
+  it("defaults to today's date and nothing selected (no warehouse)", () => {
+    const draft = createDraftDelivery();
+    expect(draft.supplierId).toBe("");
+    expect(draft.arrivalDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect("warehouseId" in draft).toBe(false);
+  });
+
+  it("requires supplier and a valid arrival date", () => {
+    const valid = { supplierId: "s", arrivalDate: "2026-09-29" };
+    expect(deliveryFormError(valid)).toBeNull();
+    expect(deliveryFormError({ ...valid, supplierId: "" })).toBe(
       "Pasirinkite tiekėją.",
     );
-    expect(batchFormError({ ...valid, warehouseId: "" })).toBe(
-      "Pasirinkite sandėlį.",
-    );
-    expect(batchFormError({ ...valid, arrivalDate: "" })).toBe(
+    expect(deliveryFormError({ ...valid, arrivalDate: "" })).toBe(
       "Įveskite teisingą priėmimo datą.",
     );
   });
-});
 
-describe("toCreateBatchPayload", () => {
-  it("converts the draft into the request payload", () => {
-    const payload = toCreateBatchPayload({
-      resourceId: "r",
+  it("converts the draft into the create-delivery payload (no warehouse)", () => {
+    const payload = toCreateDeliveryPayload({
       supplierId: "s",
-      warehouseId: "w",
       arrivalDate: "2026-09-29",
     });
-    expect(payload.resourceId).toBe("r");
+    expect(payload.supplierId).toBe("s");
+    expect("warehouseId" in payload).toBe(false);
     const parsed = new Date(payload.arrivalDate);
     expect(parsed.getFullYear()).toBe(2026);
     expect(parsed.getMonth()).toBe(8);
@@ -79,108 +70,124 @@ describe("toCreateBatchPayload", () => {
   });
 });
 
+describe("resource selection", () => {
+  it("defaults to nothing selected (no unit)", () => {
+    expect(createDraftResource()).toEqual({
+      resourceId: "",
+      warehouseId: "",
+    });
+  });
+
+  it("requires a resource and a warehouse", () => {
+    expect(resourceFormError({ resourceId: "", warehouseId: "w" })).toBe(
+      "Pasirinkite išteklių.",
+    );
+    expect(resourceFormError({ resourceId: "r", warehouseId: "" })).toBe(
+      "Pasirinkite sandėlį.",
+    );
+    expect(resourceFormError({ resourceId: "r", warehouseId: "w" })).toBeNull();
+  });
+
+  it("converts the selection into the resolve-batch payload", () => {
+    expect(toResolveBatchPayload({ resourceId: "r", warehouseId: "w" })).toEqual({
+      resourceId: "r",
+      warehouseId: "w",
+    });
+  });
+});
+
 describe("handling-unit form", () => {
-  it("starts with the default unit, no quantity and no location", () => {
+  const base = {
+    packagingTypeId: "tara",
+    grossWeight: "10",
+    warehouseLocationId: "loc",
+  };
+
+  it("starts with no packaging, weight and location", () => {
     expect(createDraftBag()).toEqual({
-      unit: "KG",
-      quantity: "",
+      packagingTypeId: "",
+      grossWeight: "",
       warehouseLocationId: "",
     });
   });
 
+  it("requires a packaging type", () => {
+    expect(bagFormError({ ...base, packagingTypeId: "" })).toBe(
+      "Pasirinkite tarą.",
+    );
+  });
+
   it("requires a warehouse location", () => {
-    expect(
-      bagFormError({ unit: "KG", quantity: "10", warehouseLocationId: "" }),
-    ).toBe("Pasirinkite sandėlio vietą.");
+    expect(bagFormError({ ...base, warehouseLocationId: "" })).toBe(
+      "Pasirinkite sandėlio vietą.",
+    );
   });
 
-  it("accepts a positive decimal KG quantity", () => {
-    expect(
-      bagFormError({ unit: "KG", quantity: "48.725", warehouseLocationId: "loc" }),
-    ).toBeNull();
+  it("accepts a positive decimal gross weight", () => {
+    expect(bagFormError({ ...base, grossWeight: "48.725" })).toBeNull();
   });
 
-  it("accepts a whole PCS quantity and rejects a fractional one", () => {
-    expect(
-      bagFormError({ unit: "PCS", quantity: "12", warehouseLocationId: "loc" }),
-    ).toBeNull();
-    expect(
-      bagFormError({ unit: "PCS", quantity: "12.5", warehouseLocationId: "loc" }),
-    ).toBe("Vienetų kiekis turi būti sveikas skaičius.");
+  it("rejects a non-positive or non-numeric gross weight", () => {
+    for (const grossWeight of ["0", "-1", "abc", ""]) {
+      expect(bagFormError({ ...base, grossWeight })).toBe(
+        "Įveskite bruto svorį, didesnį už nulį.",
+      );
+    }
   });
 
-  it("rejects a non-positive quantity", () => {
-    expect(
-      bagFormError({ unit: "KG", quantity: "0", warehouseLocationId: "loc" }),
-    ).toBe("Įveskite svorį, didesnį už nulį.");
-    expect(
-      bagFormError({ unit: "PCS", quantity: "0", warehouseLocationId: "loc" }),
-    ).toBe("Įveskite vienetų kiekį (sveiką skaičių).");
-  });
-
-  it("builds the payload with the unit, trimmed quantity and location", () => {
+  it("builds the payload with packaging, gross and location", () => {
     expect(
       toCreateBagPayload({
-        unit: "KG",
-        quantity: " 5 ",
+        packagingTypeId: "tara",
+        grossWeight: " 5 ",
         warehouseLocationId: "loc",
       }),
-    ).toEqual({ unit: "KG", quantity: "5", warehouseLocationId: "loc" });
+    ).toEqual({
+      packagingTypeId: "tara",
+      grossWeight: "5",
+      warehouseLocationId: "loc",
+    });
   });
 });
 
 describe("initialBagDraft", () => {
-  const asBatch = (unit: HandlingUnitKey | null): Batch =>
-    ({ unit }) as unknown as Batch;
   const asDetail = (
-    unit: HandlingUnitKey | null,
     suggestedLocationId: string | null,
+    suggestedPackagingTypeId: string | null,
   ): BatchDetail =>
-    ({ unit, suggestedLocationId }) as unknown as BatchDetail;
+    ({
+      suggestedLocationId,
+      suggestedPackagingTypeId,
+    }) as unknown as BatchDetail;
 
-  it("defaults to KG with no location for a batch without units", () => {
-    expect(initialBagDraft(asBatch(null))).toEqual({
-      unit: "KG",
-      quantity: "",
-      warehouseLocationId: "",
-    });
-  });
-
-  it("inherits the established unit and suggests the last location", () => {
-    expect(initialBagDraft(asDetail("PCS", "loc-1"))).toEqual({
-      unit: "PCS",
-      quantity: "",
+  it("preselects the suggested packaging type and location, resetting gross", () => {
+    expect(initialBagDraft(asDetail("loc-1", "tara-1"))).toEqual({
+      packagingTypeId: "tara-1",
+      grossWeight: "",
       warehouseLocationId: "loc-1",
     });
   });
 
-  it("leaves the location unselected when there is no previous unit", () => {
-    expect(initialBagDraft(asDetail(null, null)).warehouseLocationId).toBe("");
-  });
-});
-
-describe("createDraftBatch", () => {
-  it("defaults to today's date and nothing selected", () => {
-    const draft = createDraftBatch();
-    expect(draft.resourceId).toBe("");
-    expect(draft.supplierId).toBe("");
-    expect(draft.warehouseId).toBe("");
-    expect(draft.arrivalDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  it("leaves packaging/location unselected when there is no active package", () => {
+    const draft = initialBagDraft(asDetail(null, null));
+    expect(draft.packagingTypeId).toBe("");
+    expect(draft.warehouseLocationId).toBe("");
   });
 });
 
 describe("handling-unit correction form", () => {
   const bag = {
     id: "bag-1",
-    quantity: "25.5",
+    packagingTypeId: "tara-1",
+    grossWeight: "26.3",
     warehouseLocationId: "loc-1",
-    unit: "KG",
   } as unknown as Bag;
 
-  it("prefills the draft from the unit", () => {
+  it("prefills the draft from the package", () => {
     expect(correctionDraftFromBag(bag)).toEqual({
       id: "bag-1",
-      quantity: "25.5",
+      packagingTypeId: "tara-1",
+      grossWeight: "26.3",
       warehouseLocationId: "loc-1",
     });
   });
@@ -188,41 +195,41 @@ describe("handling-unit correction form", () => {
   it("detects whether anything actually changed", () => {
     const draft = correctionDraftFromBag(bag);
     expect(correctionChanged(draft, bag)).toBe(false);
-    expect(correctionChanged({ ...draft, quantity: "30" }, bag)).toBe(true);
+    expect(correctionChanged({ ...draft, packagingTypeId: "tara-2" }, bag)).toBe(
+      true,
+    );
+    expect(correctionChanged({ ...draft, grossWeight: "30" }, bag)).toBe(true);
     expect(correctionChanged({ ...draft, warehouseLocationId: "loc-2" }, bag)).toBe(
       true,
     );
   });
 
-  it("validates the quantity by unit and requires a location", () => {
+  it("requires packaging, a location and a positive gross weight", () => {
     const draft = correctionDraftFromBag(bag);
-    expect(correctionFormError(draft, "KG")).toBeNull();
-    expect(correctionFormError({ ...draft, quantity: "0" }, "KG")).toBe(
-      "Įveskite svorį, didesnį už nulį.",
+    expect(correctionFormError(draft)).toBeNull();
+    expect(correctionFormError({ ...draft, packagingTypeId: "" })).toBe(
+      "Pasirinkite tarą.",
     );
-    expect(correctionFormError({ ...draft, quantity: "2.5" }, "PCS")).toBe(
-      "Vienetų kiekis turi būti sveikas skaičius.",
-    );
-    expect(correctionFormError({ ...draft, warehouseLocationId: "" }, "KG")).toBe(
+    expect(correctionFormError({ ...draft, warehouseLocationId: "" })).toBe(
       "Pasirinkite sandėlio vietą.",
+    );
+    expect(correctionFormError({ ...draft, grossWeight: "0" })).toBe(
+      "Įveskite bruto svorį, didesnį už nulį.",
     );
   });
 
   it("sends only changed fields; a no-op yields an empty payload", () => {
     const draft = correctionDraftFromBag(bag);
     expect(toUpdateBagPayload(draft, bag)).toEqual({});
-    expect(toUpdateBagPayload({ ...draft, quantity: "30" }, bag)).toEqual({
-      quantity: "30",
+    expect(toUpdateBagPayload({ ...draft, grossWeight: "30" }, bag)).toEqual({
+      grossWeight: "30",
     });
+    expect(
+      toUpdateBagPayload({ ...draft, packagingTypeId: "tara-2" }, bag),
+    ).toEqual({ packagingTypeId: "tara-2" });
     expect(
       toUpdateBagPayload({ ...draft, warehouseLocationId: "loc-2" }, bag),
     ).toEqual({ warehouseLocationId: "loc-2" });
-    expect(
-      toUpdateBagPayload(
-        { ...draft, quantity: "30", warehouseLocationId: "loc-2" },
-        bag,
-      ),
-    ).toEqual({ quantity: "30", warehouseLocationId: "loc-2" });
   });
 
   it("builds the void payload with or without a reason", () => {
@@ -238,6 +245,7 @@ describe("reconciliation form", () => {
     expect(draft).toEqual({
       documentWeight: "",
       acquisitionAmount: "",
+      documentPieces: "",
       documentDate: "",
       documentNumber: "",
     });
@@ -248,6 +256,7 @@ describe("reconciliation form", () => {
     const valid = {
       documentWeight: "10",
       acquisitionAmount: "0",
+      documentPieces: "",
       documentDate: "",
       documentNumber: "",
     };
@@ -263,10 +272,31 @@ describe("reconciliation form", () => {
     ).toBe("Įveskite teisingą dokumento datą.");
   });
 
-  it("builds a payload without the measured total or a receipt-line id", () => {
+  it("accepts an optional positive integer piece count and rejects invalid ones", () => {
+    const valid = {
+      documentWeight: "10",
+      acquisitionAmount: "0",
+      documentPieces: "",
+      documentDate: "",
+      documentNumber: "",
+    };
+    expect(reconciliationFormError({ ...valid, documentPieces: "500" })).toBeNull();
+    expect(reconciliationFormError({ ...valid, documentPieces: "0" })).toBe(
+      "Vienetų skaičius turi būti teigiamas sveikasis skaičius.",
+    );
+    expect(reconciliationFormError({ ...valid, documentPieces: "2.5" })).toBe(
+      "Vienetų skaičius turi būti teigiamas sveikasis skaičius.",
+    );
+    expect(reconciliationFormError({ ...valid, documentPieces: "-3" })).toBe(
+      "Vienetų skaičius turi būti teigiamas sveikasis skaičius.",
+    );
+  });
+
+  it("builds a payload without the measured weight or a receipt-line id", () => {
     const payload = toReconcilePayload({
       documentWeight: " 10.5 ",
       acquisitionAmount: " 20 ",
+      documentPieces: "",
       documentDate: "",
       documentNumber: "",
     });
@@ -276,15 +306,18 @@ describe("reconciliation form", () => {
     });
     expect("measuredWeight" in payload).toBe(false);
     expect("receiptLineId" in payload).toBe(false);
+    expect("documentPieces" in payload).toBe(false);
   });
 
-  it("includes the optional document date and number when given", () => {
+  it("includes document pieces, date and number when given", () => {
     const payload = toReconcilePayload({
       documentWeight: "10",
       acquisitionAmount: "0",
+      documentPieces: "500",
       documentDate: "2026-09-20",
       documentNumber: " SF-1 ",
     });
+    expect(payload.documentPieces).toBe(500);
     expect(payload.documentDate).toBeDefined();
     expect(new Date(payload.documentDate as string).getFullYear()).toBe(2026);
     expect(payload.documentNumber).toBe("SF-1");

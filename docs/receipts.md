@@ -145,11 +145,12 @@ For this first Lithuanian operational flow, `unitPrice` is implicitly **EUR**
 per unit. There is **no** currency management, multi-currency or accounting
 functionality, and no currency column is required by the schema.
 
-## Packing form / status (deliberately absent)
+## Status (deliberately absent)
 
-- **No packing-form relation** on a receipt line yet (`packingFormId` is not
-  added). Packing Form exists as reference data but is not part of this first
-  screen.
+- **No physical-packaging relation** on a receipt line. Packaging is per physical
+  package (`PackagingType` / `Tara`) in the receiving flow, not a receipt-line
+  property; the former `PackingForm` reference concept was removed
+  ([packaging-types.md](packaging-types.md)).
 - **No status/lifecycle** (`DRAFT`/`POSTED`/`CONFIRMED`/`CANCELLED`). The first
   version is simply a saved record; lifecycle is designed when its operational
   meaning is understood. (A `Partija` *does* have a status; that lifecycle lives

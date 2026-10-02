@@ -10,6 +10,7 @@ import { ApiError, apiFetch } from "@/shared/api";
 import { activeStatusLabel } from "@/shared/lib/format";
 import { inactiveRowClass, toggleActionClass } from "@/shared/lib/row-styles";
 import { workSurfaceClass } from "@/shared/lib/surfaces";
+import { SECONDARY_NAV_BUTTON_CLASS } from "@/shared/ui";
 import {
   resourceCategoryFormError,
   resourceCategoryFormToPayload,
@@ -230,7 +231,7 @@ export function ResourceCategoriesPage() {
         </section>
       )}
 
-      <Link href="/resources" className="text-sm hover:underline">
+      <Link href="/resources" className={SECONDARY_NAV_BUTTON_CLASS}>
         ← Ištekliai
       </Link>
     </div>

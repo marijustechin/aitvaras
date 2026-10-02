@@ -17,11 +17,10 @@ import {
   EMPTY_CORRECTIONS_MESSAGE,
   formatArrivalDate,
   formatBatchDateTime,
-  formatQuantity,
+  formatSignedWeight,
   formatWeight,
   formatWeightDifference,
   GAVIMAI_ACTION,
-  handlingUnitLabel,
   isBatchConfirmed,
   weightsMatch,
 } from "@/entities/batch";
@@ -29,6 +28,7 @@ import { formatMoney } from "@/entities/receipt";
 import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
 import { workSurfaceClass } from "@/shared/lib/surfaces";
+import { SECONDARY_NAV_BUTTON_CLASS } from "@/shared/ui";
 import { CONFIRM_RECEIPT_LABEL } from "../lib/batch-list";
 import {
   createDraftReconciliation,
@@ -67,6 +67,7 @@ export function BatchDetailsPage() {
   const [labelBag, setLabelBag] = useState<Bag | null>(null);
   const [reconciling, setReconciling] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [showDiscrepancyDialog, setShowDiscrepancyDialog] = useState(false);
 
   const canReconcile = Boolean(user?.roles.includes("ADMIN"));
 
@@ -126,21 +127,14 @@ export function BatchDetailsPage() {
     setDraftReconciliation({
       documentWeight: batch.documentWeight ?? "",
       acquisitionAmount: batch.acquisitionAmount ?? "",
+      documentPieces:
+        batch.documentPieces === null ? "" : String(batch.documentPieces),
       documentDate: batch.documentDate ? batch.documentDate.slice(0, 10) : "",
       documentNumber: batch.documentNumber ?? "",
     });
   }, [batch]);
 
-  async function submitReconciliation(
-    event: FormEvent<HTMLFormElement>,
-  ): Promise<void> {
-    event.preventDefault();
-    const validation = reconciliationFormError(draftReconciliation);
-    if (validation) {
-      setError(validation);
-      setNotice(null);
-      return;
-    }
+  async function reconcileWith(acknowledge: boolean): Promise<void> {
     setReconciling(true);
     setError(null);
     setNotice(null);
@@ -149,20 +143,42 @@ export function BatchDetailsPage() {
         `/batches/${id}/reconcile`,
         {
           method: "POST",
-          body: JSON.stringify(toReconcilePayload(draftReconciliation)),
+          body: JSON.stringify({
+            ...toReconcilePayload(draftReconciliation),
+            ...(acknowledge ? { acknowledgeDiscrepancy: true } : {}),
+          }),
         },
       );
+      setShowDiscrepancyDialog(false);
       setNotice(
-        result.status === "CONFIRMED"
-          ? "Gavimas patvirtintas."
-          : "Užfiksuotas neatitikimas — dokumentinis ir faktiškas svoris nesutampa.",
+        result.discrepancyId
+          ? `Gavimas patvirtintas. Neatitikimas ${formatSignedWeight(result.difference)} užregistruotas.`
+          : "Gavimas patvirtintas.",
       );
       await loadBatch();
     } catch (caught) {
+      setShowDiscrepancyDialog(false);
       handleError(caught, "Nepavyko patvirtinti gavimo");
     } finally {
       setReconciling(false);
     }
+  }
+
+  function submitReconciliation(event: FormEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    const validation = reconciliationFormError(draftReconciliation);
+    if (validation) {
+      setError(validation);
+      setNotice(null);
+      return;
+    }
+    // A non-zero difference does not block confirmation, but the ADMIN must
+    // acknowledge it first (a modal), which records a separate discrepancy.
+    if (liveDifference !== null && !liveMatches) {
+      setShowDiscrepancyDialog(true);
+      return;
+    }
+    void reconcileWith(false);
   }
 
   if (loading) {
@@ -175,7 +191,7 @@ export function BatchDetailsPage() {
         <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
-        <Link href={GAVIMAI_ACTION.href} className="text-sm hover:underline">
+        <Link href={GAVIMAI_ACTION.href} className={SECONDARY_NAV_BUTTON_CLASS}>
           ← {GAVIMAI_ACTION.label}
         </Link>
       </div>
@@ -187,27 +203,26 @@ export function BatchDetailsPage() {
   }
 
   const confirmed = isBatchConfirmed(batch.status);
-  const totalQuantityLabel = batch.unit
-    ? formatQuantity(batch.totalQuantity, batch.unit)
-    : "—";
+  const totalWeightLabel = formatWeight(batch.totalNetWeight);
   const draftDocumentWeight = draftReconciliation.documentWeight.trim();
   const liveDifference =
     draftDocumentWeight === ""
       ? null
-      : formatWeightDifference(draftDocumentWeight, batch.totalQuantity);
+      : formatWeightDifference(batch.totalNetWeight, draftDocumentWeight);
   const liveMatches =
     draftDocumentWeight !== "" &&
-    weightsMatch(draftDocumentWeight, batch.totalQuantity);
+    weightsMatch(draftDocumentWeight, batch.totalNetWeight);
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-1">
-        <Link href={GAVIMAI_ACTION.href} className="text-sm hover:underline">
+        <Link href={GAVIMAI_ACTION.href} className={SECONDARY_NAV_BUTTON_CLASS}>
           ← {GAVIMAI_ACTION.label}
         </Link>
         <h1 className="text-2xl font-semibold tracking-tight">
-          Partija {batch.code}
+          Gavimas {batch.deliveryCode}
         </h1>
+        <p className="text-sm text-muted-foreground">Partija {batch.code}</p>
       </div>
 
       {error ? (
@@ -220,9 +235,21 @@ export function BatchDetailsPage() {
           {notice}
         </p>
       ) : null}
+      {batch.hasOpenDiscrepancy ? (
+        <p role="status" className="text-sm text-destructive">
+          Užregistruotas nepadengtas neatitikimas:{" "}
+          {batch.difference ? formatSignedWeight(batch.difference) : "—"}.
+        </p>
+      ) : null}
 
       <section className={workSurfaceClass()}>
         <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
+          <div>
+            <dt className="text-sm font-medium">Gavimas</dt>
+            <dd className="text-sm text-muted-foreground">
+              {batch.deliveryCode}
+            </dd>
+          </div>
           <div>
             <dt className="text-sm font-medium">Būsena</dt>
             <dd className="text-sm text-muted-foreground">
@@ -254,9 +281,9 @@ export function BatchDetailsPage() {
             </dd>
           </div>
           <div>
-            <dt className="text-sm font-medium">Maišai / kiekis</dt>
+            <dt className="text-sm font-medium">Pakuotės / svoris</dt>
             <dd className="text-sm text-muted-foreground">
-              {batch.bagCount} · {totalQuantityLabel}
+              {batch.bagCount} · {totalWeightLabel}
             </dd>
           </div>
         </dl>
@@ -269,7 +296,7 @@ export function BatchDetailsPage() {
             <div>
               <dt className="text-sm font-medium">Faktiškai susverta</dt>
               <dd className="text-sm text-muted-foreground">
-                {totalQuantityLabel}
+                {totalWeightLabel}
               </dd>
             </div>
             <div>
@@ -279,9 +306,15 @@ export function BatchDetailsPage() {
               </dd>
             </div>
             <div>
+              <dt className="text-sm font-medium">Dokumentiniai vienetai</dt>
+              <dd className="text-sm text-muted-foreground">
+                {batch.documentPieces === null ? "—" : batch.documentPieces}
+              </dd>
+            </div>
+            <div>
               <dt className="text-sm font-medium">Skirtumas</dt>
               <dd className="text-sm text-muted-foreground">
-                {batch.difference ? formatWeight(batch.difference) : "—"}
+                {batch.difference ? formatSignedWeight(batch.difference) : "—"}
               </dd>
             </div>
             <div>
@@ -316,18 +349,11 @@ export function BatchDetailsPage() {
         <section className={workSurfaceClass()}>
           {batch.bagCount === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Patvirtinti galima tik partiją su bent vienu maišu.
+              Patvirtinti galima tik partiją su bent viena pakuote.
             </p>
           ) : (
             <form onSubmit={submitReconciliation} className="grid gap-4">
               <h2 className="text-lg font-medium">{CONFIRM_RECEIPT_LABEL}</h2>
-              {batch.status === "DISCREPANCY" ? (
-                <p role="status" className="text-sm text-muted-foreground">
-                  Užfiksuotas neatitikimas. Pataisykite dokumentinį svorį ir
-                  patvirtinkite iš naujo.
-                </p>
-              ) : null}
-
               <div className="grid gap-3 sm:grid-cols-12">
                 <label className="grid gap-1 text-sm sm:col-span-3">
                   <span className="font-medium">Dokumentinis svoris</span>
@@ -342,6 +368,23 @@ export function BatchDetailsPage() {
                       setDraftReconciliation({
                         ...draftReconciliation,
                         documentWeight: event.target.value,
+                      })
+                    }
+                    className={inputClass}
+                  />
+                </label>
+                <label className="grid gap-1 text-sm sm:col-span-3">
+                  <span className="font-medium">Dokumentiniai vienetai</span>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min="0"
+                    step="1"
+                    value={draftReconciliation.documentPieces}
+                    onChange={(event) =>
+                      setDraftReconciliation({
+                        ...draftReconciliation,
+                        documentPieces: event.target.value,
                       })
                     }
                     className={inputClass}
@@ -400,7 +443,7 @@ export function BatchDetailsPage() {
                 <div>
                   <dt className="text-sm font-medium">Faktiškai susverta</dt>
                   <dd className="text-sm text-muted-foreground">
-                    {totalQuantityLabel}
+                    {totalWeightLabel}
                   </dd>
                 </div>
                 <div>
@@ -441,7 +484,7 @@ export function BatchDetailsPage() {
       ) : null}
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-lg font-medium">Partijos maišai</h2>
+        <h2 className="text-lg font-medium">Partijos pakuotės</h2>
         {batch.bags.length === 0 ? (
           <p className="text-sm text-muted-foreground">{EMPTY_BAGS_MESSAGE}</p>
         ) : (
@@ -451,8 +494,7 @@ export function BatchDetailsPage() {
                 <tr>
                   <th className="px-4 py-2 font-medium">Barkodas</th>
                   <th className="px-4 py-2 font-medium">Vieta</th>
-                  <th className="px-4 py-2 font-medium">Kiekis</th>
-                  <th className="px-4 py-2 font-medium">Mato vnt.</th>
+                  <th className="px-4 py-2 font-medium">Svoris</th>
                   <th className="px-4 py-2 font-medium">Būsena</th>
                   <th className="px-4 py-2 font-medium">Užregistruota</th>
                   <th className="px-4 py-2 font-medium">Etiketė</th>
@@ -470,8 +512,7 @@ export function BatchDetailsPage() {
                   >
                     <td className="px-4 py-2 font-mono">{bag.barcode}</td>
                     <td className="px-4 py-2">{bag.warehouseLocationName}</td>
-                    <td className="px-4 py-2">{bag.quantity}</td>
-                    <td className="px-4 py-2">{handlingUnitLabel(bag.unit)}</td>
+                    <td className="px-4 py-2">{formatWeight(bag.netWeight)}</td>
                     <td className="px-4 py-2">
                       <span className={bagStatusClass(bag.status)}>
                         {bagStatusLabel(bag.status)}
@@ -548,7 +589,9 @@ export function BatchDetailsPage() {
       {labelBag ? (
         <section className="flex flex-col gap-3">
           <h2 className="text-lg font-medium">Etiketės peržiūra</h2>
-          <BagLabel label={bagLabelData(batch, labelBag)} />
+          <BagLabel
+            label={bagLabelData({ code: batch.deliveryCode }, batch, labelBag)}
+          />
           <div>
             <button
               type="button"
@@ -559,6 +602,43 @@ export function BatchDetailsPage() {
             </button>
           </div>
         </section>
+      ) : null}
+
+      {showDiscrepancyDialog ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="discrepancy-dialog-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4"
+        >
+          <div className="w-full max-w-md rounded-xl border border-border bg-card p-6">
+            <h2 id="discrepancy-dialog-title" className="text-lg font-medium">
+              Patvirtinti gavimą su neatitikimu?
+            </h2>
+            <p className="mt-3 text-sm text-muted-foreground">
+              Faktinis ir dokumentinis svoris nesutampa. Neatitikimas:{" "}
+              {liveDifference ?? "—"}. Gavimas bus patvirtintas, o neatitikimas
+              užregistruotas atskirai.
+            </p>
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowDiscrepancyDialog(false)}
+                className="rounded-md border border-border px-3 py-2 text-sm hover:bg-accent"
+              >
+                Ne
+              </button>
+              <button
+                type="button"
+                onClick={() => void reconcileWith(true)}
+                disabled={reconciling}
+                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+              >
+                {reconciling ? "Tvirtinama…" : "Taip, patvirtinti"}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );

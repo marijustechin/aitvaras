@@ -14,14 +14,14 @@ concise and operational; put durable knowledge in `docs/`.
   is fixed by the workspace ADR-001.
 - **Confirmed functional scope is identity and access management, business
   partners (`Partneriai`), resources (`Ištekliai`) with administrator-managed
-  categories (`Išteklių kategorijos`), packing forms (`Pakavimo formos`, reference
-  data), warehouses + locations
+  categories (`Išteklių kategorijos`) and packaging/tare master data
+  (`Tara` / `PackagingType`), warehouses + locations
   (`Sandėliai`), the first minimal goods-receipt workflow (`Pajamavimas`)
-  with physical placement, and incoming batches/lots with per-bag handling units
-  (`Partijos ir maišai`) reconciled with a `Pajamavimas` line.** Identity/access is
+  with physical placement, and incoming batches/lots with per-package handling
+  units (`Partijos ir pakuotės`) reconciled with a `Pajamavimas` line.** Identity/access is
   `docs/scope.md`,
   `docs/authentication.md`, `docs/authorization.md`; business partners are
-  [docs/partners.md](docs/partners.md); resources and packing forms are
+  [docs/partners.md](docs/partners.md); resources and packaging types are
   [docs/resources.md](docs/resources.md); goods receipts, warehouses and batches
   are [docs/receipts.md](docs/receipts.md), [docs/warehouses.md](docs/warehouses.md)
   and [docs/batches.md](docs/batches.md). The canonical scope statement is
@@ -32,16 +32,28 @@ concise and operational; put durable knowledge in `docs/`.
   and first slices in `docs/` are evidence, not a roadmap.
 - **Inventory/production principles are part-implemented.** Resource categories
   are **classification only** (no implicit `Žaliava -> Pusgaminis -> Gaminys`
-  lifecycle and no provenance). Incoming batch/lot identity, weight- or
-  count-based (`KG`/`PCS`) EAN handling units with a **required** warehouse
-  location, and formal **GoodsReceipt reconciliation** (documentary weight +
-  initial acquisition value, `CONFIRMED`/`DISCREPANCY`, `KG`-only) are
-  implemented, as is auditable physical handling-unit **correction/void**
-  (quantity/location/void; `PENDING`/`DISCREPANCY` only) ([docs/batches.md](docs/batches.md));
-  scan-driven movements, handling-unit **split/merge**, production lineage and
-  batch/output-lot **cost redistribution** remain **confirmed future direction** —
-  do not implement, model or infer them without a scoped, confirmed task. See the
-  "Confirmed future inventory/production principles" section in `docs/scope.md`.
+  lifecycle and no provenance). Incoming **deliveries** (`Gavimai`, one arrival =
+  one supplier + one arrival date, containing **one resource into one warehouse per
+  batch**), **weight-based** physical receiving (managed packaging/tare
+  **`Tara`**; a package stores `grossWeight` and the server-derived
+  `netWeight = gross − tare`; **no KG/PCS unit selector**), a **required**
+  warehouse location per package, formal **GoodsReceipt reconciliation**
+  (documentary weight + optional documentary piece count + initial acquisition
+  value; a mismatch **does not block confirmation** — it confirms and records a
+  long-lived `ReceivingDiscrepancy`), the append-only discrepancy settlement
+  ledger (`DiscrepancySettlement`, `WEIGHT`/`MONEY`; never changes inventory and
+  never converts money↔weight) and auditable physical package
+  **correction/void** (packaging/gross/location/void; `PENDING` only) are
+  implemented
+  ([docs/batches.md](docs/batches.md), [docs/discrepancies.md](docs/discrepancies.md),
+  [docs/packaging-types.md](docs/packaging-types.md));
+  vehicles/transport are **outside scope**; scan-driven movements, package
+  **split/merge**, settlement reversal/correction, overage-specific
+  return/write-off semantics, production lineage
+  and batch/output-lot **cost redistribution** remain **confirmed future
+  direction** — do not implement, model or infer them without a scoped, confirmed
+  task. See the "Confirmed future inventory/production principles" section in
+  `docs/scope.md`.
 
 ## Boundaries
 
@@ -203,6 +215,12 @@ black, grey). Use colour only for semantic meaning (errors, warnings, success,
 status, destructive actions). Do not introduce gradients, colourful dashboards,
 illustrations, or new design systems/palettes without a confirmed requirement.
 
+**Button hierarchy:** use the shared `shared/ui/button.ts` variants — **primary**
+(solid black, the main action), **secondary** (filled neutral gray, for
+navigation/context/helper actions such as `Kategorijos`, `Tara`, `← Ištekliai`,
+`← Gavimų sąrašas`), **outline** (compact neutral row actions) and **destructive**
+(red). Do not invent one-off button colours per page.
+
 **Pointer cursor:** all clickable buttons/actions must use `cursor-pointer`.
 shadcn defaults are not sufficient — verify the pointer cursor explicitly.
 Disabled controls retain their disabled cursor semantics. This is enforced once,
@@ -251,7 +269,15 @@ control (with Lithuanian `aria-label`s) unless there is a specific reason not to
   (`apps/web/src/widgets/app-shell/`: sticky top bar, role-aware navigation and
   user menu); do **not** duplicate header markup per page.
 - **Navigation must contain only implemented and confirmed functionality.** Do
-  not add placeholder links for future business domains.
+  not add placeholder links for future business domains. A reserved *group* (e.g.
+  `Ataskaitos`) is allowed; reserved *routes* are not.
+- **Information architecture** (`widgets/app-shell/model/navigation.ts`):
+  operational workflows stay top-level (`Pradžia`, `Registruoti sandėlyje`,
+  `Gavimai`); `Žinynai` = master/reference data (`Partneriai`, `Ištekliai`,
+  `Sandėliai`); `Ataskaitos` = reporting/registers (future discrepancy register
+  lives here); `Sistema` = system administration (`Naudotojai`; later
+  `Nustatymai`). Groups render as dropdowns on desktop and inside the responsive
+  `Meniu` disclosure on narrow screens; the active child highlights its parent.
 - Menu visibility (e.g. `Naudotojai` for ADMIN) is a UI convenience only;
   server-side authorization remains authoritative and must never be weakened.
 

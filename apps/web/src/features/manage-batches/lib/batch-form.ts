@@ -1,30 +1,35 @@
 import {
-  DEFAULT_HANDLING_UNIT,
   type Bag,
   type Batch,
   type BatchDetail,
   type CreateBagRequest,
-  type HandlingUnitKey,
+  type CreateIncomingDeliveryRequest,
   type ReconcileBatchRequest,
+  type ResolveBatchRequest,
   type UpdateBagRequest,
 } from "@aitvaras/contracts";
 
-/** A batch being created in the form (all values are strings). */
-export interface DraftBatch {
-  resourceId: string;
+/** A delivery being created in the form (all values are strings). */
+export interface DraftDelivery {
   supplierId: string;
-  warehouseId: string;
   arrivalDate: string;
 }
 
-/** A handling unit being registered in a batch (user-entered values are strings). */
+/** The resource/warehouse selection that starts or resolves an internal batch. */
+export interface DraftResource {
+  resourceId: string;
+  warehouseId: string;
+}
+
+/** A physical package being registered in a batch (user-entered values are strings). */
 export interface DraftBag {
-  unit: HandlingUnitKey;
-  quantity: string;
+  packagingTypeId: string;
+  grossWeight: string;
   warehouseLocationId: string;
 }
 
 const DECIMAL = /^\d+(\.\d+)?$/;
+const INTEGER = /^\d+$/;
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 function todayDateInput(): string {
@@ -56,26 +61,15 @@ export function arrivalDateToIso(value: string): string | null {
   return date.toISOString();
 }
 
-/** A new batch draft: nothing selected, arrival date defaulting to today. */
-export function createDraftBatch(): DraftBatch {
-  return {
-    resourceId: "",
-    supplierId: "",
-    warehouseId: "",
-    arrivalDate: todayDateInput(),
-  };
+/** A new delivery draft: nothing selected, arrival date defaulting to today. */
+export function createDraftDelivery(): DraftDelivery {
+  return { supplierId: "", arrivalDate: todayDateInput() };
 }
 
-/** Client-side validation message, or null when the batch is submittable. */
-export function batchFormError(draft: DraftBatch): string | null {
-  if (draft.resourceId.trim() === "") {
-    return "Pasirinkite išteklių.";
-  }
+/** Client-side validation message, or null when the delivery is submittable. */
+export function deliveryFormError(draft: DraftDelivery): string | null {
   if (draft.supplierId.trim() === "") {
     return "Pasirinkite tiekėją.";
-  }
-  if (draft.warehouseId.trim() === "") {
-    return "Pasirinkite sandėlį.";
   }
   if (arrivalDateToIso(draft.arrivalDate) === null) {
     return "Įveskite teisingą priėmimo datą.";
@@ -83,120 +77,128 @@ export function batchFormError(draft: DraftBatch): string | null {
   return null;
 }
 
-/** Convert a batch draft into the create-batch request payload. */
-export function toCreateBatchPayload(draft: DraftBatch): {
-  resourceId: string;
-  supplierId: string;
-  warehouseId: string;
-  arrivalDate: string;
-} {
+/** Convert a delivery draft into the create-delivery request payload. */
+export function toCreateDeliveryPayload(
+  draft: DraftDelivery,
+): CreateIncomingDeliveryRequest {
   const arrivalDate = arrivalDateToIso(draft.arrivalDate);
   if (!arrivalDate) {
     throw new Error("Invalid arrival date");
   }
-  return {
-    resourceId: draft.resourceId,
-    supplierId: draft.supplierId,
-    warehouseId: draft.warehouseId,
-    arrivalDate,
-  };
+  return { supplierId: draft.supplierId, arrivalDate };
 }
 
-/** A new handling-unit draft: default unit `KG`, no quantity, no location. */
-export function createDraftBag(): DraftBag {
-  return {
-    unit: DEFAULT_HANDLING_UNIT,
-    quantity: "",
-    warehouseLocationId: "",
-  };
+/** A blank resource/warehouse selection for the next batch of a delivery. */
+export function createDraftResource(): DraftResource {
+  return { resourceId: "", warehouseId: "" };
 }
 
-/**
- * Client-side validation message, or null when the unit is submittable. A
- * warehouse location is always required; `PCS` accepts whole units only (no
- * silent rounding of a fractional count).
- */
-export function bagFormError(draft: DraftBag): string | null {
-  if (draft.warehouseLocationId.trim() === "") {
-    return "Pasirinkite sandėlio vietą.";
+/** Client-side validation message, or null when the resource is submittable. */
+export function resourceFormError(draft: DraftResource): string | null {
+  if (draft.resourceId.trim() === "") {
+    return "Pasirinkite išteklių.";
   }
-  const quantity = draft.quantity.trim();
-  if (!DECIMAL.test(quantity) || Number(quantity) <= 0) {
-    return draft.unit === "PCS"
-      ? "Įveskite vienetų kiekį (sveiką skaičių)."
-      : "Įveskite svorį, didesnį už nulį.";
-  }
-  if (draft.unit === "PCS" && !/^\d+$/.test(quantity)) {
-    return "Vienetų kiekis turi būti sveikas skaičius.";
+  if (draft.warehouseId.trim() === "") {
+    return "Pasirinkite sandėlį.";
   }
   return null;
 }
 
-/** Convert a handling-unit draft into the create request payload. */
+/** Convert the resource/warehouse selection into the resolve-batch payload. */
+export function toResolveBatchPayload(draft: DraftResource): ResolveBatchRequest {
+  return { resourceId: draft.resourceId, warehouseId: draft.warehouseId };
+}
+
+/** A new package draft: no packaging/weight/location. */
+export function createDraftBag(): DraftBag {
+  return { packagingTypeId: "", grossWeight: "", warehouseLocationId: "" };
+}
+
+/**
+ * Client-side validation message, or null when the package is submittable. A
+ * packaging type and a warehouse location are required and the gross weight must
+ * be a positive decimal; the net weight is computed server-side (gross − tare).
+ */
+export function bagFormError(draft: DraftBag): string | null {
+  if (draft.packagingTypeId.trim() === "") {
+    return "Pasirinkite tarą.";
+  }
+  if (draft.warehouseLocationId.trim() === "") {
+    return "Pasirinkite sandėlio vietą.";
+  }
+  const gross = draft.grossWeight.trim();
+  if (!DECIMAL.test(gross) || Number(gross) <= 0) {
+    return "Įveskite bruto svorį, didesnį už nulį.";
+  }
+  return null;
+}
+
+/** Convert a package draft into the create request payload. */
 export function toCreateBagPayload(draft: DraftBag): CreateBagRequest {
   return {
-    unit: draft.unit,
-    quantity: draft.quantity.trim(),
+    packagingTypeId: draft.packagingTypeId,
+    grossWeight: draft.grossWeight.trim(),
     warehouseLocationId: draft.warehouseLocationId,
   };
 }
 
 /**
- * A draft for the next handling unit of a batch: it inherits the batch's
- * established unit (or `KG` for a new batch) and preselects the location of the
- * most recently registered unit (`BatchDetail.suggestedLocationId`), which the
+ * A draft for the next package of a batch: it preselects the location of the most
+ * recently registered package (`BatchDetail.suggestedLocationId`), which the
  * worker may still change. There is no arbitrary fallback location.
  */
 export function initialBagDraft(batch: Batch | BatchDetail): DraftBag {
   const suggestedLocationId =
     "suggestedLocationId" in batch ? batch.suggestedLocationId : null;
+  const suggestedPackagingTypeId =
+    "suggestedPackagingTypeId" in batch
+      ? batch.suggestedPackagingTypeId
+      : null;
   return {
-    unit: batch.unit ?? DEFAULT_HANDLING_UNIT,
-    quantity: "",
+    packagingTypeId: suggestedPackagingTypeId ?? "",
+    grossWeight: "",
     warehouseLocationId: suggestedLocationId ?? "",
   };
 }
 
-/** A handling-unit correction being edited (quantity and/or location). */
+/** A handling-unit correction being edited (packaging/gross/location). */
 export interface DraftCorrection {
   id: string;
-  quantity: string;
+  packagingTypeId: string;
+  grossWeight: string;
   warehouseLocationId: string;
 }
 
-/** Prefill a correction draft from the unit's current values. */
+/** Prefill a correction draft from the package's current values. */
 export function correctionDraftFromBag(bag: Bag): DraftCorrection {
   return {
     id: bag.id,
-    quantity: bag.quantity,
+    packagingTypeId: bag.packagingTypeId,
+    grossWeight: bag.grossWeight,
     warehouseLocationId: bag.warehouseLocationId,
   };
 }
 
-/** Whether the correction draft actually differs from the unit on file. */
+/** Whether the correction draft actually differs from the package on file. */
 export function correctionChanged(draft: DraftCorrection, bag: Bag): boolean {
   return (
-    draft.quantity.trim() !== bag.quantity ||
+    draft.packagingTypeId !== bag.packagingTypeId ||
+    draft.grossWeight.trim() !== bag.grossWeight ||
     draft.warehouseLocationId !== bag.warehouseLocationId
   );
 }
 
 /** Client-side validation message, or null when the correction is submittable. */
-export function correctionFormError(
-  draft: DraftCorrection,
-  unit: HandlingUnitKey,
-): string | null {
+export function correctionFormError(draft: DraftCorrection): string | null {
+  if (draft.packagingTypeId.trim() === "") {
+    return "Pasirinkite tarą.";
+  }
   if (draft.warehouseLocationId.trim() === "") {
     return "Pasirinkite sandėlio vietą.";
   }
-  const quantity = draft.quantity.trim();
-  if (!DECIMAL.test(quantity) || Number(quantity) <= 0) {
-    return unit === "PCS"
-      ? "Įveskite vienetų kiekį (sveiką skaičių)."
-      : "Įveskite svorį, didesnį už nulį.";
-  }
-  if (unit === "PCS" && !/^\d+$/.test(quantity)) {
-    return "Vienetų kiekis turi būti sveikas skaičius.";
+  const gross = draft.grossWeight.trim();
+  if (!DECIMAL.test(gross) || Number(gross) <= 0) {
+    return "Įveskite bruto svorį, didesnį už nulį.";
   }
   return null;
 }
@@ -210,9 +212,12 @@ export function toUpdateBagPayload(
   bag: Bag,
 ): UpdateBagRequest {
   const payload: UpdateBagRequest = {};
-  const quantity = draft.quantity.trim();
-  if (quantity !== bag.quantity) {
-    payload.quantity = quantity;
+  if (draft.packagingTypeId !== bag.packagingTypeId) {
+    payload.packagingTypeId = draft.packagingTypeId;
+  }
+  const gross = draft.grossWeight.trim();
+  if (gross !== bag.grossWeight) {
+    payload.grossWeight = gross;
   }
   if (draft.warehouseLocationId !== bag.warehouseLocationId) {
     payload.warehouseLocationId = draft.warehouseLocationId;
@@ -233,6 +238,8 @@ export function toVoidBagPayload(reason: string): { reason?: string } {
 export interface DraftReconciliation {
   documentWeight: string;
   acquisitionAmount: string;
+  /** Optional documentary piece count (a positive whole number, or ""). */
+  documentPieces: string;
   /** Optional document date, `yyyy-mm-dd` from a date input. */
   documentDate: string;
   /** Optional document number. */
@@ -244,6 +251,7 @@ export function createDraftReconciliation(): DraftReconciliation {
   return {
     documentWeight: "",
     acquisitionAmount: "",
+    documentPieces: "",
     documentDate: "",
     documentNumber: "",
   };
@@ -260,6 +268,10 @@ export function reconciliationFormError(
   if (!DECIMAL.test(draft.acquisitionAmount.trim())) {
     return "Įveskite įsigijimo vertę (gali būti 0).";
   }
+  const pieces = draft.documentPieces.trim();
+  if (pieces !== "" && (!INTEGER.test(pieces) || Number(pieces) <= 0)) {
+    return "Vienetų skaičius turi būti teigiamas sveikasis skaičius.";
+  }
   if (
     draft.documentDate.trim() !== "" &&
     arrivalDateToIso(draft.documentDate) === null
@@ -270,8 +282,9 @@ export function reconciliationFormError(
 }
 
 /**
- * Convert a reconciliation draft into the request payload. The measured total is
- * deliberately never included — the server derives it from the bags.
+ * Convert a reconciliation draft into the request payload. The measured weight is
+ * deliberately never included — the server derives it from the packages.
+ * `documentPieces` is optional documentary information.
  */
 export function toReconcilePayload(
   draft: DraftReconciliation,
@@ -280,6 +293,10 @@ export function toReconcilePayload(
     documentWeight: draft.documentWeight.trim(),
     acquisitionAmount: draft.acquisitionAmount.trim(),
   };
+  const pieces = draft.documentPieces.trim();
+  if (pieces !== "") {
+    payload.documentPieces = Number(pieces);
+  }
   const documentDate = arrivalDateToIso(draft.documentDate);
   if (documentDate) {
     payload.documentDate = documentDate;

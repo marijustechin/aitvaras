@@ -9,9 +9,10 @@ import { AccessModule } from "./modules/access/access.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { BatchesModule } from "./modules/batches/batches.module";
 import { HealthModule } from "./modules/health/health.module";
-import { PackingFormsModule } from "./modules/packing-forms/packing-forms.module";
+import { PackagingTypesModule } from "./modules/packaging-types/packaging-types.module";
 import { PartnersModule } from "./modules/partners/partners.module";
 import { ReceiptsModule } from "./modules/receipts/receipts.module";
+import { ReceivingDiscrepanciesModule } from "./modules/receiving-discrepancies/receiving-discrepancies.module";
 import { ResourceCategoriesModule } from "./modules/resource-categories/resource-categories.module";
 import { ResourcesModule } from "./modules/resources/resources.module";
 import { UsersModule } from "./modules/users/users.module";
@@ -33,9 +34,10 @@ import { WarehousesModule } from "./modules/warehouses/warehouses.module";
     PartnersModule,
     ResourceCategoriesModule,
     ResourcesModule,
-    PackingFormsModule,
+    PackagingTypesModule,
     ReceiptsModule,
     BatchesModule,
+    ReceivingDiscrepanciesModule,
     WarehousesModule,
     HealthModule,
   ],

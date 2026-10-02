@@ -9,6 +9,7 @@ import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
 import { activeStatusLabel } from "@/shared/lib/format";
 import { inactiveRowClass } from "@/shared/lib/row-styles";
+import { PRIMARY_BUTTON_CLASS, SECONDARY_NAV_BUTTON_CLASS } from "@/shared/ui";
 
 /** Resources list composition (rendered inside the application shell). */
 export function ResourcesPage() {
@@ -41,21 +42,24 @@ export function ResourcesPage() {
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold tracking-tight">Ištekliai</h1>
         {isAdmin ? (
-          <Link
-            href="/resources/new"
-            className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
-          >
+          <Link href="/resources/new" className={PRIMARY_BUTTON_CLASS}>
             Naujas išteklius
           </Link>
         ) : null}
       </div>
 
-      <div className="-mt-2 flex gap-4">
-        <Link href="/resources/categories" className="text-sm hover:underline">
+      <div className="-mt-2 flex flex-wrap gap-2">
+        <Link
+          href="/resources/categories"
+          className={SECONDARY_NAV_BUTTON_CLASS}
+        >
           Kategorijos
         </Link>
-        <Link href="/resources/packing-forms" className="text-sm hover:underline">
-          Pakavimo formos
+        <Link
+          href="/resources/packaging-types"
+          className={SECONDARY_NAV_BUTTON_CLASS}
+        >
+          Tara
         </Link>
       </div>
 

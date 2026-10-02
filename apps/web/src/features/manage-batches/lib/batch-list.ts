@@ -15,12 +15,13 @@ export const RESET_FILTERS_LABEL = "Atstatyti filtrus";
 
 /**
  * Status filter of the received-batch queue. `Reikia patvirtinti` is the default
- * work queue and means `PENDING + DISCREPANCY`.
+ * work queue and means the not-yet-confirmed `PENDING` batches. A confirmed batch
+ * with a documentary mismatch is no longer unconfirmed; the mismatch is tracked
+ * separately as a `ReceivingDiscrepancy`.
  */
 export const BATCH_STATUS_FILTERS = [
   "NEEDS_CONFIRMATION",
   "PENDING",
-  "DISCREPANCY",
   "CONFIRMED",
   "ALL",
 ] as const;
@@ -29,7 +30,6 @@ export type BatchStatusFilter = (typeof BATCH_STATUS_FILTERS)[number];
 export const BATCH_STATUS_FILTER_LABELS: Record<BatchStatusFilter, string> = {
   NEEDS_CONFIRMATION: "Reikia patvirtinti",
   PENDING: "Laukiama patvirtinimo",
-  DISCREPANCY: "Neatitikimas",
   CONFIRMED: "Patvirtinta",
   ALL: "Visos",
 };
@@ -39,11 +39,10 @@ export const DEFAULT_BATCH_STATUS_FILTER: BatchStatusFilter =
   "NEEDS_CONFIRMATION";
 
 const STATUSES_BY_FILTER: Record<BatchStatusFilter, BatchStatus[]> = {
-  NEEDS_CONFIRMATION: ["PENDING", "DISCREPANCY"],
+  NEEDS_CONFIRMATION: ["PENDING"],
   PENDING: ["PENDING"],
-  DISCREPANCY: ["DISCREPANCY"],
   CONFIRMED: ["CONFIRMED"],
-  ALL: ["PENDING", "CONFIRMED", "DISCREPANCY"],
+  ALL: ["PENDING", "CONFIRMED"],
 };
 
 /** The batch statuses a queue filter selects. */
@@ -186,7 +185,6 @@ export function batchDetailHref(batchId: string): string {
 const STATUS_CLASS: Record<BatchStatus, string> = {
   PENDING: "text-muted-foreground",
   CONFIRMED: "text-emerald-500",
-  DISCREPANCY: "text-rose-500",
 };
 
 /**

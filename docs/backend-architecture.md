@@ -38,9 +38,10 @@ users
 partners
 resources
 resource-categories
-packing-forms
+packaging-types
 receipts
 batches
+receiving-discrepancies
 warehouses
 health
 ```

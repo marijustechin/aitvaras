@@ -1,12 +1,12 @@
-import { formatQuantity } from "@/entities/batch";
+import { formatWeight } from "@/entities/batch";
 import { Ean13Barcode } from "@/shared/ui";
 import type { BagLabelData } from "../lib/receiving";
 
 /**
- * Printable handling-unit label. The barcode (with its graphic) is the only
- * machine value and identifies the physical unit; warehouse, location, category,
- * resource, batch code and quantity are human-readable metadata and are never
- * encoded into the barcode.
+ * Printable package label. The delivery code (`Gavimas: GYYMM-NN`) is the
+ * prominent human-facing reference and the **net weight** is the primary stock
+ * quantity; gross/tare are shown as secondary traceability. The barcode (with its
+ * graphic) is the only machine value and identifies the physical package.
  */
 export function BagLabel({ label }: { label: BagLabelData }) {
   return (
@@ -15,6 +15,8 @@ export function BagLabel({ label }: { label: BagLabelData }) {
         Etiketė
       </p>
       <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+        <dt className="text-muted-foreground">Gavimas</dt>
+        <dd className="font-medium">{label.deliveryCode}</dd>
         <dt className="text-muted-foreground">Sandėlis</dt>
         <dd>{label.warehouseName}</dd>
         <dt className="text-muted-foreground">Vieta</dt>
@@ -23,10 +25,12 @@ export function BagLabel({ label }: { label: BagLabelData }) {
         <dd>{label.categoryName}</dd>
         <dt className="text-muted-foreground">Rūšis</dt>
         <dd className="font-medium">{label.resourceName}</dd>
-        <dt className="text-muted-foreground">Partija</dt>
-        <dd className="font-medium">{label.batchCode}</dd>
-        <dt className="text-muted-foreground">Kiekis</dt>
-        <dd>{formatQuantity(label.quantity, label.unit)}</dd>
+        <dt className="text-muted-foreground">Neto svoris</dt>
+        <dd className="font-semibold">{formatWeight(label.netWeight)}</dd>
+        <dt className="text-muted-foreground">Bruto svoris</dt>
+        <dd>{formatWeight(label.grossWeight)}</dd>
+        <dt className="text-muted-foreground">Taros svoris</dt>
+        <dd>{formatWeight(label.tareWeightKg)}</dd>
       </dl>
       <div className="mt-3">
         <Ean13Barcode value={label.barcode} />

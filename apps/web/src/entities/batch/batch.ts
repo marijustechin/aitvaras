@@ -1,11 +1,9 @@
 import {
   BAG_STATUS_LABELS,
   BATCH_STATUS_LABELS,
-  HANDLING_UNIT_LABELS,
   type BagCorrectionKind,
   type BagStatus,
   type BatchStatus,
-  type HandlingUnitKey,
   type RoleKey,
 } from "@aitvaras/contracts";
 import { valueOrPlaceholder } from "@/shared/lib/format";
@@ -13,8 +11,8 @@ import { valueOrPlaceholder } from "@/shared/lib/format";
 /** Empty-state text for the batches list. */
 export const EMPTY_BATCHES_MESSAGE = "Partijų dar nėra.";
 
-/** Empty-state text for a batch's bags. */
-export const EMPTY_BAGS_MESSAGE = "Maišų dar nėra.";
+/** Empty-state text for a batch's packages. */
+export const EMPTY_BAGS_MESSAGE = "Pakuočių dar nėra.";
 
 /** Empty-state text for a batch's correction history. */
 export const EMPTY_CORRECTIONS_MESSAGE = "Pataisymų dar nėra.";
@@ -56,12 +54,12 @@ export function batchStatusLabel(status: BatchStatus): string {
 }
 
 /**
- * Whether a batch still accepts bag changes (while not yet confirmed): a
- * `PENDING` batch accepts new units and a `DISCREPANCY` batch accepts the
- * physical corrections that resolve it. A `CONFIRMED` batch is frozen.
+ * Whether a batch still accepts package changes (while not yet confirmed). A
+ * documentary/physical mismatch does not keep a batch open: it is confirmed and
+ * recorded as a separate discrepancy, so only `PENDING` accepts changes.
  */
 export function isBatchOpen(status: BatchStatus): boolean {
-  return status === "PENDING" || status === "DISCREPANCY";
+  return status === "PENDING";
 }
 
 /** Lithuanian UI label for a handling unit's status (never the raw key). */
@@ -80,7 +78,8 @@ export function bagStatusClass(status: BagStatus): string {
 }
 
 const CORRECTION_KIND_LABELS: Record<BagCorrectionKind, string> = {
-  QUANTITY: "Kiekio pataisymas",
+  PACKAGING: "Taros pataisymas",
+  GROSS_WEIGHT: "Bruto svorio pataisymas",
   LOCATION: "Vietos pataisymas",
   VOID: "Anuliavimas",
 };
@@ -96,23 +95,23 @@ export function isBatchConfirmed(status: BatchStatus): boolean {
 }
 
 /**
- * Display-only reconciliation difference (`documentWeight − measuredWeight`) as a
- * weight string, or null when the batch has no documentary weight yet. Follows
- * the same precision as other weights; a non-zero result means the documentary
- * and measured quantities differ (a discrepancy).
+ * Display-only signed reconciliation difference (`measuredWeight − documentWeight`)
+ * as a weight string, or null when there is no documentary weight yet. Positive
+ * means physically received more than documented. Follows the weight precision;
+ * a non-zero result is a discrepancy.
  */
 export function formatWeightDifference(
-  documentWeight: string | null,
   measuredWeight: string,
+  documentWeight: string | null,
 ): string | null {
   if (documentWeight === null || documentWeight.trim() === "") {
     return null;
   }
-  const difference = Number(documentWeight) - Number(measuredWeight);
+  const difference = Number(measuredWeight) - Number(documentWeight);
   if (!Number.isFinite(difference)) {
     return null;
   }
-  return formatWeight(difference);
+  return formatSignedWeight(difference);
 }
 
 /**
@@ -145,30 +144,17 @@ export function formatWeight(value: number | string): string {
   return `${formatted} kg`;
 }
 
-/** Lithuanian short label for a handling unit's measurement unit. */
-export function handlingUnitLabel(unit: HandlingUnitKey): string {
-  return HANDLING_UNIT_LABELS[unit];
-}
-
 /**
- * Display-only quantity formatting: `KG` uses the 3-decimal weight convention
- * ("48.725" -> "48,725 kg"); `PCS` is whole units ("12" -> "12 vnt").
+ * Display-only **signed** weight (`+1 234,500 kg` / `−1 234,500 kg`), used for
+ * reconciliation differences so "received more" is explicit. Zero is unsigned.
  */
-export function formatQuantity(
-  value: number | string,
-  unit: HandlingUnitKey,
-): string {
+export function formatSignedWeight(value: number | string): string {
   const amount = typeof value === "string" ? Number(value) : value;
   if (!Number.isFinite(amount)) {
     return "";
   }
-  const formatted = new Intl.NumberFormat(
-    "lt-LT",
-    unit === "PCS"
-      ? { maximumFractionDigits: 0 }
-      : { minimumFractionDigits: 3, maximumFractionDigits: 3 },
-  ).format(amount);
-  return `${formatted} ${HANDLING_UNIT_LABELS[unit]}`;
+  const formatted = formatWeight(amount);
+  return amount > 0 ? `+${formatted}` : formatted;
 }
 
 /** Display-only date for a batch arrival date. */

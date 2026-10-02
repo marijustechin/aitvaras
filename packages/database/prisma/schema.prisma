@@ -1,11 +1,13 @@
 // Aitvaras owns its own PostgreSQL schema. Only confirmed, current requirements
-// are modelled here: identity/access management, business partners, resources
-// and packing forms (reference data).
+// are modelled here: identity/access, business partners, resources and packing
+// forms (reference data), warehouses and locations, the goods receipt
+// (Pajamavimas), and physical receiving (incoming deliveries / Gavimai with
+// homogeneous batches and handling units).
 //
-// Deliberately NOT present: goods receipt, purchasing, stock balances,
-// warehouse locations, quantities, production, orders, dispatch, sales, barcode
-// workflows, tenancy or Sandėlys integration. Those concepts are unconfirmed
-// discovery material, not approved scope. See ../../docs/scope.md.
+// Deliberately NOT present: stock balances, warehouse movements, purchasing,
+// production, orders, dispatch, sales, tenancy or Sandėlys integration. Those
+// concepts are unconfirmed discovery material, not approved scope. See
+// ../../docs/scope.md.
 
 generator client {
   // Prisma 7 Rust-free client. Outputs plain TypeScript that is compiled with
@@ -52,10 +54,13 @@ model User {
 
   roles UserRole[]
 
-  batches        Batch[]
-  bags           Bag[]
-  voidedBags     Bag[]           @relation("BagVoidedBy")
-  bagCorrections BagCorrection[] @relation("BagCorrectionCreatedBy")
+  batches                Batch[]
+  bags                   Bag[]
+  voidedBags             Bag[]                @relation("BagVoidedBy")
+  bagCorrections         BagCorrection[]      @relation("BagCorrectionCreatedBy")
+  incomingDeliveries     IncomingDelivery[]
+  receivingDiscrepancies ReceivingDiscrepancy[]
+  discrepancySettlements DiscrepancySettlement[] @relation("DiscrepancySettlementCreatedBy")
 
   @@map("users")
 }
@@ -116,8 +121,9 @@ model BusinessPartner {
 
   roles PartnerRole[]
 
-  receipts GoodsReceipt[]
-  batches  Batch[]
+  receipts               GoodsReceipt[]
+  incomingDeliveries     IncomingDelivery[]
+  receivingDiscrepancies ReceivingDiscrepancy[]
 
   @@index([name])
   @@map("business_partners")
@@ -156,9 +162,9 @@ model ResourceCategory {
 
 // A business item/material/product handled by Aitvaras. Only confirmed fields
 // are modelled; price, VAT, barcode, quantity, stock, location, supplier,
-// packing form, dimensions, weight, unit and reorder level are deliberately
-// absent until confirmed. `name` is intentionally not unique: two resources may
-// share a descriptive name.
+// dimensions, weight, unit and reorder level are deliberately absent until
+// confirmed. `name` is intentionally not unique: two resources may share a
+// descriptive name.
 model Resource {
   id         String   @id @default(uuid()) @db.Uuid
   name       String   @db.VarChar(255)
@@ -249,8 +255,7 @@ model GoodsReceipt {
 // point). `unitPrice` is the price per selected measurement unit, in EUR for
 // this first Lithuanian operational flow (no currency management). Placement:
 // `warehouseId` is required; `warehouseLocationId` is optional (a location, when
-// supplied, must belong to that warehouse). There is no packing-form relation
-// yet.
+// supplied, must belong to that warehouse).
 model GoodsReceiptLine {
   id                  String             @id @default(uuid()) @db.Uuid
   goodsReceiptId      String             @map("goods_receipt_id") @db.Uuid
@@ -274,77 +279,124 @@ model GoodsReceiptLine {
   @@map("goods_receipt_lines")
 }
 
-// How goods are physically packed/presented for handling/storage. Independent
-// reference/master data: deliberately NOT a permanent property of a resource
-// (a later receipt may use a different form). `name` is unique so the reference
-// seed is idempotent and the small controlled list stays unambiguous.
-model PackingForm {
-  id        String   @id @default(uuid()) @db.Uuid
-  name      String   @unique @db.VarChar(255)
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+// Packaging / tare master data (Tara) — the canonical physical-packaging master
+// data. Each physical handling unit references one
+// packaging type; its `tareWeightKg` (Decimal 14,3 — never floating point) is
+// subtracted from the entered gross weight to derive the net weight. Managed by
+// administrators (list/create/edit/activate), deactivated rather than deleted so
+// historical packages keep valid references.
+model PackagingType {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String   @unique @db.VarChar(255)
+  tareWeightKg Decimal  @map("tare_weight_kg") @db.Decimal(14, 3)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
-  @@map("packing_forms")
+  bags Bag[]
+
+  @@map("packaging_types")
 }
 
-// Status of a receiving batch. `PENDING` is functional now (bag-by-bag
-// registration); `CONFIRMED`/`DISCREPANCY` exist structurally for the future
-// formal-confirmation step, which is not implemented yet.
+// Status of a receiving batch. A documentary/physical mismatch does NOT keep a
+// batch unconfirmed — the batch is `CONFIRMED` and the mismatch is recorded as a
+// separate `ReceivingDiscrepancy`.
 enum BatchStatus {
   PENDING
   CONFIRMED
-  DISCREPANCY
 }
 
-// A receiving batch/lot (Partija): one physical delivery of one resource from one
-// supplier into one warehouse. A batch is created at the start of bag-by-bag
-// registration and stays `PENDING` until a responsible person confirms it. It
-// exists independently of the formal GoodsReceipt and may later be reconciled
-// with one WITHOUT duplicating stock/quantities. `code` is the system-generated,
-// human-readable identifier printed on labels; `arrivalDate` is the physical
-// arrival and is independent of `createdAt` (the registration time).
+// Lifecycle of a receiving discrepancy. A discrepancy starts `OPEN`; settlement
+// entries move it to `PARTIALLY_SETTLED`, and `SETTLED` once the original
+// magnitude is fully covered.
+enum ReceivingDiscrepancyStatus {
+  OPEN
+  PARTIALLY_SETTLED
+  SETTLED
+}
+
+// How a discrepancy settlement covers (part of) the original magnitude. `WEIGHT`
+// records additional physical weight from a later delivery; `MONEY` records a
+// money/credit agreement. No money↔weight conversion is ever performed.
+enum DiscrepancySettlementType {
+  WEIGHT
+  MONEY
+}
+
+// One physical incoming delivery / arrival (Gavimas): the physical goods of ONE
+// supplier on ONE arrival date, registered by a warehouse worker. A delivery is
+// the user-facing receiving unit and the container above batches: it may contain
+// several resources, and different batches may go to different warehouses. The
+// `code` is the compact human-facing identifier `GYYMM-NN` (month sequence); it
+// encodes no business data. Only supplier + arrival date live here (no transport
+// vehicle is modelled).
+model IncomingDelivery {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique @db.VarChar(16)
+  supplierId  String   @map("supplier_id") @db.Uuid
+  arrivalDate DateTime @map("arrival_date")
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  supplier  BusinessPartner @relation(fields: [supplierId], references: [id])
+  createdBy User            @relation(fields: [createdById], references: [id])
+  batches   Batch[]
+
+  @@index([supplierId])
+  @@index([createdAt])
+  @@map("incoming_deliveries")
+}
+
+// A receiving batch/lot (Partija): the INTERNAL grouping of ONE resource into ONE
+// warehouse within a single IncomingDelivery (Gavimas). A delivery may contain
+// several batches, including the same resource into different warehouses; a batch
+// is exactly one (delivery, resource, warehouse) combination. It stays `PENDING`
+// until a responsible person formally confirms it. `code` is an internal
+// system-generated identifier (secondary to the human-facing delivery code). It
+// is reconciled with the formal GoodsReceipt WITHOUT duplicating
+// stock/quantities. Physical receiving is weight-based; the optional
+// `documentPieces` is documentary business information only (never a physical
+// unit, never driving handling-unit totals).
 model Batch {
-  id          String      @id @default(uuid()) @db.Uuid
-  code        String      @unique @db.VarChar(32)
-  resourceId  String      @map("resource_id") @db.Uuid
-  supplierId  String      @map("supplier_id") @db.Uuid
-  warehouseId String      @map("warehouse_id") @db.Uuid
-  arrivalDate DateTime    @map("arrival_date")
-  status      BatchStatus @default(PENDING)
+  id         String      @id @default(uuid()) @db.Uuid
+  // Compact, delivery-local human-facing code (`P01`..`P99`); uniqueness is
+  // scoped to the delivery (see `@@unique([deliveryId, code])`). The UUID `id` is
+  // the true technical identity.
+  code       String      @db.VarChar(32)
+  deliveryId String      @map("delivery_id") @db.Uuid
+  resourceId String      @map("resource_id") @db.Uuid
+  warehouseId String     @map("warehouse_id") @db.Uuid
+  status     BatchStatus @default(PENDING)
   // Reconciliation with the formal GoodsReceipt. The linked line is the formal
   // document anchor; `documentWeight`/`acquisitionAmount` are the accepted
   // documentary values entered at reconciliation (distinct from the measured
-  // bag weight); `confirmedAt` is set only on a clean CONFIRMED result.
+  // bag weight), `documentPieces` is an optional documentary piece count, and
+  // `confirmedAt` is set only on a clean CONFIRMED result.
   receiptLineId     String?   @unique @map("receipt_line_id") @db.Uuid
   documentWeight    Decimal?  @map("document_weight") @db.Decimal(14, 3)
+  documentPieces    Int?      @map("document_pieces")
   acquisitionAmount Decimal?  @map("acquisition_amount") @db.Decimal(14, 2)
   confirmedAt       DateTime? @map("confirmed_at")
   createdById       String    @map("created_by_id") @db.Uuid
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
+  delivery    IncomingDelivery @relation(fields: [deliveryId], references: [id])
   resource    Resource         @relation(fields: [resourceId], references: [id])
-  supplier    BusinessPartner  @relation(fields: [supplierId], references: [id])
   warehouse   Warehouse        @relation(fields: [warehouseId], references: [id])
   createdBy   User             @relation(fields: [createdById], references: [id])
   receiptLine GoodsReceiptLine? @relation(fields: [receiptLineId], references: [id], onDelete: Restrict)
   bags        Bag[]
+  discrepancy ReceivingDiscrepancy?
+  discrepancySettlements DiscrepancySettlement[] @relation("DiscrepancySettlementSourceBatch")
 
+  @@unique([deliveryId, code])
+  @@unique([deliveryId, resourceId, warehouseId])
   @@index([status])
   @@index([resourceId])
-  @@index([supplierId])
   @@index([warehouseId])
   @@map("batches")
-}
-
-// Measurement basis of a handling unit's quantity. `KG` is weight-based
-// (positive decimal, 3-decimal precision); `PCS` is count-based (positive whole
-// units). A batch uses a single unit: the first registered unit establishes it
-// for the whole batch (see BatchesService.createBag).
-enum HandlingUnitKey {
-  KG
-  PCS
 }
 
 // Lifecycle of a physical handling unit. A unit is never hard-deleted: an
@@ -356,48 +408,60 @@ enum BagStatus {
 }
 
 // A small, focused correction trail for handling units (no generic audit
-// framework). `QUANTITY`/`LOCATION` record previous → new values; `VOID` records
-// the reason a unit was voided.
+// framework). `PACKAGING`/`GROSS_WEIGHT`/`LOCATION` record previous → new values;
+// `VOID` records the reason a unit was voided.
 enum BagCorrectionKind {
-  QUANTITY
+  PACKAGING
+  GROSS_WEIGHT
   LOCATION
   VOID
 }
 
-// A physical bag / handling unit (one bag of a batch). `barcode` uniquely
-// identifies ONE physical unit and encodes NO business data (no supplier,
-// resource, date, batch or cost) — the relationships provide that. `quantity`
-// is a general measured amount; `unit` says whether it is `KG` or `PCS`. Every
-// unit must be placed in a `warehouseLocation` that belongs to the batch's
-// warehouse (required; `ON DELETE RESTRICT`).
+// A physical package / handling unit (e.g. bag, box, pallet; one row of a
+// batch). `barcode` uniquely identifies ONE physical package and encodes NO
+// business data (no supplier, resource, date, batch or cost) — the relationships
+// provide that. Physical receiving is by actual WEIGHT: the worker enters
+// `grossWeight` and selects a `packagingType`; the server snapshots the current
+// tare into `tareWeightKg` and derives `netWeight = grossWeight - tareWeightKg`
+// (never client-supplied, never floating point). The snapshot keeps historical
+// `grossWeight - tareWeightKg = netWeight` true even if the PackagingType master
+// record is later edited. Every package must be placed in a `warehouseLocation`
+// belonging to the batch's warehouse (required; `ON DELETE RESTRICT`).
 model Bag {
-  id                  String          @id @default(uuid()) @db.Uuid
-  barcode             String          @unique @db.VarChar(32)
-  batchId             String          @map("batch_id") @db.Uuid
-  quantity            Decimal         @db.Decimal(14, 3)
-  unit                HandlingUnitKey @default(KG)
-  warehouseLocationId String          @map("warehouse_location_id") @db.Uuid
-  status              BagStatus       @default(ACTIVE)
-  voidedById          String?         @map("voided_by_id") @db.Uuid
-  voidedAt            DateTime?       @map("voided_at")
-  voidReason          String?         @map("void_reason") @db.VarChar(500)
-  createdById         String          @map("created_by_id") @db.Uuid
-  createdAt           DateTime        @default(now()) @map("created_at")
-  updatedAt           DateTime        @updatedAt @map("updated_at")
+  id                  String    @id @default(uuid()) @db.Uuid
+  barcode             String    @unique @db.VarChar(32)
+  batchId             String    @map("batch_id") @db.Uuid
+  packagingTypeId     String    @map("packaging_type_id") @db.Uuid
+  grossWeight         Decimal   @map("gross_weight") @db.Decimal(14, 3)
+  // Immutable/current snapshot of the tare actually used to compute `netWeight`
+  // (copied from the PackagingType at registration/registration-correction time).
+  // Historical net calculations never read the live PackagingType master value.
+  tareWeightKg        Decimal   @map("tare_weight_kg") @db.Decimal(14, 3)
+  netWeight           Decimal   @map("net_weight") @db.Decimal(14, 3)
+  warehouseLocationId String    @map("warehouse_location_id") @db.Uuid
+  status              BagStatus @default(ACTIVE)
+  voidedById          String?   @map("voided_by_id") @db.Uuid
+  voidedAt            DateTime? @map("voided_at")
+  voidReason          String?   @map("void_reason") @db.VarChar(500)
+  createdById         String    @map("created_by_id") @db.Uuid
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
 
-  batch             Batch            @relation(fields: [batchId], references: [id])
+  batch             Batch             @relation(fields: [batchId], references: [id])
+  packagingType     PackagingType     @relation(fields: [packagingTypeId], references: [id])
   warehouseLocation WarehouseLocation @relation(fields: [warehouseLocationId], references: [id])
-  createdBy         User             @relation(fields: [createdById], references: [id])
-  voidedBy          User?            @relation("BagVoidedBy", fields: [voidedById], references: [id])
+  createdBy         User              @relation(fields: [createdById], references: [id])
+  voidedBy          User?             @relation("BagVoidedBy", fields: [voidedById], references: [id])
   corrections       BagCorrection[]
 
   @@index([batchId])
+  @@index([packagingTypeId])
   @@index([warehouseLocationId])
   @@index([status])
   @@map("bags")
 }
 
-// An auditable handling-unit correction (quantity change, location change or
+// An auditable handling-unit correction (weight change, location change or
 // void). Values are stored as strings for a readable trail; `createdBy`/`createdAt`
 // record who/when.
 model BagCorrection {
@@ -415,4 +479,63 @@ model BagCorrection {
 
   @@index([bagId])
   @@map("bag_corrections")
+}
+
+// A receiving discrepancy recorded when a batch is CONFIRMED with a documentary
+// vs measured (net) mismatch. It is tied one-to-one to the confirmed batch
+// (`batchId` unique) so a confirmation retry cannot create duplicates. Signed
+// `differenceWeight = measuredWeight − documentWeight` (positive = physically
+// received more than documented). The physical stock remains the measured net
+// weight; the discrepancy is settled separately later (by weight or money).
+model ReceivingDiscrepancy {
+  id               String                    @id @default(uuid()) @db.Uuid
+  batchId          String                    @unique @map("batch_id") @db.Uuid
+  supplierId       String                    @map("supplier_id") @db.Uuid
+  measuredWeight   Decimal                   @map("measured_weight") @db.Decimal(14, 3)
+  documentWeight   Decimal                   @map("document_weight") @db.Decimal(14, 3)
+  differenceWeight Decimal                   @map("difference_weight") @db.Decimal(14, 3)
+  status           ReceivingDiscrepancyStatus @default(OPEN)
+  createdById      String                    @map("created_by_id") @db.Uuid
+  createdAt        DateTime                  @default(now()) @map("created_at")
+  settledAt        DateTime?                 @map("settled_at")
+
+  batch     Batch           @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  supplier  BusinessPartner @relation(fields: [supplierId], references: [id])
+  createdBy User            @relation(fields: [createdById], references: [id])
+
+  settlements DiscrepancySettlement[]
+
+  @@index([status])
+  @@index([supplierId])
+  @@map("receiving_discrepancies")
+}
+
+// An append-only settlement entry against a receiving discrepancy. `coveredWeightKg`
+// is always positive and expressed in kg — it is the amount of the original
+// discrepancy magnitude (|measured − document|) this entry resolves; the sign of
+// the discrepancy is never changed and never re-derived. `WEIGHT` may link the
+// later confirmed batch that physically covers it (the batch already owns that
+// stock; the settlement does not create inventory). `MONEY` records a money/credit
+// amount without any money↔weight conversion. Entries are never edited or deleted;
+// a future correction would be a separate audited workflow.
+model DiscrepancySettlement {
+  id              String                   @id @default(uuid()) @db.Uuid
+  discrepancyId   String                   @map("discrepancy_id") @db.Uuid
+  type            DiscrepancySettlementType
+  coveredWeightKg Decimal                  @map("covered_weight_kg") @db.Decimal(14, 3)
+  moneyAmount     Decimal?                 @map("money_amount") @db.Decimal(14, 2)
+  currency        String?                  @db.VarChar(8)
+  sourceBatchId   String?                  @map("source_batch_id") @db.Uuid
+  reference       String?                  @db.VarChar(255)
+  note            String?                  @db.VarChar(2000)
+  createdById     String                   @map("created_by_id") @db.Uuid
+  createdAt       DateTime                 @default(now()) @map("created_at")
+
+  discrepancy ReceivingDiscrepancy @relation(fields: [discrepancyId], references: [id], onDelete: Restrict)
+  sourceBatch Batch?               @relation("DiscrepancySettlementSourceBatch", fields: [sourceBatchId], references: [id], onDelete: Restrict)
+  createdBy   User                 @relation("DiscrepancySettlementCreatedBy", fields: [createdById], references: [id])
+
+  @@index([discrepancyId])
+  @@index([sourceBatchId])
+  @@map("discrepancy_settlements")
 }
