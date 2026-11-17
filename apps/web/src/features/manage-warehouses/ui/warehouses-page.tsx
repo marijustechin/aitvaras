@@ -10,15 +10,17 @@ import { ApiError, apiFetch } from "@/shared/api";
 import { activeStatusLabel } from "@/shared/lib/format";
 import { inactiveRowClass } from "@/shared/lib/row-styles";
 import { workSurfaceClass } from "@/shared/lib/surfaces";
+import { focusField } from "@/shared/lib/form-feedback";
+import { SectionTabs, useToast } from "@/shared/ui";
 
 /** Warehouses list (Sandėliai); ADMIN can create. */
 export function WarehousesPage() {
   const router = useRouter();
   const { user, clearSession } = useAuth();
+  const toast = useToast();
   const [warehouses, setWarehouses] = useState<WarehouseWithLocations[] | null>(
     null,
   );
-  const [error, setError] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
 
   const isAdmin = user?.roles.includes("ADMIN") ?? false;
@@ -29,7 +31,7 @@ export function WarehousesPage() {
       router.replace("/login");
       return;
     }
-    setError(caught instanceof ApiError ? caught.message : fallback);
+    toast.error(caught instanceof ApiError ? caught.message : fallback);
   }
 
   const reload = useCallback(async (): Promise<void> => {
@@ -47,16 +49,17 @@ export function WarehousesPage() {
   async function onCreate(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (newName.trim() === "") {
-      setError("Įveskite sandėlio pavadinimą.");
+      toast.error("Įveskite sandėlio pavadinimą.");
+      focusField("warehouse-new-name");
       return;
     }
-    setError(null);
     try {
       await apiFetch("/warehouses", {
         method: "POST",
         body: JSON.stringify({ name: newName.trim() }),
       });
       setNewName("");
+      toast.success("Sandėlis sukurtas.");
       await reload();
     } catch (caught) {
       handleError(caught, "Nepavyko sukurti sandėlio");
@@ -66,18 +69,14 @@ export function WarehousesPage() {
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold tracking-tight">Sandėliai</h1>
-
-      {error ? (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
+      <SectionTabs />
 
       {isAdmin ? (
         <section className={workSurfaceClass()}>
           <h2 className="text-lg font-medium">Naujas sandėlis</h2>
           <form onSubmit={onCreate} className="mt-4 flex flex-wrap gap-3">
             <input
+              id="warehouse-new-name"
               required
               placeholder="Pavadinimas"
               value={newName}

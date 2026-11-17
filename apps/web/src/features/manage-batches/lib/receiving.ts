@@ -2,6 +2,7 @@ import type {
   Bag,
   Batch,
   BatchDetail,
+  BatchItem,
   IncomingDelivery,
   IncomingDeliveryDetail,
 } from "@aitvaras/contracts";
@@ -15,43 +16,38 @@ import {
 /**
  * Modes of the `/receiving` list screen.
  *
- * - `choose` — show the open receiving queue and start a new `Naujas gavimas`;
- * - `new` — enter the delivery header (supplier, arrival date).
+ * - `choose` — show the open receiving queue and start a new `Naujas priėmimas`;
+ * - `new` — enter the receipt header (supplier, arrival date).
  *
- * Working inside one delivery is a separate route (`/receiving/[deliveryId]`), not
+ * Working inside one receipt is a separate route (`/receiving/[deliveryId]`), not
  * a mode of the list screen.
  */
 export type ReceivingMode = "choose" | "new";
 
-export const RECEIVING_MODES: readonly ReceivingMode[] = ["choose", "new"];
+/** Label for the "start a new receipt" action. */
+export const NEW_DELIVERY_LABEL = "Naujas priėmimas";
 
-/** Label for the "start a new delivery" action. */
-export const NEW_DELIVERY_LABEL = "Naujas gavimas";
+/** Heading of the receipt header form. */
+export const DELIVERY_FORM_HEADING = "Priėmimo informacija";
 
 /** Primary action of the delivery header form. */
-export const START_DELIVERY_LABEL = "Pradėti gavimą";
+export const START_DELIVERY_LABEL = "Pradėti priėmimą";
 
-/** Heading of the open-deliveries list in choose mode. */
-export const OPEN_DELIVERIES_HEADING = "Nepatvirtinti gavimai";
+/** Heading of the open-receipts list in choose mode. */
+export const OPEN_DELIVERIES_HEADING = "Nepatvirtinti priėmimai";
 
-/** Empty-state text when there are no deliveries to continue. */
-export const EMPTY_DELIVERIES_MESSAGE = "Nėra gavimų.";
-
-/** Heading of the resource/warehouse section inside a delivery. */
-export const RESOURCE_HEADING = "Registruojama rūšis";
+/** Empty-state text when there are no receipts to continue. */
+export const EMPTY_DELIVERIES_MESSAGE = "Nėra priėmimų.";
 
 /** Action that resolves/creates the internal batch for the chosen resource. */
 export const START_RESOURCE_LABEL = "Pradėti registruoti";
 
-/** Action that clears the active resource and starts another batch. */
-export const ANOTHER_RESOURCE_LABEL = "Kitas išteklius";
+/** Heading of the compact summary of batches already in the receipt. */
+export const DELIVERY_CONTENTS_HEADING = "Priėmimo turinys";
 
-/** Heading of the compact summary of batches already in the delivery. */
-export const DELIVERY_CONTENTS_HEADING = "Gavimo turinys";
-
-/** Empty-state text when the delivery has no resource batches yet. */
+/** Empty-state text when the receipt has no resource batches yet. */
 export const EMPTY_DELIVERY_CONTENTS_MESSAGE =
-  "Šiame gavime dar nėra užregistruotų išteklių.";
+  "Šiame priėmime dar nėra užregistruotų išteklių.";
 
 /** Save-only action: create the package and return to the form (no label/print). */
 export const SAVE_LABEL = "Išsaugoti";
@@ -100,18 +96,18 @@ export const DELIVERY_CONTEXT_FIELDS = [
 ] as const;
 export type DeliveryContextField = (typeof DELIVERY_CONTEXT_FIELDS)[number];
 
-/** Back/navigation action on a delivery screen (returns to the delivery list). */
-export const DELIVERIES_LIST_BACK_LABEL = "← Gavimų sąrašas";
+/** Back/navigation action on a receipt screen (returns to the receipt list). */
+export const DELIVERIES_LIST_BACK_LABEL = "← Priėmimų sąrašas";
 
 /**
- * The warehouse **open receiving queue** (`Nepatvirtinti gavimai`): deliveries
+ * The warehouse **open receiving queue** (`Nepatvirtinti priėmimai`): deliveries
  * that still need physical receiving work. Openness is derived from the child
  * batches, never a stored delivery status:
  *
  * - at least one `PENDING` batch → open (present);
  * - no batches yet (just created) → open (present);
  * - all batches `CONFIRMED` → closed (absent; confirmed history stays in the
- *   ADMIN `Gavimai` workflow).
+ *   `Priėmimas` workflow).
  */
 export function openReceivingDeliveries(
   deliveries: IncomingDelivery[],
@@ -166,8 +162,8 @@ export function bagLabelData(
     deliveryCode: delivery.code,
     warehouseName: batch.warehouseName,
     locationName: bag.warehouseLocationName,
-    categoryName: batch.resourceCategoryName,
-    resourceName: batch.resourceName,
+    categoryName: batch.resourceCategoryName ?? "",
+    resourceName: batch.resourceName ?? "",
     tareWeightKg: bag.tareWeightKg,
     grossWeight: bag.grossWeight,
     netWeight: bag.netWeight,
@@ -180,9 +176,6 @@ export function bagLabelData(
  * package that was just saved. There is deliberately **no** intermediate `detail`
  * surface.
  */
-export const BAG_SURFACES = ["form", "label"] as const;
-export type BagSurface = (typeof BAG_SURFACES)[number];
-
 /** The full warehouse receiving state while a delivery is open. */
 export interface ReceivingState {
   /** The open delivery (with its batches), or null before one is chosen. */
@@ -230,20 +223,9 @@ export function enterBatch(
 ): ReceivingState {
   return {
     ...state,
-    resource: { resourceId: batch.resourceId, warehouseId: batch.warehouseId },
+    resource: { resourceId: batch.resourceId ?? "", warehouseId: batch.warehouseId },
     batch,
     draft: initialUnitDraft(batch),
-    label: null,
-  };
-}
-
-/** Clear the active resource/batch to register another resource in the delivery. */
-export function startAnotherResource(state: ReceivingState): ReceivingState {
-  return {
-    ...state,
-    resource: createDraftResource(),
-    batch: null,
-    draft: createDraftBag(),
     label: null,
   };
 }
@@ -260,7 +242,7 @@ export function applyUnitSaved(
 ): ReceivingState {
   return {
     ...state,
-    resource: { resourceId: batch.resourceId, warehouseId: batch.warehouseId },
+    resource: { resourceId: batch.resourceId ?? "", warehouseId: batch.warehouseId },
     batch,
     draft: initialUnitDraft(batch),
     label: bag,
@@ -278,7 +260,7 @@ export function applyUnitSavedSilently(
 ): ReceivingState {
   return {
     ...state,
-    resource: { resourceId: batch.resourceId, warehouseId: batch.warehouseId },
+    resource: { resourceId: batch.resourceId ?? "", warehouseId: batch.warehouseId },
     batch,
     draft: initialUnitDraft(batch),
     label: null,
@@ -295,9 +277,84 @@ export function closeLabel(state: ReceivingState): ReceivingState {
   return { ...state, label: null };
 }
 
-/** The surface currently shown in the receiving flow. */
-export function bagSurface(state: ReceivingState): BagSurface {
-  return state.label ? "label" : "form";
+/** Label of the batch-type selector when starting a new batch. */
+export const BATCH_TYPE_LABEL = "Partijos tipas";
+
+/** Explicit action that starts another batch in the delivery. */
+export const NEW_BATCH_LABEL = "Nauja partija";
+
+/** Column/action labels for a PIECE inventory group. */
+export const PIECE_BARCODE_LABEL = "Barkodas";
+export const PIECE_LABEL_ACTION = "Etiketė";
+export const PRINT_LABEL = "Spausdinti";
+
+/** The data printed on a PIECE inventory-group label. */
+export interface PieceLabelData {
+  deliveryCode: string;
+  batchCode: string;
+  resourceName: string;
+  quantity: number;
+  warehouseName: string;
+  locationName: string;
+  barcode: string;
+}
+
+/**
+ * Build the printable label for a PIECE inventory group. The barcode is the only
+ * machine value (an opaque group identifier); everything else is human-readable.
+ */
+export function pieceLabelData(
+  delivery: Pick<IncomingDelivery, "code">,
+  batch: Pick<Batch, "code" | "warehouseName">,
+  item: Pick<
+    BatchItem,
+    "resourceName" | "quantity" | "warehouseLocationName" | "barcode"
+  >,
+): PieceLabelData {
+  return {
+    deliveryCode: delivery.code,
+    batchCode: batch.code,
+    resourceName: item.resourceName,
+    quantity: item.quantity,
+    warehouseName: batch.warehouseName,
+    locationName: item.warehouseLocationName,
+    barcode: item.barcode,
+  };
+}
+
+/** Heading shown inside a PIECE batch being filled. */
+export const PIECE_BATCH_HEADING = "Vienetinė partija";
+
+/** Heading of the PIECE item list. */
+export const PIECE_ITEMS_HEADING = "Prekės";
+
+/** PIECE item form labels. */
+export const ITEM_RESOURCE_LABEL = "Prekės pavadinimas";
+export const ITEM_QUANTITY_LABEL = "Kiekis, vnt.";
+export const ITEM_LOCATION_LABEL = "Vieta";
+export const ITEMS_TOTAL_LABEL = "Iš viso";
+export const NEW_PRODUCT_LABEL = "+ Nauja prekė";
+
+/** Action that opens the inline correction editor for an item line. */
+export const CORRECT_ITEM_LABEL = "Taisyti";
+/** Action that voids a PIECE item line. */
+export const VOID_ITEM_LABEL = "Anuliuoti";
+/** Confirm action inside the item void panel. */
+export const VOID_ITEM_CONFIRM_LABEL = "Anuliuoti eilutę";
+
+/** The active item lines of a PIECE batch, oldest first. */
+export function activeBatchItems(batch: Pick<BatchDetail, "items">): BatchItem[] {
+  return batch.items.filter((item) => item.status === "ACTIVE");
+}
+
+/** The total active pieces of a PIECE batch (server truth is the same sum). */
+export function batchTotalPieces(batch: Pick<BatchDetail, "items">): number {
+  return activeBatchItems(batch).reduce((sum, item) => sum + item.quantity, 0);
+}
+
+/** The voided item lines of a batch (kept for traceability), oldest first. */
+export function voidedBatchItems(batch: Pick<BatchDetail, "items">): BatchItem[] {
+  return batch.items.filter((item) => item.status === "VOIDED");
 }
 
 /** Heading for the selected batch's already-registered packages. */

@@ -4,11 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Partner } from "@aitvaras/contracts";
-import { EMPTY_PARTNERS_MESSAGE, partnerRoleSummary } from "@/entities/partner";
+import { EMPTY_PARTNERS_MESSAGE, partnerCountryName, partnerRoleSummary } from "@/entities/partner";
 import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
 import { activeStatusLabel, valueOrPlaceholder } from "@/shared/lib/format";
 import { inactiveRowClass } from "@/shared/lib/row-styles";
+import { SectionTabs } from "@/shared/ui";
 
 /** Partners list composition (rendered inside the application shell). */
 export function PartnersPage() {
@@ -49,6 +50,8 @@ export function PartnersPage() {
           </Link>
         ) : null}
       </div>
+
+      <SectionTabs />
 
       {error ? (
         <p role="alert" className="text-sm text-destructive">
@@ -92,7 +95,7 @@ export function PartnersPage() {
                     {valueOrPlaceholder(partner.companyCode)}
                   </td>
                   <td className="px-4 py-2">
-                    {valueOrPlaceholder(partner.country)}
+                    {valueOrPlaceholder(partnerCountryName(partner.country))}
                   </td>
                   <td className="px-4 py-2">
                     {valueOrPlaceholder(partner.contactPerson)}

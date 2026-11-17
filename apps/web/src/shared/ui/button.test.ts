@@ -50,25 +50,24 @@ describe("button hierarchy", () => {
 });
 
 describe("button hierarchy adoption (source)", () => {
-  it("renders reference-data child actions as secondary buttons", () => {
+  it("renders reference-data child navigation as contextual tabs", () => {
     const source = readSource(
       "features",
       "manage-resources",
       "ui",
       "resources-page.tsx",
     );
-    expect(source).toContain("SECONDARY_NAV_BUTTON_CLASS");
-    expect(source).toContain('href="/resources/categories"');
-    expect(source).toContain('href="/resources/packaging-types"');
+    expect(source).toContain("<SectionTabs />");
+    expect(source).not.toContain("SECONDARY_NAV_BUTTON_CLASS");
   });
 
-  it("renders page back actions as the shared secondary variant", () => {
+  it("renders page back actions as contextual tabs instead of buttons", () => {
     for (const file of [
       ["features", "manage-resource-categories", "ui", "resource-categories-page.tsx"],
       ["features", "manage-packaging-types", "ui", "packaging-types-page.tsx"],
     ]) {
       const source = readSource(...file);
-      expect(source, file.join("/")).toContain("SECONDARY_NAV_BUTTON_CLASS");
+      expect(source, file.join("/")).toContain("<SectionTabs />");
     }
   });
 

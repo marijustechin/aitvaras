@@ -4,11 +4,6 @@ export interface ResourceCategoryFormValues {
   active: boolean;
 }
 
-/** Blank form values for a new category (defaults to active). */
-export function emptyResourceCategoryFormValues(): ResourceCategoryFormValues {
-  return { name: "", active: true };
-}
-
 /** Client-side validation message, or null. */
 export function resourceCategoryFormError(
   values: ResourceCategoryFormValues,

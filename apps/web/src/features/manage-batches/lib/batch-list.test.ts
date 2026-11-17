@@ -12,6 +12,7 @@ import {
   filterBatches,
   GAVIMAI_HEADING,
   hasActiveBatchFilters,
+  parseBatchListFilters,
   RESET_FILTERS_LABEL,
   resourceFilterOptions,
   statusesForFilter,
@@ -25,6 +26,7 @@ function batch(overrides: Partial<Batch> = {}): Batch {
     code: "P01",
     deliveryId: "99999999-9999-4999-8999-999999999999",
     deliveryCode: "G2609-01",
+    receivingMode: "WEIGHT",
     resourceId: "22222222-2222-4222-8222-222222222222",
     resourceName: "Cukrus",
     resourceCategoryName: "Žaliava",
@@ -48,13 +50,15 @@ function batch(overrides: Partial<Batch> = {}): Batch {
     createdByName: "Vardas Pavardė",
     bagCount: 2,
     totalNetWeight: "19.75",
+    itemLineCount: 0,
+    totalPieces: 0,
     createdAt: "2026-09-29T09:00:00.000Z",
     updatedAt: "2026-09-29T09:00:00.000Z",
     ...overrides,
   };
 }
 
-describe("Gavimai heading and default queue", () => {
+describe("Priėmimas heading and default queue", () => {
   it("uses the received-batch heading", () => {
     expect(GAVIMAI_HEADING).toBe("Gautos partijos");
   });
@@ -68,6 +72,27 @@ describe("Gavimai heading and default queue", () => {
 describe("reset filters", () => {
   it("exposes the reset action label", () => {
     expect(RESET_FILTERS_LABEL).toBe("Atstatyti filtrus");
+  });
+
+  it("restores valid persisted filters and rejects malformed values", () => {
+    const restored = parseBatchListFilters(
+      JSON.stringify({
+        status: "ALL",
+        supplierId: "s1",
+        arrivalFrom: "2026-11-18",
+        code: "P01",
+      }),
+    );
+    expect(restored).toMatchObject({
+      status: "ALL",
+      supplierId: "s1",
+      arrivalFrom: "2026-11-18",
+      code: "P01",
+    });
+    expect(parseBatchListFilters("not-json")).toEqual(createBatchListFilters());
+    expect(
+      parseBatchListFilters(JSON.stringify({ status: "BOGUS" })).status,
+    ).toBe(DEFAULT_BATCH_STATUS_FILTER);
   });
 
   it("detects whether any filter differs from the default view", () => {
@@ -195,6 +220,18 @@ describe("filterBatches", () => {
     ).toEqual(["early", "late"]);
   });
 
+  it("keeps local-midnight arrivals on their calendar day in inclusive ranges", () => {
+    const localMidnight = new Date(2026, 10, 18, 0, 0, 0, 0).toISOString();
+    const item = batch({ id: "midnight", arrivalDate: localMidnight });
+    expect(
+      filterBatches([item], {
+        ...createBatchListFilters(),
+        arrivalFrom: "2026-11-18",
+        arrivalTo: "2026-11-18",
+      }).map((entry) => entry.id),
+    ).toEqual(["midnight"]);
+  });
+
   it("searches the batch code case-insensitively", () => {
     expect(
       filterBatches([pending, confirmed], {
@@ -247,7 +284,7 @@ describe("batch status display", () => {
   });
 });
 
-describe("Gavimai row rendering (source)", () => {
+describe("Priėmimas row rendering (source)", () => {
   const source = readFileSync(
     fileURLToPath(new URL("../ui/gavimai-page.tsx", import.meta.url)),
     "utf8",
@@ -277,25 +314,25 @@ describe("Gavimai row rendering (source)", () => {
   });
 });
 
-describe("Gavimai detail terminology", () => {
-  it("uses the Gavimai confirmation wording", () => {
-    expect(CONFIRM_RECEIPT_LABEL).toBe("Patvirtinti gavimą");
+describe("Priėmimas detail terminology", () => {
+  it("uses the Priėmimas confirmation wording", () => {
+    expect(CONFIRM_RECEIPT_LABEL).toBe("Patvirtinti priėmimą");
   });
 });
 
-describe("Gavimai detail page (source)", () => {
+describe("Priėmimas detail page (source)", () => {
   const source = readFileSync(
     fileURLToPath(new URL("../ui/batch-details-page.tsx", import.meta.url)),
     "utf8",
   );
 
-  it("links back to the Gavimai queue, not the removed Partijos list", () => {
+  it("links back to the Priėmimas queue, not the removed Partijos list", () => {
     expect(source).toContain("GAVIMAI_ACTION.href");
     expect(source).toContain("GAVIMAI_ACTION.label");
     expect(source).not.toContain('"/receipts/batches"');
   });
 
-  it("uses Patvirtinti gavimą and no stale pajamavimą wording", () => {
+  it("uses Patvirtinti priėmimą and no stale pajamavimą wording", () => {
     expect(source).toContain("CONFIRM_RECEIPT_LABEL");
     expect(source).not.toContain("Patvirtinti pajamavimą");
     expect(source).not.toMatch(/[Pp]ajamavim/);
@@ -323,7 +360,7 @@ describe("receiving terminology in the ADMIN views (source)", () => {
   );
 
   it("uses generic Pakuotės wording, not bag-specific Maišai", () => {
-    expect(gavimai).toContain("Pakuotės");
+    expect(gavimai).toContain("Tipas / turinys");
     expect(gavimai).not.toContain("Maišai");
     expect(details).toContain("Partijos pakuotės");
     expect(details).not.toContain("Partijos maišai");

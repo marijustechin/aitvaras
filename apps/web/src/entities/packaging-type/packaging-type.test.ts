@@ -4,6 +4,8 @@ import {
   activePackagingTypes,
   EMPTY_PACKAGING_TYPES_MESSAGE,
   findPackagingType,
+  formatTareWeightKg,
+  packagingTypeOptionLabel,
 } from "./packaging-type";
 
 function type(overrides: Partial<PackagingType> = {}): PackagingType {
@@ -39,5 +41,23 @@ describe("findPackagingType", () => {
     expect(findPackagingType(types, "a")?.id).toBe("a");
     expect(findPackagingType(types, "b")?.id).toBe("b");
     expect(findPackagingType(types, "z")).toBeNull();
+  });
+});
+
+describe("tare selector labels", () => {
+  it("keeps at least one decimal and up to stored precision", () => {
+    expect(formatTareWeightKg("0.200")).toBe("0,2");
+    expect(formatTareWeightKg("27.000")).toBe("27,0");
+    expect(formatTareWeightKg("0.125")).toBe("0,125");
+    expect(formatTareWeightKg("1234.500").replace(/\s/g, " ")).toBe("1 234,5");
+  });
+
+  it("labels the option as name and weight", () => {
+    expect(packagingTypeOptionLabel(type({ name: "Dėžė", tareWeightKg: "0.200" }))).toBe(
+      "Dėžė (0,2 kg)",
+    );
+    expect(packagingTypeOptionLabel(type({ name: "Paletė", tareWeightKg: "27.000" }))).toBe(
+      "Paletė (27,0 kg)",
+    );
   });
 });

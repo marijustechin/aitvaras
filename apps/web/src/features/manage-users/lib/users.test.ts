@@ -11,16 +11,13 @@ import {
   MIN_PASSWORD_LENGTH,
   openPasswordResetPanel,
   PASSWORD_RESET_MESSAGES,
-  PASSWORD_RESET_SUCCESS,
   passwordResetError,
   passwordResetErrorMessage,
-  passwordResetPanelSuccess,
   passwordResetPayload,
   passwordTooShortMessage,
   toggleRoleSelection,
   userAdminErrorMessage,
   userEditPayload,
-  userEditSuccess,
 } from "./users";
 
 describe("activeToggleLabel", () => {
@@ -112,7 +109,7 @@ function user(id: string, firstName: string): UserSummary {
   };
 }
 
-describe("applyUserUpdate / userEditSuccess", () => {
+describe("applyUserUpdate", () => {
   it("replaces only the matching row and preserves order", () => {
     const list = [user("a", "A"), user("b", "B")];
     const updated = user("a", "Changed");
@@ -120,21 +117,11 @@ describe("applyUserUpdate / userEditSuccess", () => {
     expect(next.map((item) => item.firstName)).toEqual(["Changed", "B"]);
     expect(next).toHaveLength(2);
   });
-
-  it("clears the edit session and stale error after a successful save", () => {
-    const list = [user("a", "A")];
-    const result = userEditSuccess(list, user("a", "Saved"));
-    expect(result.error).toBeNull();
-    expect(result.editingId).toBeNull();
-    expect(result.edit).toBeNull();
-    expect(result.users[0]?.firstName).toBe("Saved");
-  });
 });
 
 describe("administrator password reset helpers", () => {
   it("starts with empty password inputs", () => {
     expect(emptyPasswordReset()).toEqual({ password: "", confirm: "" });
-    expect(PASSWORD_RESET_SUCCESS).toBe("Slaptažodis pakeistas.");
   });
 
   it("requires the shared minimum length (6) with an actionable message", () => {
@@ -176,54 +163,34 @@ describe("administrator password reset helpers", () => {
 });
 
 describe("password reset panel state", () => {
-  it("starts closed with empty fields and no messages", () => {
+  it("starts closed with empty fields", () => {
     expect(CLOSED_PASSWORD_RESET_PANEL).toEqual({
       open: false,
       form: { password: "", confirm: "" },
-      error: null,
-      success: null,
     });
   });
 
-  it("opens with empty fields and no messages", () => {
+  it("opens with empty fields", () => {
     expect(openPasswordResetPanel()).toEqual({
       open: true,
       form: { password: "", confirm: "" },
-      error: null,
-      success: null,
     });
   });
 
-  it("Uždaryti closes, clears both fields and all reset messages", () => {
+  it("Uždaryti closes and clears both fields", () => {
     expect(closePasswordResetPanel()).toEqual({
       open: false,
       form: { password: "", confirm: "" },
-      error: null,
-      success: null,
     });
   });
 
   it("does not carry any user-edit fields (the edit form is untouched)", () => {
     const panel = closePasswordResetPanel();
-    expect(Object.keys(panel).sort()).toEqual([
-      "error",
-      "form",
-      "open",
-      "success",
-    ]);
+    expect(Object.keys(panel).sort()).toEqual(["form", "open"]);
     const serialized = JSON.stringify(panel);
     expect(serialized).not.toContain("firstName");
     expect(serialized).not.toContain("roles");
     expect(serialized).not.toContain("active");
-  });
-
-  it("success state clears the form and closes with a note", () => {
-    expect(passwordResetPanelSuccess()).toEqual({
-      open: false,
-      form: { password: "", confirm: "" },
-      error: null,
-      success: PASSWORD_RESET_SUCCESS,
-    });
   });
 });
 

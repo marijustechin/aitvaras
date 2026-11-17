@@ -5,7 +5,6 @@ import {
   EMPTY_WAREHOUSES_MESSAGE,
   activeLocations,
   activeWarehouses,
-  isLocationInWarehouse,
   locationsForWarehouse,
 } from "./warehouse";
 
@@ -55,13 +54,6 @@ describe("warehouse selectors", () => {
     expect(locationsForWarehouse([warehouse("a", true, [location("a1")])], "")).toEqual(
       [],
     );
-  });
-
-  it("detects whether a location belongs to a warehouse", () => {
-    const data = [warehouse("a", true, [location("a1")])];
-    expect(isLocationInWarehouse(data, "a", "a1")).toBe(true);
-    expect(isLocationInWarehouse(data, "a", "b1")).toBe(false);
-    expect(isLocationInWarehouse(data, "", "a1")).toBe(false);
   });
 
   it("filters active locations", () => {

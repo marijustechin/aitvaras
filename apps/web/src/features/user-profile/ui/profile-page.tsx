@@ -3,39 +3,34 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ROLE_LABELS, type AuthenticatedUser } from "@aitvaras/contracts";
-import { PasswordInput } from "@/shared/ui";
+import { PasswordInput, useToast } from "@/shared/ui";
 import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
 import { workSurfaceClass } from "@/shared/lib/surfaces";
+import { focusField } from "@/shared/lib/form-feedback";
 
 /** Self-service profile composition (rendered inside the application shell). */
 export function ProfilePage() {
   const { user, replaceUser, clearSession } = useAuth();
   const router = useRouter();
+  const toast = useToast();
 
   const [firstName, setFirstName] = useState(user?.firstName ?? "");
   const [lastName, setLastName] = useState(user?.lastName ?? "");
-  const [nameStatus, setNameStatus] = useState<string | null>(null);
-  const [nameError, setNameError] = useState<string | null>(null);
   const [savingName, setSavingName] = useState(false);
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [passwordStatus, setPasswordStatus] = useState<string | null>(null);
-  const [passwordError, setPasswordError] = useState<string | null>(null);
   const [savingPassword, setSavingPassword] = useState(false);
 
-  function handleError(
-    caught: unknown,
-    setError: (message: string) => void,
-  ): void {
+  function handleError(caught: unknown): void {
     if (isUnauthorized(caught)) {
       clearSession();
       router.replace("/login");
       return;
     }
-    setError(
+    toast.error(
       caught instanceof ApiError
         ? caught.message
         : "Nepavyko atnaujinti. Bandykite dar kartą.",
@@ -44,17 +39,17 @@ export function ProfilePage() {
 
   async function saveName(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    setNameStatus(null);
-    setNameError(null);
 
     const first = firstName.trim();
     const last = lastName.trim();
     if (!first) {
-      setNameError("Įveskite vardą.");
+      toast.error("Įveskite vardą.");
+      focusField("profile-first-name");
       return;
     }
     if (!last) {
-      setNameError("Įveskite pavardę.");
+      toast.error("Įveskite pavardę.");
+      focusField("profile-last-name");
       return;
     }
 
@@ -67,9 +62,9 @@ export function ProfilePage() {
       replaceUser(updated);
       setFirstName(updated.firstName);
       setLastName(updated.lastName);
-      setNameStatus("Išsaugota.");
+      toast.success("Profilio duomenys išsaugoti.");
     } catch (caught) {
-      handleError(caught, setNameError);
+      handleError(caught);
     } finally {
       setSavingName(false);
     }
@@ -79,19 +74,20 @@ export function ProfilePage() {
     event: FormEvent<HTMLFormElement>,
   ): Promise<void> {
     event.preventDefault();
-    setPasswordStatus(null);
-    setPasswordError(null);
 
     if (!currentPassword) {
-      setPasswordError("Įveskite dabartinį slaptažodį.");
+      toast.error("Įveskite dabartinį slaptažodį.");
+      focusField("profile-current-password");
       return;
     }
-    if (newPassword.length < 8) {
-      setPasswordError("Naujas slaptažodis turi būti bent 6 simboliai.");
+    if (newPassword.length < 6) {
+      toast.error("Naujas slaptažodis turi būti bent 6 simboliai.");
+      focusField("profile-new-password");
       return;
     }
     if (newPassword !== confirmPassword) {
-      setPasswordError("Slaptažodžiai nesutampa.");
+      toast.error("Slaptažodžiai nesutampa.");
+      focusField("profile-confirm-password");
       return;
     }
 
@@ -104,9 +100,9 @@ export function ProfilePage() {
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      setPasswordStatus("Slaptažodis pakeistas.");
+      toast.success("Slaptažodis pakeistas.");
     } catch (caught) {
-      handleError(caught, setPasswordError);
+      handleError(caught);
     } finally {
       setSavingPassword(false);
     }
@@ -127,6 +123,7 @@ export function ProfilePage() {
             <label className="space-y-1 text-sm">
               <span className="font-medium">Vardas</span>
               <input
+                id="profile-first-name"
                 value={firstName}
                 onChange={(event) => setFirstName(event.target.value)}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -135,6 +132,7 @@ export function ProfilePage() {
             <label className="space-y-1 text-sm">
               <span className="font-medium">Pavardė</span>
               <input
+                id="profile-last-name"
                 value={lastName}
                 onChange={(event) => setLastName(event.target.value)}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -159,15 +157,6 @@ export function ProfilePage() {
             </p>
           </div>
 
-          {nameError ? (
-            <p role="alert" className="text-sm text-destructive">
-              {nameError}
-            </p>
-          ) : null}
-          {nameStatus ? (
-            <p className="text-sm text-muted-foreground">{nameStatus}</p>
-          ) : null}
-
           <div>
             <button
               type="submit"
@@ -186,6 +175,7 @@ export function ProfilePage() {
           <label className="space-y-1 text-sm">
             <span className="font-medium">Dabartinis slaptažodis</span>
             <PasswordInput
+              id="profile-current-password"
               autoComplete="current-password"
               value={currentPassword}
               onChange={setCurrentPassword}
@@ -194,6 +184,7 @@ export function ProfilePage() {
           <label className="space-y-1 text-sm">
             <span className="font-medium">Naujas slaptažodis</span>
             <PasswordInput
+              id="profile-new-password"
               autoComplete="new-password"
               value={newPassword}
               onChange={setNewPassword}
@@ -202,20 +193,12 @@ export function ProfilePage() {
           <label className="space-y-1 text-sm">
             <span className="font-medium">Pakartokite naują slaptažodį</span>
             <PasswordInput
+              id="profile-confirm-password"
               autoComplete="new-password"
               value={confirmPassword}
               onChange={setConfirmPassword}
             />
           </label>
-
-          {passwordError ? (
-            <p role="alert" className="text-sm text-destructive">
-              {passwordError}
-            </p>
-          ) : null}
-          {passwordStatus ? (
-            <p className="text-sm text-muted-foreground">{passwordStatus}</p>
-          ) : null}
 
           <div>
             <button

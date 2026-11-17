@@ -1,12 +1,17 @@
 import type { RoleKey } from "@aitvaras/contracts";
-import {
-  GAVIMAI_ACTION,
-  RECEIVING_ROLES,
-  RECEIVE_ACTION,
-} from "@/entities/batch";
+import { GAVIMAI_ACTION } from "@/entities/batch";
 
-/** A navigable link (top-level, or a child inside a group). */
-export interface NavItem {
+/** Icon identifiers for sidebar destinations (rendered by `NavIcon`). */
+export type NavIconKey =
+  | "home"
+  | "receive"
+  | "receipts"
+  | "directories"
+  | "reports"
+  | "system";
+
+/** A horizontal child destination inside one sidebar destination. */
+export interface NavChild {
   href: string;
   label: string;
   /** Visible only when the user holds at least one of these roles. */
@@ -15,118 +20,158 @@ export interface NavItem {
   excludeRoles?: RoleKey[];
 }
 
-/** A top-level menu group that contains child links. */
-export interface NavGroup {
+/**
+ * A sidebar destination.
+ *
+ * A destination without `children` is a plain page link. A destination with
+ * `children` represents a *section*: the sidebar highlights the parent and the
+ * child routes are rendered as contextual horizontal navigation inside the
+ * page. The destination `href` is its landing page (normally the first child).
+ */
+export interface NavDestination {
   id: string;
+  href: string;
   label: string;
+  icon: NavIconKey;
   /** Visible only when the user holds at least one of these roles. */
   requiredRoles?: RoleKey[];
   /** Hidden when the user holds any of these roles. */
   excludeRoles?: RoleKey[];
-  /** Child links; may be empty while the area is reserved for the future. */
-  children: NavItem[];
+  /**
+   * Additional routes that keep this destination active (e.g. the receiving
+   * workflow lives under `/receiving` while the list lives at `/receipts`).
+   */
+  activeHrefs?: readonly string[];
+  children?: readonly NavChild[];
 }
 
-export type NavEntry =
-  | ({ kind: "link" } & NavItem)
-  | ({ kind: "group" } & NavGroup);
+/** A labelled sidebar group ("Operacijos", "Duomenys", ...). */
+export interface NavSection {
+  id: string;
+  label: string;
+  items: readonly NavDestination[];
+}
 
-/** Labels for the top-level menu groups (single source of truth). */
-export const NAV_GROUP_LABELS = {
-  directories: "Žinynai",
-  reports: "Ataskaitos",
-  system: "Sistema",
-} as const;
+/** Visible, role-filtered child. */
+export interface VisibleNavChild {
+  href: string;
+  label: string;
+}
 
-/** Shown for a group that is reserved but has no child routes yet. */
-export const EMPTY_GROUP_LABEL = "Ruošiama";
+/** Visible, role-filtered sidebar destination (children pre-filtered). */
+export interface VisibleNavDestination {
+  kind: "destination";
+  id: string;
+  href: string;
+  label: string;
+  icon: NavIconKey;
+  activeHrefs: string[];
+  children: VisibleNavChild[];
+}
+
+/** Visible, role-filtered sidebar section. */
+export interface VisibleNavSection {
+  id: string;
+  label: string;
+  items: VisibleNavDestination[];
+}
+
+/** The active destination/child pair for a pathname. */
+export interface ActiveDestination {
+  section: VisibleNavSection;
+  destination: VisibleNavDestination;
+  child: VisibleNavChild | null;
+}
 
 /**
  * Primary navigation information architecture (application-shell composition,
  * not domain logic).
  *
- * - **Operational workflows stay top-level**: `Pradžia`, `Registruoti sandėlyje`
- *   and `Gavimai` are the daily physical/administrative flows and are not buried
- *   under administration parents.
- * - **`Žinynai`** groups master/reference data (`Partneriai`, `Ištekliai`,
- *   `Sandėliai`).
- * - **`Ataskaitos`** is reserved for reporting/registers — the future discrepancy
- *   register/report navigation belongs here. It has no children yet.
- * - **`Sistema`** groups system administration (`Naudotojai`; later `Nustatymai`
- *   and other system-admin pages).
+ * - **Operacijos** — the daily physical/administrative flows stay plain links:
+ *   `Suvestinė` and `Priėmimas`. `Priėmimas` is one destination for the
+ *   received-batch list (`/receipts`) and the new-receipt workflow
+ *   (`/receiving`, `/receiving/new`, delivery/batch detail). There is no
+ *   separate `Registruoti sandėlyje` sidebar item.
+ * - **Duomenys** — `Žinynai` is one section with reference-data children
+ *   (`Partneriai`, `Ištekliai`, `Kategorijos`, `Tara`, `Sandėliai`). The
+ *   multi-step reference-data groups stay reachable as horizontal children
+ *   instead of being duplicated in the sidebar.
+ * - **Administravimas** — `Ataskaitos` (the discrepancy register) and
+ *   `Nustatymai` (the operator's company details and user administration).
  *
  * Rule: navigation contains only **implemented and confirmed** functionality. Do
- * not add placeholder links for future business domains (a reserved *group* is
- * allowed; reserved *routes* are not).
- *
- * The warehouse worker's navigation exposes the physical receiving action
- * (`Registruoti sandėlyje`) and hides the formal documentary queue (`Gavimai`)
- * and the administrative groups (`Ataskaitos`, `Sistema`).
+ * not add placeholder links for future business domains.
  */
-export const NAV_ENTRIES: readonly NavEntry[] = [
-  { kind: "link", href: "/", label: "Pradžia" },
+export const NAV_SECTIONS: readonly NavSection[] = [
   {
-    kind: "link",
-    href: RECEIVE_ACTION.href,
-    label: RECEIVE_ACTION.label,
-    requiredRoles: RECEIVING_ROLES,
-  },
-  {
-    kind: "link",
-    href: GAVIMAI_ACTION.href,
-    label: GAVIMAI_ACTION.label,
-    excludeRoles: ["WAREHOUSE_WORKER"],
-  },
-  {
-    kind: "group",
-    id: "directories",
-    label: NAV_GROUP_LABELS.directories,
-    children: [
-      { href: "/partners", label: "Partneriai" },
-      { href: "/resources", label: "Ištekliai" },
-      { href: "/warehouses", label: "Sandėliai" },
-    ],
-  },
-  {
-    kind: "group",
-    id: "reports",
-    label: NAV_GROUP_LABELS.reports,
-    excludeRoles: ["WAREHOUSE_WORKER"],
-    children: [
+    id: "operations",
+    label: "Operacijos",
+    items: [
+      { id: "home", href: "/", label: "Suvestinė", icon: "home" },
       {
-        href: "/reports/discrepancies",
-        label: "Neatitikimai",
-        requiredRoles: ["ADMIN"],
+        id: "receipts",
+        href: GAVIMAI_ACTION.href,
+        label: GAVIMAI_ACTION.label,
+        icon: "receipts",
+        activeHrefs: ["/receiving"],
       },
     ],
   },
   {
-    kind: "group",
-    id: "system",
-    label: NAV_GROUP_LABELS.system,
-    requiredRoles: ["ADMIN"],
-    children: [
-      { href: "/admin/users", label: "Naudotojai", requiredRoles: ["ADMIN"] },
+    id: "data",
+    label: "Duomenys",
+    items: [
+      {
+        id: "directories",
+        href: "/partners",
+        label: "Žinynai",
+        icon: "directories",
+        children: [
+          { href: "/partners", label: "Partneriai" },
+          { href: "/resources", label: "Ištekliai" },
+          { href: "/resources/categories", label: "Kategorijos" },
+          { href: "/resources/packaging-types", label: "Tara" },
+          { href: "/warehouses", label: "Sandėliai" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "administration",
+    label: "Administravimas",
+    items: [
+      {
+        id: "reports",
+        href: "/reports/discrepancies",
+        label: "Ataskaitos",
+        icon: "reports",
+        excludeRoles: ["WAREHOUSE_WORKER"],
+        children: [
+          {
+            href: "/reports/discrepancies",
+            label: "Neatitikimai",
+            requiredRoles: ["ADMIN"],
+          },
+        ],
+      },
+      {
+        id: "settings",
+        href: "/settings/company",
+        label: "Nustatymai",
+        icon: "system",
+        requiredRoles: ["ADMIN"],
+        children: [
+          {
+            href: "/settings/company",
+            label: "Įmonė",
+            requiredRoles: ["ADMIN"],
+          },
+          { href: "/admin/users", label: "Naudotojai", requiredRoles: ["ADMIN"] },
+        ],
+      },
     ],
   },
 ];
-
-/** A role-filtered top-level link. */
-export interface VisibleNavLink {
-  kind: "link";
-  href: string;
-  label: string;
-}
-
-/** A role-filtered top-level group (children pre-filtered by role). */
-export interface VisibleNavGroup {
-  kind: "group";
-  id: string;
-  label: string;
-  children: VisibleNavLink[];
-}
-
-export type VisibleNavEntry = VisibleNavLink | VisibleNavGroup;
 
 function matchesRoles(
   gate: { requiredRoles?: RoleKey[]; excludeRoles?: RoleKey[] },
@@ -145,54 +190,113 @@ function matchesRoles(
 }
 
 /**
- * Role-filtered navigation. A populated group whose children are all out of
- * scope is hidden entirely; a deliberately empty (reserved) group is still shown.
+ * Role-filtered navigation.
+ *
+ * A destination with declared children is hidden when none of those children are
+ * in scope for the user; a destination without children follows its own role
+ * gate. Empty sections are dropped.
  */
-export function visibleNavEntries(roles: RoleKey[]): VisibleNavEntry[] {
-  const entries: VisibleNavEntry[] = [];
-  for (const entry of NAV_ENTRIES) {
-    if (!matchesRoles(entry, roles)) {
-      continue;
+export function visibleNavSections(roles: RoleKey[]): VisibleNavSection[] {
+  const sections: VisibleNavSection[] = [];
+
+  for (const section of NAV_SECTIONS) {
+    const items: VisibleNavDestination[] = [];
+    for (const destination of section.items) {
+      if (!matchesRoles(destination, roles)) {
+        continue;
+      }
+      const declaredChildren = destination.children ?? [];
+      const children = declaredChildren
+        .filter((child) => matchesRoles(child, roles))
+        .map<VisibleNavChild>((child) => ({
+          href: child.href,
+          label: child.label,
+        }));
+      if (declaredChildren.length > 0 && children.length === 0) {
+        continue;
+      }
+      items.push({
+        kind: "destination",
+        id: destination.id,
+        href: destination.href,
+        label: destination.label,
+        icon: destination.icon,
+        activeHrefs: [...(destination.activeHrefs ?? [])],
+        children,
+      });
     }
-    if (entry.kind === "link") {
-      entries.push({ kind: "link", href: entry.href, label: entry.label });
-      continue;
+    if (items.length > 0) {
+      sections.push({ id: section.id, label: section.label, items });
     }
-    const children = entry.children
-      .filter((child) => matchesRoles(child, roles))
-      .map<VisibleNavLink>((child) => ({
-        kind: "link",
-        href: child.href,
-        label: child.label,
-      }));
-    if (entry.children.length > 0 && children.length === 0) {
-      continue;
-    }
-    entries.push({
-      kind: "group",
-      id: entry.id,
-      label: entry.label,
-      children,
-    });
   }
-  return entries;
+
+  return sections;
 }
 
-/** Whether a link is active for the current pathname. */
-export function isNavItemActive(href: string, pathname: string): boolean {
+/** Whether `href` matches `pathname` exactly or as a parent route. */
+export function isPathWithin(href: string, pathname: string): boolean {
   if (href === "/") {
     return pathname === "/";
   }
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-/** Whether any child of a group is active (so the parent reads as active too). */
-export function isNavGroupActive(
-  group: VisibleNavGroup,
+/**
+ * The most specific matching child for a pathname.
+ *
+ * Child hrefs may nest (e.g. `/resources` and `/resources/categories`). The
+ * longest matching href wins so exactly one child is active at a time.
+ */
+export function activeChild(
+  destination: VisibleNavDestination,
+  pathname: string,
+): VisibleNavChild | null {
+  const matches = destination.children.filter((child) =>
+    isPathWithin(child.href, pathname),
+  );
+  if (matches.length === 0) {
+    return null;
+  }
+  return matches.reduce((best, child) =>
+    child.href.length > best.href.length ? child : best,
+  );
+}
+
+/** Whether a sidebar destination should read as active for `pathname`. */
+export function isDestinationActive(
+  destination: VisibleNavDestination,
   pathname: string,
 ): boolean {
-  return group.children.some((child) => isNavItemActive(child.href, pathname));
+  return (
+    isPathWithin(destination.href, pathname) ||
+    destination.activeHrefs.some((href) => isPathWithin(href, pathname)) ||
+    destination.children.some((child) => isPathWithin(child.href, pathname))
+  );
 }
+
+/** Resolve the active sidebar section/destination/child for a pathname. */
+export function activeDestination(
+  sections: readonly VisibleNavSection[],
+  pathname: string,
+): ActiveDestination | null {
+  for (const section of sections) {
+    for (const destination of section.items) {
+      if (isDestinationActive(destination, pathname)) {
+        return {
+          section,
+          destination,
+          child: activeChild(destination, pathname),
+        };
+      }
+    }
+  }
+  return null;
+}
+
+/** Page titles for authenticated routes that are not primary destinations. */
+export const SECONDARY_PAGE_TITLES: Readonly<Record<string, string>> = {
+  "/profile": "Mano profilis",
+};
 
 export const USER_MENU = {
   profile: "Mano profilis",

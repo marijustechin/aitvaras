@@ -13,30 +13,56 @@ import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
 import { inactiveRowClass, toggleActionClass } from "@/shared/lib/row-styles";
 import { workSurfaceClass } from "@/shared/lib/surfaces";
-import { PasswordInput } from "@/shared/ui";
+import { focusField } from "@/shared/lib/form-feedback";
+import { PasswordInput, SectionTabs, useToast } from "@/shared/ui";
 import {
   activeToggleLabel,
   applyUserUpdate,
   CLOSED_PASSWORD_RESET_PANEL,
   closePasswordResetPanel,
   isRoleControlDisabled,
+  MIN_PASSWORD_LENGTH,
   openPasswordResetPanel,
   passwordResetError,
   passwordResetErrorMessage,
-  passwordResetPanelSuccess,
   passwordResetPayload,
+  passwordTooShortMessage,
   toggleRoleSelection,
   userAdminErrorMessage,
   userEditPayload,
-  userEditSuccess,
   type PasswordResetPanelState,
   type UserEditState,
 } from "../lib/users";
 
+/** Client-side create-user validation; the server re-validates. */
+function createUserValidation(values: {
+  firstName: string;
+  lastName: string;
+  username: string;
+  password: string;
+}): { message: string; field: string } | null {
+  if (values.firstName.trim() === "") {
+    return { message: "Įveskite vardą.", field: "user-first-name" };
+  }
+  if (values.lastName.trim() === "") {
+    return { message: "Įveskite pavardę.", field: "user-last-name" };
+  }
+  if (values.username.trim() === "") {
+    return { message: "Įveskite naudotojo vardą.", field: "user-username" };
+  }
+  if (values.password.length === 0) {
+    return { message: "Įveskite slaptažodį.", field: "user-password" };
+  }
+  if (values.password.length < MIN_PASSWORD_LENGTH) {
+    return { message: passwordTooShortMessage(), field: "user-password" };
+  }
+  return null;
+}
+
 /** User administration composition (rendered inside the ADMIN-only shell). */
 export function UsersPage() {
   const [users, setUsers] = useState<UserSummary[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [username, setUsername] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -49,11 +75,13 @@ export function UsersPage() {
   );
   const router = useRouter();
   const { clearSession } = useAuth();
+  const toast = useToast();
 
   /**
-   * Surface an error; on a 401 (expired/absent session) clear client session
-   * state and return to the login screen. Known API failures are mapped to
-   * specific Lithuanian messages; unknown ones fall back to the caller's text.
+   * Surface an action error through the global toaster; on a 401 (expired/absent
+   * session) clear client session state and return to the login screen. Known API
+   * failures are mapped to specific Lithuanian messages; unknown ones fall back to
+   * the caller's text.
    */
   function handleError(caught: unknown, fallback: string): void {
     if (isUnauthorized(caught)) {
@@ -65,16 +93,28 @@ export function UsersPage() {
       // Keep enough context to diagnose request failures locally.
       console.error("[Naudotojai]", caught);
     }
-    setError(caught instanceof ApiError ? userAdminErrorMessage(caught) : fallback);
+    toast.error(
+      caught instanceof ApiError ? userAdminErrorMessage(caught) : fallback,
+    );
   }
 
   const reload = useCallback(async (): Promise<void> => {
     try {
       setUsers(await apiFetch<UserSummary[]>("/users"));
+      setLoadError(null);
     } catch (caught) {
-      handleError(caught, "Nepavyko įkelti naudotojų");
+      if (isUnauthorized(caught)) {
+        clearSession();
+        router.replace("/login");
+        return;
+      }
+      setLoadError(
+        caught instanceof ApiError
+          ? userAdminErrorMessage(caught)
+          : "Nepavyko įkelti naudotojų",
+      );
     }
-  }, []);
+  }, [clearSession, router]);
 
   useEffect(() => {
     void reload();
@@ -82,7 +122,17 @@ export function UsersPage() {
 
   async function onCreate(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    setError(null);
+    const issue = createUserValidation({
+      firstName,
+      lastName,
+      username,
+      password,
+    });
+    if (issue) {
+      toast.error(issue.message);
+      focusField(issue.field);
+      return;
+    }
     try {
       await apiFetch("/users", {
         method: "POST",
@@ -98,6 +148,7 @@ export function UsersPage() {
       setFirstName("");
       setLastName("");
       setPassword("");
+      toast.success("Naudotojas sukurtas.");
       await reload();
     } catch (caught) {
       handleError(caught, "Nepavyko sukurti naudotojo");
@@ -105,7 +156,6 @@ export function UsersPage() {
   }
 
   function startEdit(user: UserSummary): void {
-    setError(null);
     setEditingId(user.id);
     setEdit({
       firstName: user.firstName,
@@ -119,7 +169,6 @@ export function UsersPage() {
   function closeEdit(): void {
     setEditingId(null);
     setEdit(null);
-    setError(null);
     setResetPanel(CLOSED_PASSWORD_RESET_PANEL);
   }
 
@@ -142,34 +191,32 @@ export function UsersPage() {
       return;
     }
     if (edit.roles.length === 0) {
-      setError("Pasirinkite bent vieną vaidmenį.");
+      toast.error("Pasirinkite bent vieną vaidmenį.");
+      focusField("user-edit-role-ADMIN");
       return;
     }
-    setError(null);
     try {
       const updated = await apiFetch<UserSummary>(`/users/${editingId}`, {
         method: "PATCH",
         body: JSON.stringify(userEditPayload(edit)),
       });
-      const next = userEditSuccess(users, updated);
-      setUsers(next.users);
-      setEditingId(next.editingId);
-      setEdit(next.edit);
-      setError(next.error);
+      setUsers((current) => applyUserUpdate(current, updated));
+      setEditingId(null);
+      setEdit(null);
+      toast.success("Naudotojas atnaujintas.");
     } catch (caught) {
       handleError(caught, "Nepavyko atnaujinti naudotojo");
     }
   }
 
   async function toggleActive(user: UserSummary): Promise<void> {
-    setError(null);
     try {
       const updated = await apiFetch<UserSummary>(`/users/${user.id}`, {
         method: "PATCH",
         body: JSON.stringify({ active: !user.active }),
       });
       setUsers((current) => applyUserUpdate(current, updated));
-      setError(null);
+      toast.success("Naudotojo būsena atnaujinta.");
     } catch (caught) {
       handleError(caught, "Nepavyko atnaujinti naudotojo");
     }
@@ -181,16 +228,21 @@ export function UsersPage() {
     }
     const validation = passwordResetError(resetPanel.form);
     if (validation) {
-      setResetPanel((current) => ({ ...current, error: validation }));
+      toast.error(validation);
+      focusField(
+        resetPanel.form.password.length === 0
+          ? "user-reset-password"
+          : "user-reset-confirm",
+      );
       return;
     }
-    setResetPanel((current) => ({ ...current, error: null, success: null }));
     try {
       await apiFetch<UserSummary>(`/users/${editingId}/password`, {
         method: "PATCH",
         body: JSON.stringify(passwordResetPayload(resetPanel.form)),
       });
-      setResetPanel(passwordResetPanelSuccess());
+      setResetPanel(CLOSED_PASSWORD_RESET_PANEL);
+      toast.success("Slaptažodis pakeistas.");
       await reload();
     } catch (caught) {
       if (isUnauthorized(caught)) {
@@ -198,27 +250,26 @@ export function UsersPage() {
         router.replace("/login");
         return;
       }
-      setResetPanel((current) => ({
-        ...current,
-        error: passwordResetErrorMessage(caught),
-      }));
+      toast.error(passwordResetErrorMessage(caught));
     }
   }
 
   return (
     <div className="flex flex-col gap-8">
       <h1 className="text-2xl font-semibold tracking-tight">Naudotojai</h1>
+      <SectionTabs />
 
-      {error ? (
+      {loadError ? (
         <p role="alert" className="text-sm text-destructive">
-          {error}
+          {loadError}
         </p>
       ) : null}
 
       <section className={workSurfaceClass()}>
         <h2 className="text-lg font-medium">Sukurti naudotoją</h2>
-        <form onSubmit={onCreate} className="mt-4 grid gap-3 sm:grid-cols-2">
+        <form onSubmit={onCreate} noValidate className="mt-4 grid gap-3 sm:grid-cols-2">
           <input
+            id="user-first-name"
             required
             placeholder="Vardas"
             value={firstName}
@@ -226,6 +277,7 @@ export function UsersPage() {
             className="rounded-md border border-input bg-background px-3 py-2 text-sm"
           />
           <input
+            id="user-last-name"
             required
             placeholder="Pavardė"
             value={lastName}
@@ -233,6 +285,7 @@ export function UsersPage() {
             className="rounded-md border border-input bg-background px-3 py-2 text-sm"
           />
           <input
+            id="user-username"
             required
             placeholder="Naudotojo vardas"
             value={username}
@@ -240,6 +293,7 @@ export function UsersPage() {
             className="rounded-md border border-input bg-background px-3 py-2 text-sm"
           />
           <input
+            id="user-password"
             required
             type="password"
             placeholder="Slaptažodis (bent 6 simboliai)"
@@ -248,6 +302,7 @@ export function UsersPage() {
             className="rounded-md border border-input bg-background px-3 py-2 text-sm"
           />
           <select
+            id="user-role"
             value={role}
             onChange={(event) => setRole(event.target.value as RoleKey)}
             className="rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -272,6 +327,7 @@ export function UsersPage() {
           <h2 className="text-lg font-medium">Redaguoti naudotoją</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <input
+              id="user-edit-first-name"
               placeholder="Vardas"
               value={edit.firstName}
               onChange={(event) =>
@@ -280,6 +336,7 @@ export function UsersPage() {
               className="rounded-md border border-input bg-background px-3 py-2 text-sm"
             />
             <input
+              id="user-edit-last-name"
               placeholder="Pavardė"
               value={edit.lastName}
               onChange={(event) =>
@@ -293,6 +350,7 @@ export function UsersPage() {
             {ROLE_KEYS.map((key) => (
               <label key={key} className="flex items-center gap-2 text-sm">
                 <input
+                  id={`user-edit-role-${key}`}
                   type="checkbox"
                   checked={edit.roles.includes(key)}
                   disabled={isRoleControlDisabled(key, edit.roles)}
@@ -324,6 +382,7 @@ export function UsersPage() {
                 </p>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <PasswordInput
+                    id="user-reset-password"
                     autoComplete="new-password"
                     placeholder="Naujas slaptažodis"
                     value={resetPanel.form.password}
@@ -335,6 +394,7 @@ export function UsersPage() {
                     }
                   />
                   <PasswordInput
+                    id="user-reset-confirm"
                     autoComplete="new-password"
                     placeholder="Pakartoti slaptažodį"
                     value={resetPanel.form.confirm}
@@ -346,11 +406,6 @@ export function UsersPage() {
                     }
                   />
                 </div>
-                {resetPanel.error ? (
-                  <p role="alert" className="text-sm text-destructive">
-                    {resetPanel.error}
-                  </p>
-                ) : null}
                 <div className="flex flex-wrap gap-3">
                   <button
                     type="button"
@@ -377,11 +432,6 @@ export function UsersPage() {
                 >
                   Nustatyti naują slaptažodį
                 </button>
-                {resetPanel.success ? (
-                  <p role="status" className="text-sm text-muted-foreground">
-                    {resetPanel.success}
-                  </p>
-                ) : null}
               </div>
             )}
           </div>

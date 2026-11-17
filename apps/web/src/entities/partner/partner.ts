@@ -1,4 +1,5 @@
 import {
+  countryName,
   PARTNER_ROLE_LABELS,
   type Partner,
   type PartnerRoleKey,
@@ -15,6 +16,19 @@ export function partnerRoleLabel(role: PartnerRoleKey): string {
 /** Comma-separated Lithuanian labels for a partner's business roles. */
 export function partnerRoleSummary(roles: readonly PartnerRoleKey[]): string {
   return roles.map(partnerRoleLabel).join(", ");
+}
+
+/**
+ * Lithuanian display name for a stored ISO alpha-2 country code.
+ *
+ * Falls back to the raw stored value only for legacy/unrecognized data; it never
+ * invents a country.
+ */
+export function partnerCountryName(country: string | null): string | null {
+  if (!country) {
+    return null;
+  }
+  return countryName(country) ?? country;
 }
 
 /**

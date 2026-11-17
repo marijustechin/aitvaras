@@ -22,3 +22,23 @@ export function findPackagingType(
 ): PackagingType | null {
   return types.find((type) => type.id === id) ?? null;
 }
+
+/**
+ * Lithuanian tare weight for selector labels: at least one decimal, up to the
+ * stored three-decimal precision (`0,2`, `27,0`, `0,125`).
+ */
+export function formatTareWeightKg(value: string | number): string {
+  const amount = typeof value === "string" ? Number(value) : value;
+  if (!Number.isFinite(amount)) {
+    return "";
+  }
+  return new Intl.NumberFormat("lt-LT", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 3,
+  }).format(amount);
+}
+
+/** Selector option label: `Dėžė (0,2 kg)`. */
+export function packagingTypeOptionLabel(type: PackagingType): string {
+  return `${type.name} (${formatTareWeightKg(type.tareWeightKg)} kg)`;
+}

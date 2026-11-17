@@ -10,3 +10,22 @@ export function valueOrPlaceholder(value: string | null): string {
 export function activeStatusLabel(active: boolean): string {
   return active ? "Aktyvus" : "Neaktyvus";
 }
+
+/**
+ * Display-only EUR formatting of a decimal string/number.
+ *
+ * Persistence remains decimal; this is a read-only convenience for the UI and is
+ * never treated as authoritative stored data.
+ */
+export function formatMoney(value: number | string): string {
+  const amount = typeof value === "string" ? Number(value) : value;
+  if (!Number.isFinite(amount)) {
+    return "";
+  }
+  return new Intl.NumberFormat("lt-LT", {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}

@@ -3,6 +3,7 @@ import type {
   ReceivingDiscrepancyRegisterRow,
   ReceivingDiscrepancyStatus,
 } from "@aitvaras/contracts";
+import { isoDatePart } from "@/shared/lib/date";
 
 /** Heading of the ADMIN discrepancy register. */
 export const DISCREPANCIES_HEADING = "Neatitikimai";
@@ -98,7 +99,7 @@ export function hasActiveDiscrepancyFilters(
 
 /** The register date used for the date-range filter (the discrepancy date). */
 export function discrepancyDate(row: ReceivingDiscrepancyRegisterRow): string {
-  return row.createdAt.slice(0, 10);
+  return isoDatePart(row.createdAt);
 }
 
 /** Client-side register filtering (status/supplier/resource/direction/date/code). */
@@ -170,11 +171,12 @@ export function supplierFilterOptions(
 export function resourceFilterOptions(
   rows: ReceivingDiscrepancyRegisterRow[],
 ): DiscrepancyFilterOption[] {
+  // WEIGHT discrepancies have no single resource; skip them from the options.
   return distinctOptions(
     rows,
-    (row) => row.resourceId,
-    (row) => row.resourceName,
-  );
+    (row) => row.resourceId ?? "",
+    (row) => row.resourceName ?? "",
+  ).filter((option) => option.id !== "");
 }
 
 /** Link to a discrepancy's detail screen. */

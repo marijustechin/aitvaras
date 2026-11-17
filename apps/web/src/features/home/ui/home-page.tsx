@@ -1,47 +1,171 @@
 "use client";
 
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { RECEIVE_ACTION } from "@/entities/batch";
-import { useAuth } from "@/features/auth";
+import { useRouter } from "next/navigation";
+import type { StockSummary } from "@aitvaras/contracts";
+import {
+  formatPieces,
+  formatWeight,
+  RECEIVE_ACTION,
+} from "@/entities/batch";
+import { formatMoney } from "@/shared/lib/format";
+import { isUnauthorized, useAuth } from "@/features/auth";
+import { ApiError, apiFetch } from "@/shared/api";
+import { buttonClass, PlusIcon } from "@/shared/ui";
 import { homeShowsReceivingAction } from "../lib/home";
 
+type StockState =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "ready"; summary: StockSummary };
+
+function StockCard({
+  title,
+  quantity,
+  value,
+  valuationIncomplete,
+}: {
+  title: string;
+  quantity: string;
+  value: string;
+  valuationIncomplete: boolean;
+}) {
+  return (
+    <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
+      <h2 className="text-sm font-medium text-muted-foreground">{title}</h2>
+      <dl className="mt-4 grid gap-3">
+        <div className="flex items-baseline justify-between gap-4">
+          <dt className="text-sm text-muted-foreground">Kiekis</dt>
+          <dd className="text-2xl font-semibold tracking-tight tabular-nums">
+            {quantity}
+          </dd>
+        </div>
+        <div className="flex items-baseline justify-between gap-4 border-t border-border pt-3">
+          <dt className="text-sm text-muted-foreground">Vertė</dt>
+          <dd className="text-lg font-medium tabular-nums">
+            {value}
+            {valuationIncomplete ? (
+              <span aria-label="Vertinimas nepilnas">*</span>
+            ) : null}
+          </dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
 /**
- * Home page.
+ * Home dashboard: two read-only stock summary cards.
  *
- * For the roles that physically receive stock the home is a focused operational
- * workplace: a single prominent action (`Registruoti sandėlyje`) leading into
- * the simplified receiving flow, with no administrative navigation. Other roles
- * keep the generic home content.
+ * Quantities/costs are aggregated by the API from confirmed batches only. Loading
+ * and error states deliberately show placeholders, never a misleading zero.
  */
 export function HomePage() {
-  const { user } = useAuth();
+  const { user, clearSession } = useAuth();
+  const router = useRouter();
+  const [stock, setStock] = useState<StockState>({ status: "loading" });
+
+  const load = useCallback(async (): Promise<void> => {
+    setStock({ status: "loading" });
+    try {
+      const summary = await apiFetch<StockSummary>("/stock/summary");
+      setStock({ status: "ready", summary });
+    } catch (caught) {
+      if (isUnauthorized(caught)) {
+        clearSession();
+        router.replace("/login");
+        return;
+      }
+      setStock({
+        status: "error",
+        message:
+          caught instanceof ApiError
+            ? caught.message
+            : "Nepavyko įkelti atsargų suvestinės.",
+      });
+    }
+  }, [clearSession, router]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
   const showReceiving = user ? homeShowsReceivingAction(user.roles) : false;
+  const ready = stock.status === "ready" ? stock.summary : null;
+  const placeholder = "—";
+  const incomplete =
+    (ready?.weight.valuationIncomplete ?? false) ||
+    (ready?.pieces.valuationIncomplete ?? false);
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold tracking-tight">
-        Sveiki, {user?.firstName}.
-      </h1>
-
-      {showReceiving ? (
-        <section className="rounded-xl border border-border bg-card p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Suvestinė</h1>
+          <p className="text-sm text-muted-foreground">
+            Sveiki, {user?.firstName}.
+          </p>
+        </div>
+        {showReceiving ? (
           <Link
             href={RECEIVE_ACTION.href}
-            className="inline-flex items-center rounded-md bg-primary px-6 py-4 text-base font-semibold text-primary-foreground hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring"
+            className={buttonClass("primary", "sm")}
           >
+            <PlusIcon />
             {RECEIVE_ACTION.label}
           </Link>
-          <p className="mt-3 text-sm text-muted-foreground">
-            Registruokite atvežtas pakuotes: pasirinkite partiją arba pradėkite
-            naują ir suveskite pakuočių svorius.
-          </p>
-        </section>
-      ) : (
-        <p className="text-muted-foreground">
-          Tai Aitvaro pradžia. Kol kas įgyvendinti naudotojų, partnerių ir
-          išteklių moduliai.
+        ) : null}
+      </div>
+
+      {stock.status === "error" ? (
+        <p role="alert" className="text-sm text-destructive">
+          {stock.message}
         </p>
-      )}
+      ) : null}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <StockCard
+          title="Atsargos kilogramais"
+          quantity={
+            ready ? formatWeight(ready.weight.quantityKg) : placeholder
+          }
+          value={
+            ready
+              ? ready.weight.value === null
+                ? "—"
+                : formatMoney(ready.weight.value)
+              : placeholder
+          }
+          valuationIncomplete={ready?.weight.valuationIncomplete ?? false}
+        />
+        <StockCard
+          title="Atsargos vienetais"
+          quantity={
+            ready ? formatPieces(ready.pieces.quantity) : placeholder
+          }
+          value={
+            ready
+              ? ready.pieces.value === null
+                ? "—"
+                : formatMoney(ready.pieces.value)
+              : placeholder
+          }
+          valuationIncomplete={ready?.pieces.valuationIncomplete ?? false}
+        />
+      </div>
+
+      {incomplete ? (
+        <p className="text-xs text-muted-foreground">
+          * Dalies atsargų vertė nenurodyta.
+        </p>
+      ) : null}
+
+      {stock.status === "loading" ? (
+        <p role="status" className="text-sm text-muted-foreground">
+          Kraunama atsargų suvestinė…
+        </p>
+      ) : null}
     </div>
   );
 }

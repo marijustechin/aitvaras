@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CountryCodeSchema } from "./countries";
 import { optionalTextField as optionalText } from "./fields";
 
 /**
@@ -65,26 +66,53 @@ export const PARTNER_FIELD_LIMITS = {
   companyCode: 64,
   vatCode: 64,
   address: 500,
-  country: 100,
+  country: 2,
   contactPerson: 200,
   phone: 64,
   email: 254,
   notes: 2000,
 } as const;
 
-const partnerName = z.string().trim().min(1).max(PARTNER_FIELD_LIMITS.name);
+const partnerName = z
+  .string({ error: "Įveskite partnerio pavadinimą." })
+  .trim()
+  .min(1, { message: "Įveskite partnerio pavadinimą." })
+  .max(PARTNER_FIELD_LIMITS.name);
 
-const partnerRoles = z.array(PartnerRoleKeySchema).min(1);
+/**
+ * Company registration number.
+ *
+ * Always a string: leading zeros are significant and must survive. No
+ * Lithuania-only pattern, length or checksum is applied — foreign registration
+ * formats differ. The country code (stored separately) supplies the context.
+ */
+export const CompanyRegistrationNumberSchema = z
+  .string({ error: "Įveskite įmonės kodą." })
+  .trim()
+  .min(1, { message: "Įveskite įmonės kodą." })
+  .max(PARTNER_FIELD_LIMITS.companyCode, {
+    message: "Įmonės kodas per ilgas.",
+  });
 
-/** Request to create a partner. At least one business role is required. */
+const partnerRoles = z
+  .array(PartnerRoleKeySchema)
+  .min(1, { message: "Pasirinkite bent vieną vaidmenį." });
+
+/**
+ * Request to create a partner.
+ *
+ * A company partner requires name, country and registration number. The
+ * registration number is not Lithuania-only; `country` + `companyCode` are
+ * unique together (same number in different countries is allowed).
+ */
 export const CreatePartnerRequestSchema = z
   .object({
     name: partnerName,
     roles: partnerRoles,
-    companyCode: optionalText(PARTNER_FIELD_LIMITS.companyCode),
+    companyCode: CompanyRegistrationNumberSchema,
     vatCode: optionalText(PARTNER_FIELD_LIMITS.vatCode),
     address: optionalText(PARTNER_FIELD_LIMITS.address),
-    country: optionalText(PARTNER_FIELD_LIMITS.country),
+    country: CountryCodeSchema,
     contactPerson: optionalText(PARTNER_FIELD_LIMITS.contactPerson),
     phone: optionalText(PARTNER_FIELD_LIMITS.phone),
     email: optionalText(PARTNER_FIELD_LIMITS.email),
@@ -97,15 +125,19 @@ export type CreatePartnerRequest = z.infer<typeof CreatePartnerRequestSchema>;
 /**
  * Request to update a partner. The partner id comes from the route, never the
  * body. Unknown keys are rejected; at least one field must be provided.
+ *
+ * Identification fields are optional per request, but the service validates the
+ * resulting record: an update may never leave a company partner without name,
+ * country or registration number.
  */
 export const UpdatePartnerRequestSchema = z
   .object({
     name: partnerName.optional(),
     roles: partnerRoles.optional(),
-    companyCode: optionalText(PARTNER_FIELD_LIMITS.companyCode),
+    companyCode: CompanyRegistrationNumberSchema.optional(),
     vatCode: optionalText(PARTNER_FIELD_LIMITS.vatCode),
     address: optionalText(PARTNER_FIELD_LIMITS.address),
-    country: optionalText(PARTNER_FIELD_LIMITS.country),
+    country: CountryCodeSchema.optional(),
     contactPerson: optionalText(PARTNER_FIELD_LIMITS.contactPerson),
     phone: optionalText(PARTNER_FIELD_LIMITS.phone),
     email: optionalText(PARTNER_FIELD_LIMITS.email),

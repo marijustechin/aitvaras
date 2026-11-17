@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { PackagingType } from "@aitvaras/contracts";
 import { formatWeight } from "@/entities/batch";
@@ -11,7 +10,8 @@ import { ApiError, apiFetch } from "@/shared/api";
 import { activeStatusLabel } from "@/shared/lib/format";
 import { inactiveRowClass, toggleActionClass } from "@/shared/lib/row-styles";
 import { workSurfaceClass } from "@/shared/lib/surfaces";
-import { SECONDARY_NAV_BUTTON_CLASS } from "@/shared/ui";
+import { focusField } from "@/shared/lib/form-feedback";
+import { SectionTabs, useToast } from "@/shared/ui";
 import {
   packagingTypeFormError,
   toCreatePackagingTypePayload,
@@ -29,8 +29,8 @@ const inputClass =
 export function PackagingTypesPage() {
   const { user, clearSession } = useAuth();
   const router = useRouter();
+  const toast = useToast();
   const [types, setTypes] = useState<PackagingType[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [newTare, setNewTare] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -45,7 +45,7 @@ export function PackagingTypesPage() {
       router.replace("/login");
       return;
     }
-    setError(caught instanceof ApiError ? caught.message : fallback);
+    toast.error(caught instanceof ApiError ? caught.message : fallback);
   }
 
   const reload = useCallback(async (): Promise<void> => {
@@ -65,10 +65,10 @@ export function PackagingTypesPage() {
     const draft = { name: newName, tareWeightKg: newTare };
     const validation = packagingTypeFormError(draft);
     if (validation) {
-      setError(validation);
+      toast.error(validation);
+      focusField(newName.trim() === "" ? "packaging-new-name" : "packaging-new-tare");
       return;
     }
-    setError(null);
     try {
       await apiFetch("/packaging-types", {
         method: "POST",
@@ -76,6 +76,7 @@ export function PackagingTypesPage() {
       });
       setNewName("");
       setNewTare("");
+      toast.success("Tara sukurta.");
       await reload();
     } catch (caught) {
       handleError(caught, "Nepavyko sukurti taros");
@@ -86,10 +87,10 @@ export function PackagingTypesPage() {
     const draft = { name: editName, tareWeightKg: editTare };
     const validation = packagingTypeFormError(draft);
     if (validation) {
-      setError(validation);
+      toast.error(validation);
+      focusField(editName.trim() === "" ? "packaging-edit-name" : "packaging-edit-tare");
       return;
     }
-    setError(null);
     try {
       await apiFetch(`/packaging-types/${id}`, {
         method: "PATCH",
@@ -98,6 +99,7 @@ export function PackagingTypesPage() {
       setEditingId(null);
       setEditName("");
       setEditTare("");
+      toast.success("Tara atnaujinta.");
       await reload();
     } catch (caught) {
       handleError(caught, "Nepavyko atnaujinti taros");
@@ -105,12 +107,12 @@ export function PackagingTypesPage() {
   }
 
   async function toggleActive(type: PackagingType): Promise<void> {
-    setError(null);
     try {
       await apiFetch(`/packaging-types/${type.id}`, {
         method: "PATCH",
         body: JSON.stringify({ active: !type.active }),
       });
+      toast.success("Taros būsena atnaujinta.");
       await reload();
     } catch (caught) {
       handleError(caught, "Nepavyko atnaujinti taros");
@@ -120,18 +122,14 @@ export function PackagingTypesPage() {
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold tracking-tight">Tara</h1>
-
-      {error ? (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
+      <SectionTabs />
 
       {isAdmin ? (
         <section className={workSurfaceClass()}>
           <h2 className="text-lg font-medium">Nauja tara</h2>
           <form onSubmit={onCreate} className="mt-4 flex flex-wrap gap-3">
             <input
+              id="packaging-new-name"
               required
               placeholder="Pavadinimas"
               value={newName}
@@ -139,6 +137,7 @@ export function PackagingTypesPage() {
               className={inputClass}
             />
             <input
+              id="packaging-new-tare"
               required
               type="number"
               inputMode="decimal"
@@ -185,6 +184,7 @@ export function PackagingTypesPage() {
                   <td className="px-4 py-2">
                     {editingId === type.id ? (
                       <input
+                        id="packaging-edit-name"
                         value={editName}
                         onChange={(event) => setEditName(event.target.value)}
                         className="rounded-md border border-input bg-background px-2 py-1 text-sm"
@@ -196,6 +196,7 @@ export function PackagingTypesPage() {
                   <td className="px-4 py-2">
                     {editingId === type.id ? (
                       <input
+                        id="packaging-edit-tare"
                         type="number"
                         inputMode="decimal"
                         min="0"
@@ -264,10 +265,6 @@ export function PackagingTypesPage() {
           </table>
         </section>
       )}
-
-      <Link href="/resources" className={SECONDARY_NAV_BUTTON_CLASS}>
-        ← Ištekliai
-      </Link>
     </div>
   );
 }

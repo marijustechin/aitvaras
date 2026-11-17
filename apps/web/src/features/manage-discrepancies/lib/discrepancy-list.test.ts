@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { ReceivingDiscrepancyRegisterRow } from "@aitvaras/contracts";
 import {
@@ -16,6 +18,7 @@ function row(
 ): ReceivingDiscrepancyRegisterRow {
   return {
     id: "11111111-1111-4111-8111-111111111111",
+    kind: "WEIGHT",
     batchId: "22222222-2222-4222-8222-222222222222",
     deliveryId: "33333333-3333-4333-8333-333333333333",
     deliveryCode: "G2610-01",
@@ -29,6 +32,9 @@ function row(
     measuredWeight: "980.000",
     documentWeight: "1000.000",
     differenceWeight: "-20.000",
+    actualPieces: null,
+    documentPieces: null,
+    differencePieces: null,
     direction: "SHORTAGE",
     originalWeight: "20.000",
     settledWeight: "0.000",
@@ -172,6 +178,19 @@ describe("filterDiscrepancies", () => {
     ).toEqual(["early"]);
   });
 
+  it("keeps a local-midnight timestamp on the same inclusive calendar day", () => {
+    const localMidnight = new Date(2026, 10, 18, 0, 0, 0, 0).toISOString();
+    const entry = row({ id: "midnight", createdAt: localMidnight });
+    expect(
+      filterDiscrepancies([entry], {
+        ...createDiscrepancyListFilters(),
+        status: "ALL",
+        dateFrom: "2026-11-18",
+        dateTo: "2026-11-18",
+      }).map((r) => r.id),
+    ).toEqual(["midnight"]);
+  });
+
   it("searches the delivery code case-insensitively", () => {
     const other = row({
       id: "other",
@@ -199,6 +218,29 @@ describe("register filter options", () => {
       { id: "s2", name: "Beta" },
     ]);
     expect(resourceFilterOptions(rows)).toHaveLength(1);
+  });
+});
+
+describe("discrepancy reports PIECE handling (source)", () => {
+  const register = readFileSync(
+    fileURLToPath(new URL("../ui/discrepancies-page.tsx", import.meta.url)),
+    "utf8",
+  );
+  const detail = readFileSync(
+    fileURLToPath(new URL("../ui/discrepancy-details-page.tsx", import.meta.url)),
+    "utf8",
+  );
+
+  it("shows piece quantities for PIECE discrepancies in the register", () => {
+    expect(register).toContain('row.kind === "PIECE"');
+    expect(register).toContain("formatSignedPieces");
+    expect(register).toContain("discrepancyWeightLabel");
+  });
+
+  it("does not expose the weight settlement form for PIECE in the detail", () => {
+    expect(detail).toContain("isPiece");
+    expect(detail).toContain("Vienetinių neatitikimų padengimas dar nenumatytas.");
+    expect(detail).toContain("formatSignedPieces");
   });
 });
 

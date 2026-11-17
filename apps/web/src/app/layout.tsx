@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { AuthProvider } from "@/features/auth";
+import { ToastProvider } from "@/shared/ui";
 import { AppFooter } from "@/widgets/app-shell";
 import "./globals.css";
 
@@ -21,10 +22,12 @@ export default function RootLayout({
   return (
     <html lang="lt">
       <body className="flex min-h-screen flex-col bg-background text-foreground antialiased">
-        <AuthProvider>
-          <div className="flex flex-1 flex-col">{children}</div>
-          <AppFooter />
-        </AuthProvider>
+        <ToastProvider>
+          <AuthProvider>
+            <div className="flex flex-1 flex-col">{children}</div>
+            <AppFooter />
+          </AuthProvider>
+        </ToastProvider>
       </body>
     </html>
   );

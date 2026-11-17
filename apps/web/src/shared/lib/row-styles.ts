@@ -8,7 +8,7 @@
  */
 
 /** Muted text treatment applied to an inactive row. */
-export const INACTIVE_ROW_CLASS = "text-muted-foreground";
+const INACTIVE_ROW_CLASS = "text-muted-foreground";
 
 /** Restrained destructive intent for a `Išjungti` action. */
 const DESTRUCTIVE_INTENT =
@@ -21,25 +21,9 @@ const NEUTRAL_INTENT =
 const TABLE_SIZE = "px-2 py-1 text-xs";
 const DETAIL_SIZE = "px-3 py-2 text-sm";
 
-/** Restrained destructive styling for a table `Išjungti` action. */
-export const DISABLE_ACTION_CLASS = `rounded-md border ${DESTRUCTIVE_INTENT} ${TABLE_SIZE}`;
-
-/** Neutral styling for a table `Įjungti` action. */
-export const ENABLE_ACTION_CLASS = `rounded-md border ${NEUTRAL_INTENT} ${TABLE_SIZE}`;
-
 /** Row text class: muted for inactive rows, unchanged for active rows. */
 export function inactiveRowClass(active: boolean): string {
   return active ? "" : INACTIVE_ROW_CLASS;
-}
-
-/** Class for a disable (`Išjungti`) table action. */
-export function disableActionClass(): string {
-  return DISABLE_ACTION_CLASS;
-}
-
-/** Class for an enable (`Įjungti`) table action. */
-export function enableActionClass(): string {
-  return ENABLE_ACTION_CLASS;
 }
 
 /**

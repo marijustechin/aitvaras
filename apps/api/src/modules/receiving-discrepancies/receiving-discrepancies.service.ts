@@ -112,6 +112,13 @@ export class ReceivingDiscrepanciesService {
           message: "Neatitikimas nerastas.",
         });
       }
+      // Settlement is a WEIGHT-only workflow; PIECE settlement is not defined yet.
+      if (discrepancy.kind !== "WEIGHT" || discrepancy.differenceWeight === null) {
+        throw invalid(
+          "Vienetinių neatitikimų padengimas dar nepalaikomas.",
+          "PIECE_SETTLEMENT_NOT_SUPPORTED",
+        );
+      }
 
       const balance = settlementBalance(
         discrepancy.differenceWeight,

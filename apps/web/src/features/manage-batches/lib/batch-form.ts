@@ -1,13 +1,21 @@
 import {
   type Bag,
-  type Batch,
-  type BatchDetail,
+  type BatchItem,
+  type BatchReceivingMode,
+  type ConfirmPieceBatchRequest,
   type CreateBagRequest,
+  type CreateBatchItemRequest,
   type CreateIncomingDeliveryRequest,
+  type QuickCreateResourceRequest,
   type ReconcileBatchRequest,
   type ResolveBatchRequest,
   type UpdateBagRequest,
+  type UpdateBatchItemRequest,
 } from "@aitvaras/contracts";
+import {
+  dateOnlyToLocalIso,
+  todayDateOnly,
+} from "@/shared/lib/date";
 
 /** A delivery being created in the form (all values are strings). */
 export interface DraftDelivery {
@@ -30,40 +38,18 @@ export interface DraftBag {
 
 const DECIMAL = /^\d+(\.\d+)?$/;
 const INTEGER = /^\d+$/;
-const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
-
-function todayDateInput(): string {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${month}-${day}`;
-}
 
 /**
- * Convert a `<input type="date">` value (yyyy-mm-dd) to an ISO datetime at local
- * start of day, or null when the value is not a valid date.
+ * Convert a date-only `yyyy-mm-dd` value to an ISO datetime at local start of
+ * day, or null when the value is not a valid date.
  */
 export function arrivalDateToIso(value: string): string | null {
-  const match = DATE.exec(value.trim());
-  if (!match) {
-    return null;
-  }
-  const [, year, month, day] = match;
-  const date = new Date(Number(year), Number(month) - 1, Number(day));
-  if (
-    Number.isNaN(date.getTime()) ||
-    date.getFullYear() !== Number(year) ||
-    date.getMonth() !== Number(month) - 1 ||
-    date.getDate() !== Number(day)
-  ) {
-    return null;
-  }
-  return date.toISOString();
+  return dateOnlyToLocalIso(value);
 }
 
 /** A new delivery draft: nothing selected, arrival date defaulting to today. */
 export function createDraftDelivery(): DraftDelivery {
-  return { supplierId: "", arrivalDate: todayDateInput() };
+  return { supplierId: "", arrivalDate: todayDateOnly() };
 }
 
 /** Client-side validation message, or null when the delivery is submittable. */
@@ -93,9 +79,16 @@ export function createDraftResource(): DraftResource {
   return { resourceId: "", warehouseId: "" };
 }
 
-/** Client-side validation message, or null when the resource is submittable. */
-export function resourceFormError(draft: DraftResource): string | null {
-  if (draft.resourceId.trim() === "") {
+/**
+ * Client-side validation message, or null when the batch start is submittable.
+ * A warehouse is always required; a resource only for a `WEIGHT` batch (a
+ * `PIECE` batch owns no batch-level resource).
+ */
+export function resourceFormError(
+  draft: DraftResource,
+  receivingMode: BatchReceivingMode = "WEIGHT",
+): string | null {
+  if (receivingMode === "WEIGHT" && draft.resourceId.trim() === "") {
     return "Pasirinkite išteklių.";
   }
   if (draft.warehouseId.trim() === "") {
@@ -104,9 +97,278 @@ export function resourceFormError(draft: DraftResource): string | null {
   return null;
 }
 
-/** Convert the resource/warehouse selection into the resolve-batch payload. */
-export function toResolveBatchPayload(draft: DraftResource): ResolveBatchRequest {
-  return { resourceId: draft.resourceId, warehouseId: draft.warehouseId };
+/** Convert the selection into the resolve-batch payload (mode-aware). */
+export function toResolveBatchPayload(
+  draft: DraftResource,
+  receivingMode: BatchReceivingMode = "WEIGHT",
+): ResolveBatchRequest {
+  if (receivingMode === "PIECE") {
+    return { receivingMode, warehouseId: draft.warehouseId };
+  }
+  return {
+    receivingMode,
+    resourceId: draft.resourceId,
+    warehouseId: draft.warehouseId,
+  };
+}
+
+/** A PIECE item line being entered (user-entered values are strings). */
+export interface DraftPieceItem {
+  resourceId: string;
+  quantity: string;
+  warehouseLocationId: string;
+}
+
+/** A blank PIECE item draft. */
+export function createDraftPieceItem(): DraftPieceItem {
+  return { resourceId: "", quantity: "", warehouseLocationId: "" };
+}
+
+/** Client-side validation message, or null when the item is submittable. */
+export function pieceItemFormError(draft: DraftPieceItem): string | null {
+  if (draft.resourceId.trim() === "") {
+    return "Pasirinkite prekę.";
+  }
+  if (draft.warehouseLocationId.trim() === "") {
+    return "Pasirinkite sandėlio vietą.";
+  }
+  const quantity = draft.quantity.trim();
+  if (!INTEGER.test(quantity) || Number(quantity) <= 0) {
+    return "Kiekis turi būti teigiamas sveikasis skaičius.";
+  }
+  return null;
+}
+
+/** Convert a piece-item draft into the create request payload. */
+export function toCreateItemPayload(draft: DraftPieceItem): CreateBatchItemRequest {
+  return {
+    resourceId: draft.resourceId,
+    warehouseLocationId: draft.warehouseLocationId,
+    quantity: Number(draft.quantity.trim()),
+  };
+}
+
+/** A PIECE item line being corrected (resource, quantity/location). */
+export interface DraftPieceCorrection {
+  id: string;
+  resourceId: string;
+  quantity: string;
+  warehouseLocationId: string;
+}
+
+/** Prefill a correction draft from the item's current values. */
+export function pieceCorrectionFromItem(item: BatchItem): DraftPieceCorrection {
+  return {
+    id: item.id,
+    resourceId: item.resourceId,
+    quantity: String(item.quantity),
+    warehouseLocationId: item.warehouseLocationId,
+  };
+}
+
+/** Whether the correction draft actually differs from the item on file. */
+export function pieceCorrectionChanged(
+  draft: DraftPieceCorrection,
+  item: BatchItem,
+): boolean {
+  return (
+    draft.resourceId !== item.resourceId ||
+    draft.quantity.trim() !== String(item.quantity) ||
+    draft.warehouseLocationId !== item.warehouseLocationId
+  );
+}
+
+/** Client-side validation message, or null when the correction is submittable. */
+export function pieceCorrectionFormError(
+  draft: DraftPieceCorrection,
+): string | null {
+  if (draft.resourceId.trim() === "") {
+    return "Pasirinkite prekę.";
+  }
+  if (draft.warehouseLocationId.trim() === "") {
+    return "Pasirinkite sandėlio vietą.";
+  }
+  const quantity = draft.quantity.trim();
+  if (!INTEGER.test(quantity) || Number(quantity) <= 0) {
+    return "Kiekis turi būti teigiamas sveikasis skaičius.";
+  }
+  return null;
+}
+
+/** Convert a correction draft into the update payload (only changed fields). */
+export function toUpdateItemPayload(
+  draft: DraftPieceCorrection,
+  item: BatchItem,
+): UpdateBatchItemRequest {
+  const payload: UpdateBatchItemRequest = {};
+  if (draft.resourceId !== item.resourceId) {
+    payload.resourceId = draft.resourceId;
+  }
+  if (draft.quantity.trim() !== String(item.quantity)) {
+    payload.quantity = Number(draft.quantity.trim());
+  }
+  if (draft.warehouseLocationId !== item.warehouseLocationId) {
+    payload.warehouseLocationId = draft.warehouseLocationId;
+  }
+  return payload;
+}
+
+/** Convert an optional void reason into the item void request body. */
+export function toVoidItemPayload(reason: string): { reason?: string } {
+  const trimmed = reason.trim();
+  return trimmed === "" ? {} : { reason: trimmed };
+}
+
+/** One product row in the PIECE confirmation table. */
+export interface PieceConfirmationProductDraft {
+  /** `Sutampa`: when true the document quantity equals the actual quantity. */
+  matches: boolean;
+  /** Documentary quantity as entered (used only when `matches` is false). */
+  documentPieces: string;
+}
+
+/** A PIECE batch confirmation draft: batch-level fields + per-product rows. */
+export interface DraftPieceConfirmation {
+  acquisitionAmount: string;
+  documentDate: string;
+  documentNumber: string;
+  products: Record<string, PieceConfirmationProductDraft>;
+}
+
+/** A product row for the confirmation table (server-derived actual pieces). */
+export interface PieceConfirmationRow {
+  resourceId: string;
+  resourceName: string;
+  actualPieces: number;
+}
+
+/** A blank PIECE confirmation draft. */
+export function createDraftPieceConfirmation(): DraftPieceConfirmation {
+  return {
+    acquisitionAmount: "",
+    documentDate: "",
+    documentNumber: "",
+    products: {},
+  };
+}
+
+/** Default product rows: `Sutampa` checked, document = actual. */
+export function pieceConfirmationRows(
+  rows: readonly PieceConfirmationRow[],
+): Record<string, PieceConfirmationProductDraft> {
+  const products: Record<string, PieceConfirmationProductDraft> = {};
+  for (const row of rows) {
+    products[row.resourceId] = {
+      matches: true,
+      documentPieces: String(row.actualPieces),
+    };
+  }
+  return products;
+}
+
+/** The documentary pieces for a row (actual when `Sutampa`), or null if invalid. */
+export function pieceRowDocumentPieces(
+  draft: DraftPieceConfirmation,
+  row: PieceConfirmationRow,
+): number | null {
+  const product = draft.products[row.resourceId];
+  if (!product || product.matches) {
+    return row.actualPieces;
+  }
+  const value = product.documentPieces.trim();
+  if (!INTEGER.test(value)) {
+    return null;
+  }
+  return Number(value);
+}
+
+/** The signed difference `actual − document` for a row. */
+export function pieceRowDifference(
+  draft: DraftPieceConfirmation,
+  row: PieceConfirmationRow,
+): number {
+  const document = pieceRowDocumentPieces(draft, row);
+  return row.actualPieces - (document ?? row.actualPieces);
+}
+
+/** Client-side validation message, or null when confirmation is submittable. */
+export function pieceConfirmationFormError(
+  draft: DraftPieceConfirmation,
+  rows: readonly PieceConfirmationRow[],
+): string | null {
+  if (!DECIMAL.test(draft.acquisitionAmount.trim())) {
+    return "Įveskite įsigijimo vertę (gali būti 0).";
+  }
+  if (
+    draft.documentDate.trim() !== "" &&
+    arrivalDateToIso(draft.documentDate) === null
+  ) {
+    return "Įveskite teisingą dokumento datą.";
+  }
+  for (const row of rows) {
+    if (pieceRowDocumentPieces(draft, row) === null) {
+      return `Įveskite ${row.resourceName} dokumentinį kiekį (sveikasis skaičius).`;
+    }
+  }
+  return null;
+}
+
+/** Convert a PIECE confirmation draft into the request payload. */
+export function toConfirmPiecePayload(
+  draft: DraftPieceConfirmation,
+  rows: readonly PieceConfirmationRow[],
+  acknowledgeDiscrepancies: boolean,
+): ConfirmPieceBatchRequest {
+  const payload: ConfirmPieceBatchRequest = {
+    acquisitionAmount: draft.acquisitionAmount.trim(),
+    products: rows.map((row) => ({
+      resourceId: row.resourceId,
+      documentPieces: pieceRowDocumentPieces(draft, row) ?? row.actualPieces,
+    })),
+  };
+  if (acknowledgeDiscrepancies) {
+    payload.acknowledgeDiscrepancies = true;
+  }
+  const documentDate = arrivalDateToIso(draft.documentDate);
+  if (documentDate) {
+    payload.documentDate = documentDate;
+  }
+  const documentNumber = draft.documentNumber.trim();
+  if (documentNumber !== "") {
+    payload.documentNumber = documentNumber;
+  }
+  return payload;
+}
+
+/** A missing product being quick-created from the receiving flow. */
+export interface DraftQuickResource {
+  name: string;
+  categoryId: string;
+}
+
+/** A blank quick-create product draft. */
+export function createDraftQuickResource(): DraftQuickResource {
+  return { name: "", categoryId: "" };
+}
+
+/** Client-side validation message, or null when quick-create is submittable. */
+export function quickResourceFormError(
+  draft: DraftQuickResource,
+): string | null {
+  if (draft.name.trim() === "") {
+    return "Įveskite prekės pavadinimą.";
+  }
+  if (draft.categoryId.trim() === "") {
+    return "Pasirinkite kategoriją.";
+  }
+  return null;
+}
+
+/** Convert a quick-create draft into the request payload. */
+export function toQuickCreateResourcePayload(
+  draft: DraftQuickResource,
+): QuickCreateResourceRequest {
+  return { name: draft.name.trim(), categoryId: draft.categoryId };
 }
 
 /** A new package draft: no packaging/weight/location. */
@@ -139,25 +401,6 @@ export function toCreateBagPayload(draft: DraftBag): CreateBagRequest {
     packagingTypeId: draft.packagingTypeId,
     grossWeight: draft.grossWeight.trim(),
     warehouseLocationId: draft.warehouseLocationId,
-  };
-}
-
-/**
- * A draft for the next package of a batch: it preselects the location of the most
- * recently registered package (`BatchDetail.suggestedLocationId`), which the
- * worker may still change. There is no arbitrary fallback location.
- */
-export function initialBagDraft(batch: Batch | BatchDetail): DraftBag {
-  const suggestedLocationId =
-    "suggestedLocationId" in batch ? batch.suggestedLocationId : null;
-  const suggestedPackagingTypeId =
-    "suggestedPackagingTypeId" in batch
-      ? batch.suggestedPackagingTypeId
-      : null;
-  return {
-    packagingTypeId: suggestedPackagingTypeId ?? "",
-    grossWeight: "",
-    warehouseLocationId: suggestedLocationId ?? "",
   };
 }
 

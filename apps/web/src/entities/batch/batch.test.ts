@@ -1,19 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
-  bagLocationLabel,
   bagStatusClass,
   bagStatusLabel,
   batchStatusLabel,
+  canPrintLabel,
   canReceiveStock,
   correctionKindLabel,
-  EMPTY_BATCHES_MESSAGE,
   EMPTY_CORRECTIONS_MESSAGE,
   formatSignedWeight,
   formatWeight,
   formatWeightDifference,
   GAVIMAI_ACTION,
   isBatchConfirmed,
-  isBatchOpen,
   RECEIVE_ACTION,
   RECEIVING_ROLES,
   weightsMatch,
@@ -25,11 +23,6 @@ describe("batch status", () => {
     expect(batchStatusLabel("CONFIRMED")).toBe("Patvirtinta");
   });
 
-  it("treats only pending batches as open for package changes", () => {
-    expect(isBatchOpen("PENDING")).toBe(true);
-    expect(isBatchOpen("CONFIRMED")).toBe(false);
-  });
-
   it("treats only CONFIRMED as confirmed (terminal)", () => {
     expect(isBatchConfirmed("CONFIRMED")).toBe(true);
     expect(isBatchConfirmed("PENDING")).toBe(false);
@@ -37,6 +30,11 @@ describe("batch status", () => {
 });
 
 describe("handling unit status and corrections", () => {
+  it("allows label printing only for active units", () => {
+    expect(canPrintLabel("ACTIVE")).toBe(true);
+    expect(canPrintLabel("VOIDED")).toBe(false);
+  });
+
   it("maps unit statuses to Lithuanian labels", () => {
     expect(bagStatusLabel("ACTIVE")).toBe("Aktyvus");
     expect(bagStatusLabel("VOIDED")).toBe("Anuliuotas");
@@ -97,22 +95,6 @@ describe("formatWeight", () => {
   });
 });
 
-describe("bagLocationLabel", () => {
-  it("shows the location name when present", () => {
-    expect(bagLocationLabel("Stelažas A1")).toBe("Stelažas A1");
-  });
-
-  it("shows the empty placeholder when absent", () => {
-    expect(bagLocationLabel(null)).toBe("—");
-  });
-});
-
-describe("empty state", () => {
-  it("exposes the empty-state text", () => {
-    expect(EMPTY_BATCHES_MESSAGE).toBe("Partijų dar nėra.");
-  });
-});
-
 describe("receiving capability", () => {
   it("lists ADMIN and WAREHOUSE_WORKER as receiving roles", () => {
     expect(RECEIVING_ROLES).toEqual(["ADMIN", "WAREHOUSE_WORKER"]);
@@ -126,12 +108,12 @@ describe("receiving capability", () => {
   });
 
   it("exposes the workplace action label and route", () => {
-    expect(RECEIVE_ACTION.label).toBe("Registruoti sandėlyje");
-    expect(RECEIVE_ACTION.href).toBe("/receiving");
+    expect(RECEIVE_ACTION.label).toBe("Naujas priėmimas");
+    expect(RECEIVE_ACTION.href).toBe("/receiving/new");
   });
 
   it("exposes the ADMIN received-batch queue action", () => {
-    expect(GAVIMAI_ACTION.label).toBe("Gavimai");
+    expect(GAVIMAI_ACTION.label).toBe("Priėmimas");
     expect(GAVIMAI_ACTION.href).toBe("/receipts");
   });
 });

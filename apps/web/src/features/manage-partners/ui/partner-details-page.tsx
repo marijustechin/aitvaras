@@ -4,18 +4,21 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import type { Partner } from "@aitvaras/contracts";
-import { partnerRoleSummary } from "@/entities/partner";
+import { partnerCountryName, partnerRoleSummary } from "@/entities/partner";
 import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
 import { EMPTY_VALUE, activeStatusLabel, valueOrPlaceholder } from "@/shared/lib/format";
+import { focusField, invalidFieldsSummary } from "@/shared/lib/form-feedback";
 import { workSurfaceClass } from "@/shared/lib/surfaces";
-import { SECONDARY_NAV_BUTTON_CLASS } from "@/shared/ui";
+import { SECONDARY_NAV_BUTTON_CLASS, SectionTabs, useToast } from "@/shared/ui";
 import {
-  partnerFormError,
+  partnerFormFieldErrors,
   partnerFormToPayload,
   partnerToFormValues,
+  type PartnerFieldErrors,
   type PartnerFormValues,
 } from "../lib/partner-form";
+import { partnerFieldErrorsFromApi } from "../lib/partner-api-errors";
 import { PartnerForm } from "./partner-form";
 
 /** Partner details/edit composition (rendered inside the shell). */
@@ -24,13 +27,14 @@ export function PartnerDetailsPage() {
   const id = typeof params.id === "string" ? params.id : "";
   const router = useRouter();
   const { user, clearSession } = useAuth();
+  const toast = useToast();
 
   const [partner, setPartner] = useState<Partner | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<PartnerFieldErrors>({});
 
   const isAdmin = user?.roles.includes("ADMIN") ?? false;
 
@@ -66,14 +70,39 @@ export function PartnerDetailsPage() {
     void reload();
   }, [reload]);
 
+  function announceErrors(errors: PartnerFieldErrors): void {
+    const labels: Record<string, string> = {
+      name: "Pavadinimas",
+      roles: "Vaidmenys",
+      country: "Šalis",
+      companyCode: "Įmonės kodas",
+    };
+    const summary = invalidFieldsSummary(errors, labels);
+    if (!summary) {
+      return;
+    }
+    toast.error(summary);
+    const first = Object.keys(errors)[0] as keyof PartnerFieldErrors;
+    focusField(
+      first === "name"
+        ? "partner-name"
+        : first === "roles"
+          ? "partner-role-SUPPLIER"
+          : first === "country"
+            ? "partner-country"
+            : "partner-company-code",
+    );
+  }
+
   async function save(values: PartnerFormValues): Promise<void> {
-    const validation = partnerFormError(values);
-    if (validation) {
-      setSaveError(validation);
+    const validation = partnerFormFieldErrors(values);
+    if (Object.keys(validation).length > 0) {
+      setFieldErrors(validation);
+      announceErrors(validation);
       return;
     }
     setSubmitting(true);
-    setSaveError(null);
+    setFieldErrors({});
     try {
       const updated = await apiFetch<Partner>(`/partners/${id}`, {
         method: "PATCH",
@@ -81,18 +110,39 @@ export function PartnerDetailsPage() {
       });
       setPartner(updated);
       setEditing(false);
+      toast.success("Partneris atnaujintas.");
     } catch (caught) {
       if (isUnauthorized(caught)) {
         clearSession();
         router.replace("/login");
         return;
       }
-      setSaveError(
-        caught instanceof ApiError ? caught.message : "Nepavyko atnaujinti partnerio",
+      const apiFieldErrors = partnerFieldErrorsFromApi(caught);
+      if (apiFieldErrors) {
+        setFieldErrors(apiFieldErrors);
+        announceErrors(apiFieldErrors);
+        return;
+      }
+      toast.error(
+        caught instanceof ApiError
+          ? caught.message
+          : "Nepavyko atnaujinti partnerio",
       );
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function clearFieldError(field: keyof PartnerFormValues): void {
+    setFieldErrors((current) => {
+      const next = { ...current };
+      delete next[field as keyof PartnerFieldErrors];
+      if (field === "country" || field === "companyCode") {
+        delete next.country;
+        delete next.companyCode;
+      }
+      return next;
+    });
   }
 
   if (loading) {
@@ -120,7 +170,7 @@ export function PartnerDetailsPage() {
           <button
             type="button"
             onClick={() => {
-              setSaveError(null);
+              setFieldErrors({});
               setEditing(true);
             }}
             className="rounded-md border border-border px-3 py-2 text-sm hover:bg-accent"
@@ -130,15 +180,18 @@ export function PartnerDetailsPage() {
         ) : null}
       </div>
 
+      <SectionTabs />
+
       {editing ? (
         <section className={workSurfaceClass()}>
           <PartnerForm
             initialValues={partnerToFormValues(partner)}
             submitLabel="Išsaugoti"
             submitting={submitting}
-            error={saveError}
+            fieldErrors={fieldErrors}
             onSubmit={(values) => void save(values)}
             onCancel={() => setEditing(false)}
+            onFieldChange={clearFieldError}
           />
         </section>
       ) : (
@@ -154,7 +207,10 @@ export function PartnerDetailsPage() {
               label="PVM kodas"
               value={valueOrPlaceholder(partner.vatCode)}
             />
-            <Detail label="Šalis" value={valueOrPlaceholder(partner.country)} />
+            <Detail
+              label="Šalis"
+              value={valueOrPlaceholder(partnerCountryName(partner.country))}
+            />
             <Detail
               label="Adresas"
               value={valueOrPlaceholder(partner.address)}

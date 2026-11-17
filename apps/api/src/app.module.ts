@@ -8,6 +8,7 @@ import { PrismaModule } from "./infrastructure/prisma/prisma.module";
 import { AccessModule } from "./modules/access/access.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { BatchesModule } from "./modules/batches/batches.module";
+import { CompanySettingsModule } from "./modules/company-settings/company-settings.module";
 import { HealthModule } from "./modules/health/health.module";
 import { PackagingTypesModule } from "./modules/packaging-types/packaging-types.module";
 import { PartnersModule } from "./modules/partners/partners.module";
@@ -15,6 +16,7 @@ import { ReceiptsModule } from "./modules/receipts/receipts.module";
 import { ReceivingDiscrepanciesModule } from "./modules/receiving-discrepancies/receiving-discrepancies.module";
 import { ResourceCategoriesModule } from "./modules/resource-categories/resource-categories.module";
 import { ResourcesModule } from "./modules/resources/resources.module";
+import { StockModule } from "./modules/stock/stock.module";
 import { UsersModule } from "./modules/users/users.module";
 import { WarehousesModule } from "./modules/warehouses/warehouses.module";
 
@@ -31,12 +33,14 @@ import { WarehousesModule } from "./modules/warehouses/warehouses.module";
     AccessModule,
     AuthModule,
     UsersModule,
+    CompanySettingsModule,
     PartnersModule,
     ResourceCategoriesModule,
     ResourcesModule,
     PackagingTypesModule,
     ReceiptsModule,
     BatchesModule,
+    StockModule,
     ReceivingDiscrepanciesModule,
     WarehousesModule,
     HealthModule,

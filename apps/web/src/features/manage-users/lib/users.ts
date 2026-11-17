@@ -79,60 +79,40 @@ export function emptyPasswordReset(): PasswordResetState {
   return { password: "", confirm: "" };
 }
 
-/** Success message shown after a password reset. */
-export const PASSWORD_RESET_SUCCESS = "Slaptažodis pakeistas.";
-
 /**
  * Consolidated state of the inline administrator password-reset section.
  *
  * Deliberately contains no user-edit fields: closing the section clears only the
- * password form and its messages, so the surrounding user-edit form is untouched.
+ * password form, so the surrounding user-edit form is untouched. Outcome
+ * messages are announced through the global toaster, not stored inline.
  */
 export interface PasswordResetPanelState {
   open: boolean;
   form: PasswordResetState;
-  error: string | null;
-  success: string | null;
 }
 
-/** Initial/closed panel: no fields entered, no messages. */
+/** Initial/closed panel: no fields entered. */
 export const CLOSED_PASSWORD_RESET_PANEL: PasswordResetPanelState = {
   open: false,
   form: emptyPasswordReset(),
-  error: null,
-  success: null,
 };
 
-/** Open the reset section with empty fields and no messages. */
+/** Open the reset section with empty fields. */
 export function openPasswordResetPanel(): PasswordResetPanelState {
   return {
     open: true,
     form: emptyPasswordReset(),
-    error: null,
-    success: null,
   };
 }
 
 /**
- * Close the reset section (`Uždaryti`): clear both password fields and every
- * reset message. The normal user-edit form is not part of this state.
+ * Close the reset section (`Uždaryti`): clear both password fields. The normal
+ * user-edit form is not part of this state.
  */
 export function closePasswordResetPanel(): PasswordResetPanelState {
   return {
     open: false,
     form: emptyPasswordReset(),
-    error: null,
-    success: null,
-  };
-}
-
-/** Successful reset: close the section, clear the fields, show the success note. */
-export function passwordResetPanelSuccess(): PasswordResetPanelState {
-  return {
-    open: false,
-    form: emptyPasswordReset(),
-    error: null,
-    success: PASSWORD_RESET_SUCCESS,
   };
 }
 
@@ -228,25 +208,4 @@ export function applyUserUpdate(
   updated: UserSummary,
 ): UserSummary[] {
   return users.map((user) => (user.id === updated.id ? updated : user));
-}
-
-/**
- * Post-save UI state: replace the row, close the edit panel and clear any stale
- * error so the table stays consistent without a manual reload.
- */
-export function userEditSuccess(
-  users: UserSummary[],
-  updated: UserSummary,
-): {
-  users: UserSummary[];
-  editingId: null;
-  edit: null;
-  error: null;
-} {
-  return {
-    users: applyUserUpdate(users, updated),
-    editingId: null,
-    edit: null,
-    error: null,
-  };
 }

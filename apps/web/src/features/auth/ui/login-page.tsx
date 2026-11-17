@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
-import { BrandMark, PasswordInput } from "@/shared/ui";
+import { BrandMark, PasswordInput, useToast } from "@/shared/ui";
 import { useAuth } from "../model/auth-provider";
 import { loginErrorMessage, shouldShowDevLoginHint } from "../lib/login-ui";
 
@@ -10,9 +10,9 @@ import { loginErrorMessage, shouldShowDevLoginHint } from "../lib/login-ui";
 export function LoginPage() {
   const { user, loading, login } = useAuth();
   const router = useRouter();
+  const toast = useToast();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -24,12 +24,12 @@ export function LoginPage() {
   async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     setSubmitting(true);
-    setError(null);
     try {
       await login({ username: username.trim(), password });
       router.replace("/");
     } catch (caught) {
-      setError(loginErrorMessage(caught));
+      toast.error(loginErrorMessage(caught));
+      document.getElementById("username")?.focus();
     } finally {
       setSubmitting(false);
     }
@@ -76,12 +76,6 @@ export function LoginPage() {
             onChange={setPassword}
           />
         </div>
-
-        {error ? (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        ) : null}
 
         <button
           type="submit"

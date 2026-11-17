@@ -19,6 +19,7 @@ function batchPayload() {
     code: "P01",
     deliveryId,
     deliveryCode: "G2609-02",
+    receivingMode: "WEIGHT",
     resourceId,
     resourceName: "Cukrus",
     resourceCategoryName: "Žaliava",
@@ -42,6 +43,8 @@ function batchPayload() {
     createdByName: "Vardenis Pavardenis",
     bagCount: 0,
     totalNetWeight: "0",
+    itemLineCount: 0,
+    totalPieces: 0,
     createdAt: "2026-09-29T09:00:00.000Z",
     updatedAt: "2026-09-29T09:00:00.000Z",
   });

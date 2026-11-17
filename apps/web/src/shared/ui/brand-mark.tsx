@@ -14,10 +14,18 @@ import Link from "next/link";
 export function BrandMark({
   href,
   className,
+  variant = "responsive",
 }: {
   href?: string;
   className?: string;
+  /**
+   * `responsive` swaps the horizontal logo for the symbol on narrow viewports.
+   * `horizontal` always uses the horizontal lock-up (e.g. inside the sidebar,
+   * whose width is independent of the viewport breakpoint).
+   */
+  variant?: "responsive" | "horizontal";
 }) {
+  const horizontal = variant === "horizontal";
   const mark = (
     <span className={`inline-flex items-center ${className ?? ""}`}>
       <Image
@@ -26,14 +34,16 @@ export function BrandMark({
         width={1108}
         height={218}
         priority
-        className="hidden h-7 w-auto sm:block"
+        className={`h-7 w-auto ${horizontal ? "block" : "hidden sm:block"}`}
       />
       <Image
         src="/brand/aitvaras-logo-symbol.webp"
         alt="Aitvaras"
         width={512}
         height={512}
-        className="h-9 w-9 sm:hidden"
+        className={
+          horizontal ? "hidden" : "h-9 w-9 sm:hidden"
+        }
       />
     </span>
   );

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ReceivingDiscrepancyRegisterRow } from "@aitvaras/contracts";
-import { formatBatchDateTime } from "@/entities/batch";
+import { formatBatchDateTime, formatSignedPieces } from "@/entities/batch";
 import {
   discrepancyDifferenceLabel,
   discrepancyDirectionClass,
@@ -16,7 +16,7 @@ import {
 } from "@/entities/receiving-discrepancy";
 import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
-import { SECONDARY_NAV_BUTTON_CLASS } from "@/shared/ui";
+import { SECONDARY_NAV_BUTTON_CLASS, SectionTabs, DateInput } from "@/shared/ui";
 import {
   createDiscrepancyListFilters,
   DISCREPANCIES_HEADING,
@@ -112,6 +112,7 @@ export function DiscrepanciesPage() {
       <h1 className="text-2xl font-semibold tracking-tight">
         {DISCREPANCIES_HEADING}
       </h1>
+      <SectionTabs />
 
       {error ? (
         <p role="alert" className="text-sm text-destructive">
@@ -165,24 +166,22 @@ export function DiscrepanciesPage() {
         </label>
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Data nuo</span>
-          <input
-            type="date"
+          <DateInput
             value={filters.dateFrom}
-            onChange={(event) => update({ dateFrom: event.target.value })}
+            onChange={(dateFrom) => update({ dateFrom })}
             className={inputClass}
           />
         </label>
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Data iki</span>
-          <input
-            type="date"
+          <DateInput
             value={filters.dateTo}
-            onChange={(event) => update({ dateTo: event.target.value })}
+            onChange={(dateTo) => update({ dateTo })}
             className={inputClass}
           />
         </label>
         <label className="grid gap-1 text-sm">
-          <span className="font-medium">Gavimo kodas</span>
+          <span className="font-medium">Priėmimo kodas</span>
           <input
             type="search"
             value={filters.code}
@@ -216,7 +215,7 @@ export function DiscrepanciesPage() {
               <tr>
                 <th className="whitespace-nowrap px-4 py-2 font-medium">Data</th>
                 <th className="whitespace-nowrap px-4 py-2 font-medium">
-                  Gavimas
+                  Priėmimas
                 </th>
                 <th className="whitespace-nowrap px-4 py-2 font-medium">
                   Partija
@@ -259,20 +258,32 @@ export function DiscrepanciesPage() {
                     </Link>
                   </td>
                   <td className="px-4 py-2">{row.supplierName}</td>
-                  <td className="px-4 py-2">{row.resourceName}</td>
+                  <td className="px-4 py-2">{row.resourceName ?? "—"}</td>
                   <td className="px-4 py-2">
                     <span className={discrepancyDirectionClass(row.direction)}>
                       {discrepancyDirectionLabel(row.direction)}
                     </span>
                   </td>
                   <td className="whitespace-nowrap px-4 py-2">
-                    {discrepancyDifferenceLabel(row.differenceWeight)}
+                    {row.kind === "PIECE"
+                      ? formatSignedPieces(row.differencePieces ?? 0)
+                      : row.differenceWeight === null
+                        ? "—"
+                        : discrepancyDifferenceLabel(row.differenceWeight)}
                   </td>
                   <td className="whitespace-nowrap px-4 py-2">
-                    {discrepancyWeightLabel(row.settledWeight)}
+                    {row.kind === "PIECE"
+                      ? "—"
+                      : row.settledWeight === null
+                        ? "—"
+                        : discrepancyWeightLabel(row.settledWeight)}
                   </td>
                   <td className="whitespace-nowrap px-4 py-2 font-medium">
-                    {discrepancyWeightLabel(row.remainingWeight)}
+                    {row.kind === "PIECE"
+                      ? "—"
+                      : row.remainingWeight === null
+                        ? "—"
+                        : discrepancyWeightLabel(row.remainingWeight)}
                   </td>
                   <td className="whitespace-nowrap px-4 py-2">
                     <span className={discrepancyStatusClass(row.status)}>

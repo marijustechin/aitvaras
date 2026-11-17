@@ -1,15 +1,16 @@
 import {
   BAG_STATUS_LABELS,
+  BATCH_ITEM_STATUS_LABELS,
+  BATCH_RECEIVING_MODE_LABELS,
   BATCH_STATUS_LABELS,
   type BagCorrectionKind,
   type BagStatus,
+  type BatchItemStatus,
+  type BatchReceivingMode,
   type BatchStatus,
   type RoleKey,
 } from "@aitvaras/contracts";
-import { valueOrPlaceholder } from "@/shared/lib/format";
-
-/** Empty-state text for the batches list. */
-export const EMPTY_BATCHES_MESSAGE = "Partijų dar nėra.";
+import { formatDate, formatDateTime } from "@/shared/lib/date";
 
 /** Empty-state text for a batch's packages. */
 export const EMPTY_BAGS_MESSAGE = "Pakuočių dar nėra.";
@@ -24,22 +25,21 @@ export const EMPTY_CORRECTIONS_MESSAGE = "Pataisymų dar nėra.";
 export const RECEIVING_ROLES: RoleKey[] = ["ADMIN", "WAREHOUSE_WORKER"];
 
 /**
- * The warehouse workplace action (label + route), shared by the home page,
- * navigation and the receiving flow. Uses the familiar operational term
- * `Registruoti sandėlyje` (not the formal `Pajamavimas`).
+ * The warehouse workplace action (label + route), shared by the home page and
+ * the receiving flow. The single user-facing entry point is `Naujas priėmimas`.
  */
 export const RECEIVE_ACTION = {
-  label: "Registruoti sandėlyje",
-  href: "/receiving",
+  label: "Naujas priėmimas",
+  href: "/receiving/new",
 } as const;
 
 /**
- * The ADMIN received-batch queue (formerly labelled `Pajamavimas`). It lists the
- * physical batches created through `Registruoti sandėlyje` for review and formal
+ * The received-batch list destination (`Priėmimas`). It lists the physical
+ * batches created through the receiving workflow for review and formal
  * documentary reconciliation.
  */
 export const GAVIMAI_ACTION = {
-  label: "Gavimai",
+  label: "Priėmimas",
   href: "/receipts",
 } as const;
 
@@ -53,13 +53,43 @@ export function batchStatusLabel(status: BatchStatus): string {
   return BATCH_STATUS_LABELS[status];
 }
 
-/**
- * Whether a batch still accepts package changes (while not yet confirmed). A
- * documentary/physical mismatch does not keep a batch open: it is confirmed and
- * recorded as a separate discrepancy, so only `PENDING` accepts changes.
- */
-export function isBatchOpen(status: BatchStatus): boolean {
-  return status === "PENDING";
+/** Lithuanian UI label for a batch receiving mode (`Svorinė`/`Vienetinė`). */
+export function batchReceivingModeLabel(mode: BatchReceivingMode): string {
+  return BATCH_RECEIVING_MODE_LABELS[mode];
+}
+
+/** Lithuanian UI label for a PIECE item-line status (never the raw key). */
+export function batchItemStatusLabel(status: BatchItemStatus): string {
+  return BATCH_ITEM_STATUS_LABELS[status];
+}
+
+const BATCH_ITEM_STATUS_CLASS: Record<BatchItemStatus, string> = {
+  ACTIVE: "text-muted-foreground",
+  VOIDED: "text-destructive",
+};
+
+/** Restrained semantic colour for a PIECE item-line status (text only). */
+export function batchItemStatusClass(status: BatchItemStatus): string {
+  return BATCH_ITEM_STATUS_CLASS[status];
+}
+
+/** Empty-state text for a PIECE batch with no item lines. */
+export const EMPTY_BATCH_ITEMS_MESSAGE = "Vienetų dar nėra.";
+
+/** Whether an active (not voided) bag/item label may be printed. */
+export function canPrintLabel(status: BagStatus | BatchItemStatus): boolean {
+  return status === "ACTIVE";
+}
+
+/** Display-only piece count (`120 vnt.`) with Lithuanian grouping. */
+export function formatPieces(count: number): string {
+  return `${new Intl.NumberFormat("lt-LT").format(count)} vnt.`;
+}
+
+/** Display-only **signed** piece difference (`+5 vnt.` / `−5 vnt.`; zero bare). */
+export function formatSignedPieces(value: number): string {
+  const sign = value > 0 ? "+" : value < 0 ? "\u2212" : "";
+  return `${sign}${new Intl.NumberFormat("lt-LT").format(Math.abs(value))} vnt.`;
 }
 
 /** Lithuanian UI label for a handling unit's status (never the raw key). */
@@ -157,22 +187,12 @@ export function formatSignedWeight(value: number | string): string {
   return amount > 0 ? `+${formatted}` : formatted;
 }
 
-/** Display-only date for a batch arrival date. */
+/** Display-only date for a batch arrival date (`yyyy-mm-dd`). */
 export function formatArrivalDate(iso: string): string {
-  return new Intl.DateTimeFormat("lt-LT", { dateStyle: "medium" }).format(
-    new Date(iso),
-  );
+  return formatDate(iso);
 }
 
-/** Display-only short date/time for a batch or bag timestamp. */
+/** Display-only timestamp with a `yyyy-mm-dd HH:mm` date portion. */
 export function formatBatchDateTime(iso: string): string {
-  return new Intl.DateTimeFormat("lt-LT", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(iso));
-}
-
-/** Bag location display: the location name, or the empty placeholder. */
-export function bagLocationLabel(name: string | null): string {
-  return valueOrPlaceholder(name);
+  return formatDateTime(iso);
 }

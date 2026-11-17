@@ -8,7 +8,8 @@ import { activeResourceCategories } from "@/entities/resource-category";
 import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
 import { workSurfaceClass } from "@/shared/lib/surfaces";
-import { SECONDARY_NAV_BUTTON_CLASS } from "@/shared/ui";
+import { focusField } from "@/shared/lib/form-feedback";
+import { SECONDARY_NAV_BUTTON_CLASS, SectionTabs, useToast } from "@/shared/ui";
 import {
   emptyResourceFormValues,
   resourceFormError,
@@ -21,9 +22,10 @@ import { ResourceForm } from "./resource-form";
 export function NewResourcePage() {
   const router = useRouter();
   const { clearSession } = useAuth();
+  const toast = useToast();
   const [categories, setCategories] = useState<ResourceCategory[] | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -41,7 +43,7 @@ export function NewResourcePage() {
           router.replace("/login");
           return;
         }
-        setError(
+        setLoadError(
           caught instanceof ApiError ? caught.message : "Nepavyko įkelti kategorijų",
         );
       }
@@ -54,16 +56,17 @@ export function NewResourcePage() {
   async function submit(values: ResourceFormValues): Promise<void> {
     const validation = resourceFormError(values);
     if (validation) {
-      setError(validation);
+      toast.error(validation);
+      focusField(values.name.trim() === "" ? "resource-name" : "resource-category");
       return;
     }
     setSubmitting(true);
-    setError(null);
     try {
       const created = await apiFetch<Resource>("/resources", {
         method: "POST",
         body: JSON.stringify(resourceFormToPayload(values)),
       });
+      toast.success("Išteklius sukurtas.");
       router.replace(`/resources/${created.id}`);
     } catch (caught) {
       if (isUnauthorized(caught)) {
@@ -71,7 +74,7 @@ export function NewResourcePage() {
         router.replace("/login");
         return;
       }
-      setError(
+      toast.error(
         caught instanceof ApiError ? caught.message : "Nepavyko sukurti ištekliaus",
       );
     } finally {
@@ -84,10 +87,11 @@ export function NewResourcePage() {
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold tracking-tight">Naujas išteklius</h1>
+      <SectionTabs />
 
-      {error ? (
+      {loadError ? (
         <p role="alert" className="text-sm text-destructive">
-          {error}
+          {loadError}
         </p>
       ) : null}
 
@@ -112,7 +116,6 @@ export function NewResourcePage() {
             }}
             submitLabel="Sukurti"
             submitting={submitting}
-            error={error}
             onSubmit={(values) => void submit(values)}
             onCancel={() => router.replace("/resources")}
           />

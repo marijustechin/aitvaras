@@ -50,6 +50,22 @@ export const CreateResourceRequestSchema = z
 export type CreateResourceRequest = z.infer<typeof CreateResourceRequestSchema>;
 
 /**
+ * Minimal receiving quick-create: a name and the required category only, always
+ * active. Used by the PIECE receiving flow so a warehouse worker can create a
+ * missing product without gaining broad resource administration (no notes /
+ * active / edit / delete).
+ */
+export const QuickCreateResourceRequestSchema = z
+  .object({
+    name: resourceName,
+    categoryId: z.uuid(),
+  })
+  .strict();
+export type QuickCreateResourceRequest = z.infer<
+  typeof QuickCreateResourceRequestSchema
+>;
+
+/**
  * Request to update a resource. The id comes from the route, never the body;
  * unknown fields are rejected and at least one field must be provided.
  */

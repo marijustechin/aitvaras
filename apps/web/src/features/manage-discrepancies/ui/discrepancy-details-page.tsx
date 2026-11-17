@@ -16,6 +16,8 @@ import type {
 import {
   formatArrivalDate,
   formatBatchDateTime,
+  formatPieces,
+  formatSignedPieces,
   formatSignedWeight,
   formatWeight,
 } from "@/entities/batch";
@@ -32,10 +34,13 @@ import {
 import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
 import { workSurfaceClass } from "@/shared/lib/surfaces";
+import { focusField } from "@/shared/lib/form-feedback";
 import {
   PRIMARY_BUTTON_CLASS,
   SECONDARY_BUTTON_CLASS,
   SECONDARY_NAV_BUTTON_CLASS,
+  SectionTabs,
+  useToast,
 } from "@/shared/ui";
 import { DISCREPANCIES_HREF } from "../lib/discrepancy-list";
 import {
@@ -54,14 +59,14 @@ const labelClass = "grid gap-1 text-sm";
 export function DiscrepancyDetailsPage() {
   const { clearSession } = useAuth();
   const router = useRouter();
+  const toast = useToast();
   const params = useParams();
   const id = typeof params.id === "string" ? params.id : "";
 
   const [detail, setDetail] = useState<ReceivingDiscrepancyDetail | null>(null);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState<SettlementDraft>(createSettlementDraft);
   const [saving, setSaving] = useState(false);
 
@@ -72,7 +77,7 @@ export function DiscrepancyDetailsPage() {
         router.replace("/login");
         return;
       }
-      setError(caught instanceof ApiError ? caught.message : fallback);
+      setLoadError(caught instanceof ApiError ? caught.message : fallback);
     },
     [clearSession, router],
   );
@@ -130,25 +135,43 @@ export function DiscrepancyDetailsPage() {
     if (!detail) {
       return;
     }
-    const validation = settlementFormError(draft, detail.remainingWeight);
+    const validation = settlementFormError(draft, detail.remainingWeight ?? "0");
     if (validation) {
-      setError(validation);
-      setNotice(null);
+      toast.error(validation);
+      const weightInvalid =
+        draft.coveredWeightKg.trim() === "" || !(Number(draft.coveredWeightKg) > 0);
+      const moneyInvalid =
+        draft.type === "MONEY" &&
+        (draft.moneyAmount.trim() === "" || !(Number(draft.moneyAmount) > 0));
+      focusField(
+        weightInvalid
+          ? "settlement-covered-weight"
+          : moneyInvalid
+            ? "settlement-money-amount"
+            : "settlement-currency",
+      );
       return;
     }
     setSaving(true);
-    setError(null);
-    setNotice(null);
     try {
       await apiFetch(`/receiving-discrepancies/${detail.id}/settlements`, {
         method: "POST",
         body: JSON.stringify(toCreateSettlementPayload(draft)),
       });
       setDraft(createSettlementDraft());
-      setNotice("Padengimas užregistruotas.");
+      toast.success("Padengimas užregistruotas.");
       await load();
     } catch (caught) {
-      handleError(caught, "Nepavyko užregistruoti padengimo");
+      if (isUnauthorized(caught)) {
+        clearSession();
+        router.replace("/login");
+        return;
+      }
+      toast.error(
+        caught instanceof ApiError
+          ? caught.message
+          : "Nepavyko užregistruoti padengimo",
+      );
     } finally {
       setSaving(false);
     }
@@ -165,9 +188,9 @@ export function DiscrepancyDetailsPage() {
           ← Neatitikimai
         </Link>
         <p className="text-sm text-muted-foreground">Neatitikimas nerastas.</p>
-        {error ? (
+        {loadError ? (
           <p role="alert" className="text-sm text-destructive">
-            {error}
+            {loadError}
           </p>
         ) : null}
       </div>
@@ -175,6 +198,7 @@ export function DiscrepancyDetailsPage() {
   }
 
   const settled = detail.status === "SETTLED";
+  const isPiece = detail.kind === "PIECE";
   const sourceOptions = batches.filter(
     (batch) =>
       batch.supplierId === detail.supplierId && batch.id !== detail.batchId,
@@ -191,36 +215,60 @@ export function DiscrepancyDetailsPage() {
       <h1 className="text-2xl font-semibold tracking-tight">
         Neatitikimas · {detail.deliveryCode} / {detail.batchCode}
       </h1>
-
-      {error ? (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
-      {notice ? (
-        <p role="status" className="text-sm text-muted-foreground">
-          {notice}
-        </p>
-      ) : null}
+      <SectionTabs />
 
       <section className={workSurfaceClass()}>
         <h2 className="mb-4 text-lg font-medium">Pradiniai duomenys</h2>
         <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
-          <Field label="Gavimas" value={detail.deliveryCode} />
+          <Field label="Priėmimas" value={detail.deliveryCode} />
           <Field label="Partija" value={detail.batchCode} />
           <Field label="Tiekėjas" value={detail.supplierName} />
-          <Field label="Išteklius" value={detail.resourceName} />
+          <Field label="Išteklius" value={detail.resourceName ?? "—"} />
           <Field label="Sandėlis" value={detail.warehouseName} />
           <Field label="Atvykimo data" value={formatArrivalDate(detail.arrivalDate)} />
-          <Field label="Faktiškai susverta" value={formatWeight(detail.measuredWeight)} />
-          <Field
-            label="Dokumentuose"
-            value={formatWeight(detail.documentWeight)}
-          />
-          <Field
-            label="Skirtumas"
-            value={formatSignedWeight(detail.differenceWeight)}
-          />
+          {isPiece ? (
+            <>
+              <Field
+                label="Faktiškai užregistruota"
+                value={formatPieces(detail.actualPieces ?? 0)}
+              />
+              <Field
+                label="Dokumentuose"
+                value={formatPieces(detail.documentPieces ?? 0)}
+              />
+              <Field
+                label="Skirtumas"
+                value={formatSignedPieces(detail.differencePieces ?? 0)}
+              />
+            </>
+          ) : (
+            <>
+              <Field
+                label="Faktiškai susverta"
+                value={
+                  detail.measuredWeight === null
+                    ? "—"
+                    : formatWeight(detail.measuredWeight)
+                }
+              />
+              <Field
+                label="Dokumentuose"
+                value={
+                  detail.documentWeight === null
+                    ? "—"
+                    : formatWeight(detail.documentWeight)
+                }
+              />
+              <Field
+                label="Skirtumas"
+                value={
+                  detail.differenceWeight === null
+                    ? "—"
+                    : formatSignedWeight(detail.differenceWeight)
+                }
+              />
+            </>
+          )}
           <Field
             label="Tipas"
             value={
@@ -243,24 +291,43 @@ export function DiscrepancyDetailsPage() {
           />
         </dl>
 
-        <dl className="mt-6 grid gap-x-8 gap-y-4 border-t border-border pt-4 sm:grid-cols-3">
-          <Field
-            label="Pradinis neatitikimas"
-            value={formatWeight(detail.originalWeight)}
-          />
-          <Field label="Padengta" value={formatWeight(detail.settledWeight)} />
-          <Field
-            label="Likutis"
-            value={
-              <span className="font-medium">
-                {formatWeight(detail.remainingWeight)}
-              </span>
-            }
-          />
-        </dl>
+        {!isPiece ? (
+          <dl className="mt-6 grid gap-x-8 gap-y-4 border-t border-border pt-4 sm:grid-cols-3">
+            <Field
+              label="Pradinis neatitikimas"
+              value={
+                detail.originalWeight === null
+                  ? "—"
+                  : formatWeight(detail.originalWeight)
+              }
+            />
+            <Field
+              label="Padengta"
+              value={
+                detail.settledWeight === null
+                  ? "—"
+                  : formatWeight(detail.settledWeight)
+              }
+            />
+            <Field
+              label="Likutis"
+              value={
+                <span className="font-medium">
+                  {detail.remainingWeight === null
+                    ? "—"
+                    : formatWeight(detail.remainingWeight)}
+                </span>
+              }
+            />
+          </dl>
+        ) : null}
       </section>
 
-      {!settled ? (
+      {isPiece ? (
+        <p className="text-sm text-muted-foreground">
+          Vienetinių neatitikimų padengimas dar nenumatytas.
+        </p>
+      ) : !settled ? (
         <section className={workSurfaceClass()}>
           <h2 className="mb-4 text-lg font-medium">Registruoti padengimą</h2>
           <form onSubmit={submitSettlement} className="grid gap-4">
@@ -283,6 +350,7 @@ export function DiscrepancyDetailsPage() {
               <label className={`${labelClass} sm:col-span-4`}>
                 <span className="font-medium">Padengiamas svoris, kg</span>
                 <input
+                  id="settlement-covered-weight"
                   required
                   type="number"
                   inputMode="decimal"
@@ -320,6 +388,7 @@ export function DiscrepancyDetailsPage() {
                   <label className={`${labelClass} sm:col-span-4`}>
                     <span className="font-medium">Suma</span>
                     <input
+                      id="settlement-money-amount"
                       required
                       type="number"
                       inputMode="decimal"
@@ -335,6 +404,7 @@ export function DiscrepancyDetailsPage() {
                   <label className={`${labelClass} sm:col-span-4`}>
                     <span className="font-medium">Valiuta</span>
                     <input
+                      id="settlement-currency"
                       required
                       type="text"
                       maxLength={8}
@@ -371,8 +441,11 @@ export function DiscrepancyDetailsPage() {
               </label>
             </div>
             <p className="text-sm text-muted-foreground">
-              Likutis: {formatWeight(detail.remainingWeight)}. Padengimas
-              nesikeičia atsargų ar pradinio neatitikimo.
+              Likutis:{" "}
+              {detail.remainingWeight === null
+                ? "—"
+                : formatWeight(detail.remainingWeight)}
+              . Padengimas nesikeičia atsargų ar pradinio neatitikimo.
             </p>
             <div className="flex justify-end">
               <button
@@ -394,6 +467,7 @@ export function DiscrepancyDetailsPage() {
         </p>
       )}
 
+      {!isPiece ? (
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-medium">Padengimų istorija</h2>
         {detail.settlements.length === 0 ? (
@@ -460,6 +534,7 @@ export function DiscrepancyDetailsPage() {
           </div>
         )}
       </section>
+      ) : null}
 
       <div>
         <Link href={DISCREPANCIES_HREF} className={SECONDARY_BUTTON_CLASS}>

@@ -3,12 +3,19 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { type IncomingDelivery, type Partner } from "@aitvaras/contracts";
-import { formatArrivalDate, RECEIVE_ACTION } from "@/entities/batch";
+import { formatArrivalDate } from "@/entities/batch";
 import { activeSuppliers } from "@/entities/partner";
 import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
 import { workSurfaceClass } from "@/shared/lib/surfaces";
-import { PlusIcon, PRIMARY_BUTTON_CLASS, SECONDARY_BUTTON_CLASS } from "@/shared/ui";
+import { focusField } from "@/shared/lib/form-feedback";
+import {
+  DateInput,
+  PlusIcon,
+  PRIMARY_BUTTON_CLASS,
+  SECONDARY_BUTTON_CLASS,
+  useToast,
+} from "@/shared/ui";
 import {
   createDraftDelivery,
   deliveryFormError,
@@ -16,6 +23,7 @@ import {
   type DraftDelivery,
 } from "../lib/batch-form";
 import {
+  DELIVERY_FORM_HEADING,
   EMPTY_DELIVERIES_MESSAGE,
   NEW_DELIVERY_LABEL,
   openReceivingDeliveries,
@@ -28,21 +36,23 @@ const inputClass =
   "w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60";
 
 /**
- * Warehouse receiving list (`/receiving`): the **open receiving queue**
- * (`Nepatvirtinti gavimai`) and the `Naujas gavimas` action. Selecting a delivery
- * navigates to its own route (`/receiving/[deliveryId]`); the queue is derived
- * from the deliveries' child batches (see `openReceivingDeliveries`).
+ * Receiving entry (`/receiving`, `/receiving/new`): the **open receiving queue**
+ * (`Nepatvirtinti priėmimai`) and the `Naujas priėmimas` action. Selecting a
+ * receipt navigates to its own route (`/receiving/[deliveryId]`); the queue is
+ * derived from the receipt's child batches (see `openReceivingDeliveries`).
  */
-export function ReceivingPage() {
+export function ReceivingPage({ startNew = false }: { startNew?: boolean }) {
   const router = useRouter();
   const { clearSession } = useAuth();
+  const toast = useToast();
 
-  const [mode, setMode] = useState<ReceivingMode>("choose");
+  const [mode, setMode] = useState<ReceivingMode>(
+    startNew ? "new" : "choose",
+  );
   const [partners, setPartners] = useState<Partner[] | null>(null);
   const [deliveries, setDeliveries] = useState<IncomingDelivery[] | null>(null);
   const [draftDelivery, setDraftDelivery] =
     useState<DraftDelivery>(createDraftDelivery);
-  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const handleError = useCallback(
@@ -52,9 +62,9 @@ export function ReceivingPage() {
         router.replace("/login");
         return;
       }
-      setError(caught instanceof ApiError ? caught.message : fallback);
+      toast.error(caught instanceof ApiError ? caught.message : fallback);
     },
-    [clearSession, router],
+    [clearSession, router, toast],
   );
 
   useEffect(() => {
@@ -85,13 +95,15 @@ export function ReceivingPage() {
   function startNewDelivery(): void {
     setMode("new");
     setDraftDelivery(createDraftDelivery());
-    setError(null);
   }
 
   function backToChoose(): void {
+    if (startNew) {
+      router.push("/receiving");
+      return;
+    }
     setMode("choose");
     setDraftDelivery(createDraftDelivery());
-    setError(null);
   }
 
   async function submitNewDelivery(
@@ -100,20 +112,25 @@ export function ReceivingPage() {
     event.preventDefault();
     const validation = deliveryFormError(draftDelivery);
     if (validation) {
-      setError(validation);
+      toast.error(validation);
+      focusField(
+        draftDelivery.supplierId.trim() === ""
+          ? "delivery-supplier"
+          : "delivery-arrival-date",
+      );
       return;
     }
     setBusy(true);
-    setError(null);
     try {
       const created = await apiFetch<IncomingDelivery>("/deliveries", {
         method: "POST",
         body: JSON.stringify(toCreateDeliveryPayload(draftDelivery)),
       });
       setDraftDelivery(createDraftDelivery());
+      toast.success(`Priėmimas sukurtas: ${created.code}`);
       router.push(`/receiving/${created.id}`);
     } catch (caught) {
-      handleError(caught, "Nepavyko sukurti gavimo");
+      handleError(caught, "Nepavyko sukurti priėmimo");
     } finally {
       setBusy(false);
     }
@@ -125,14 +142,8 @@ export function ReceivingPage() {
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold tracking-tight">
-        {RECEIVE_ACTION.label}
+        {mode === "new" ? NEW_DELIVERY_LABEL : "Priėmimas"}
       </h1>
-
-      {error ? (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
 
       {mode === "choose" ? (
         <section className="flex flex-col gap-6">
@@ -158,7 +169,7 @@ export function ReceivingPage() {
                 <table className="w-full text-left text-sm">
                   <thead className="bg-muted text-muted-foreground">
                     <tr>
-                      <th className="px-4 py-2 font-medium">Gavimas</th>
+                      <th className="px-4 py-2 font-medium">Priėmimas</th>
                       <th className="px-4 py-2 font-medium">Tiekėjas</th>
                       <th className="px-4 py-2 font-medium">Atvykimo data</th>
                       <th className="px-4 py-2 font-medium">Rūšys</th>
@@ -199,12 +210,13 @@ export function ReceivingPage() {
 
       {mode === "new" ? (
         <section className={workSurfaceClass()}>
-          <form onSubmit={submitNewDelivery} className="grid gap-4">
-            <h2 className="text-lg font-medium">{NEW_DELIVERY_LABEL}</h2>
+          <form onSubmit={submitNewDelivery} noValidate className="grid gap-4">
+            <h2 className="text-lg font-medium">{DELIVERY_FORM_HEADING}</h2>
 
             <label className="grid gap-1 text-sm sm:max-w-md">
               <span className="font-medium">Tiekėjas</span>
               <select
+                id="delivery-supplier"
                 required
                 value={draftDelivery.supplierId}
                 onChange={(event) =>
@@ -226,16 +238,16 @@ export function ReceivingPage() {
 
             <label className="grid gap-1 text-sm sm:max-w-xs">
               <span className="font-medium">Atvykimo data</span>
-              <input
-                required
-                type="date"
+              <DateInput
+                id="delivery-arrival-date"
                 value={draftDelivery.arrivalDate}
-                onChange={(event) =>
+                onChange={(arrivalDate) =>
                   setDraftDelivery({
                     ...draftDelivery,
-                    arrivalDate: event.target.value,
+                    arrivalDate,
                   })
                 }
+                required
                 className={inputClass}
               />
             </label>

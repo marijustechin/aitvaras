@@ -4,7 +4,7 @@
  * - **primary** — the main action of a page/form (solid black).
  * - **secondary** — a filled dark/medium neutral gray, used for navigation and
  *   context/helper actions (`Kategorijos`, `Tara`, `← Ištekliai`,
- *   `← Gavimų sąrašas`, ...). Visually lighter than black but clearly a button.
+ *   `← Priėmimų sąrašas`, ...). Visually lighter than black but clearly a button.
  * - **outline** — compact neutral row actions (e.g. `Redaguoti`).
  * - **destructive** — irreversible/danger actions (solid red).
  *

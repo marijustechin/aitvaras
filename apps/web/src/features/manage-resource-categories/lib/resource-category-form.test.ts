@@ -1,15 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  emptyResourceCategoryFormValues,
   resourceCategoryFormError,
   resourceCategoryFormToPayload,
 } from "./resource-category-form";
 
 describe("resource category form", () => {
-  it("defaults a new category to active with a blank name", () => {
-    expect(emptyResourceCategoryFormValues()).toEqual({ name: "", active: true });
-  });
-
   it("requires a name", () => {
     expect(
       resourceCategoryFormError({ name: "   ", active: true }),

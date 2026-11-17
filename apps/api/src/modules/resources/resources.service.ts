@@ -6,6 +6,7 @@ import {
 import { Prisma } from "@aitvaras/database";
 import type {
   CreateResourceRequest,
+  QuickCreateResourceRequest,
   Resource,
   UpdateResourceRequest,
 } from "@aitvaras/contracts";
@@ -53,6 +54,23 @@ export class ResourcesService {
         categoryId: input.categoryId,
         notes: input.notes ?? null,
         active: input.active ?? true,
+      },
+      include: withCategory,
+    });
+    return toResource(resource);
+  }
+
+  /**
+   * Minimal receiving quick-create (name + active category), always active.
+   * Deliberately narrow: it does not expose notes/active or any edit/delete.
+   */
+  async quickCreate(input: QuickCreateResourceRequest): Promise<Resource> {
+    await this.assertCategoryAssignable(input.categoryId);
+    const resource = await this.prisma.resource.create({
+      data: {
+        name: input.name,
+        categoryId: input.categoryId,
+        active: true,
       },
       include: withCategory,
     });

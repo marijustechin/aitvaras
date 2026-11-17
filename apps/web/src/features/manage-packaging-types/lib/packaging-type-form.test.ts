@@ -1,16 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  createDraftPackagingType,
   packagingTypeFormError,
   toCreatePackagingTypePayload,
   toUpdatePackagingTypePayload,
 } from "./packaging-type-form";
 
 describe("packaging-type form", () => {
-  it("starts empty", () => {
-    expect(createDraftPackagingType()).toEqual({ name: "", tareWeightKg: "" });
-  });
-
   it("requires a name and a valid non-negative tare weight", () => {
     expect(
       packagingTypeFormError({ name: "Maišas", tareWeightKg: "0.800" }),

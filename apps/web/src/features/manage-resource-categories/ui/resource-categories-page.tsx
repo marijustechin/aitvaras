@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ResourceCategory } from "@aitvaras/contracts";
 import { EMPTY_RESOURCE_CATEGORIES_MESSAGE } from "@/entities/resource-category";
@@ -10,7 +9,8 @@ import { ApiError, apiFetch } from "@/shared/api";
 import { activeStatusLabel } from "@/shared/lib/format";
 import { inactiveRowClass, toggleActionClass } from "@/shared/lib/row-styles";
 import { workSurfaceClass } from "@/shared/lib/surfaces";
-import { SECONDARY_NAV_BUTTON_CLASS } from "@/shared/ui";
+import { focusField } from "@/shared/lib/form-feedback";
+import { SectionTabs, useToast } from "@/shared/ui";
 import {
   resourceCategoryFormError,
   resourceCategoryFormToPayload,
@@ -20,8 +20,8 @@ import {
 export function ResourceCategoriesPage() {
   const { user, clearSession } = useAuth();
   const router = useRouter();
+  const toast = useToast();
   const [categories, setCategories] = useState<ResourceCategory[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -34,7 +34,7 @@ export function ResourceCategoriesPage() {
       router.replace("/login");
       return;
     }
-    setError(caught instanceof ApiError ? caught.message : fallback);
+    toast.error(caught instanceof ApiError ? caught.message : fallback);
   }
 
   const reload = useCallback(async (): Promise<void> => {
@@ -56,10 +56,10 @@ export function ResourceCategoriesPage() {
       active: true,
     });
     if (validation) {
-      setError(validation);
+      toast.error(validation);
+      focusField("category-new-name");
       return;
     }
-    setError(null);
     try {
       await apiFetch("/resource-categories", {
         method: "POST",
@@ -68,6 +68,7 @@ export function ResourceCategoriesPage() {
         ),
       });
       setNewName("");
+      toast.success("Kategorija sukurta.");
       await reload();
     } catch (caught) {
       handleError(caught, "Nepavyko sukurti kategorijos");
@@ -80,10 +81,10 @@ export function ResourceCategoriesPage() {
       active: true,
     });
     if (validation) {
-      setError(validation);
+      toast.error(validation);
+      focusField("category-edit-name");
       return;
     }
-    setError(null);
     try {
       await apiFetch(`/resource-categories/${id}`, {
         method: "PATCH",
@@ -91,6 +92,7 @@ export function ResourceCategoriesPage() {
       });
       setEditingId(null);
       setEditName("");
+      toast.success("Kategorija atnaujinta.");
       await reload();
     } catch (caught) {
       handleError(caught, "Nepavyko atnaujinti kategorijos");
@@ -98,12 +100,12 @@ export function ResourceCategoriesPage() {
   }
 
   async function toggleActive(category: ResourceCategory): Promise<void> {
-    setError(null);
     try {
       await apiFetch(`/resource-categories/${category.id}`, {
         method: "PATCH",
         body: JSON.stringify({ active: !category.active }),
       });
+      toast.success("Kategorijos būsena atnaujinta.");
       await reload();
     } catch (caught) {
       handleError(caught, "Nepavyko atnaujinti kategorijos");
@@ -113,18 +115,14 @@ export function ResourceCategoriesPage() {
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold tracking-tight">Kategorijos</h1>
-
-      {error ? (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
+      <SectionTabs />
 
       {isAdmin ? (
         <section className={workSurfaceClass()}>
           <h2 className="text-lg font-medium">Nauja kategorija</h2>
           <form onSubmit={onCreate} className="mt-4 flex flex-wrap gap-3">
             <input
+              id="category-new-name"
               required
               placeholder="Pavadinimas"
               value={newName}
@@ -166,6 +164,7 @@ export function ResourceCategoriesPage() {
                   <td className="px-4 py-2">
                     {editingId === category.id ? (
                       <input
+                        id="category-edit-name"
                         value={editName}
                         onChange={(event) => setEditName(event.target.value)}
                         className="rounded-md border border-input bg-background px-2 py-1 text-sm"
@@ -230,10 +229,6 @@ export function ResourceCategoriesPage() {
           </table>
         </section>
       )}
-
-      <Link href="/resources" className={SECONDARY_NAV_BUTTON_CLASS}>
-        ← Ištekliai
-      </Link>
     </div>
   );
 }

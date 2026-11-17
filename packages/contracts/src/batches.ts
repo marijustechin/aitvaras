@@ -17,6 +17,23 @@ export const BATCH_STATUS_LABELS: Record<BatchStatus, string> = {
 };
 
 /**
+ * How a batch is received. A property of the concrete **Batch**, not of the
+ * resource: `WEIGHT` = one resource received as physical packages by weight;
+ * `PIECE` = several product/resource item lines received by integer quantities
+ * (the batch is the cost/provenance pool). User-facing labels are `Svorinė` /
+ * `Vienetinė`.
+ */
+export const BATCH_RECEIVING_MODES = ["WEIGHT", "PIECE"] as const;
+export const BatchReceivingModeSchema = z.enum(BATCH_RECEIVING_MODES);
+export type BatchReceivingMode = z.infer<typeof BatchReceivingModeSchema>;
+
+/** Lithuanian labels for a batch receiving mode (display only). */
+export const BATCH_RECEIVING_MODE_LABELS: Record<BatchReceivingMode, string> = {
+  WEIGHT: "Svorinė",
+  PIECE: "Vienetinė",
+};
+
+/**
  * Lifecycle of a physical handling unit. A unit is never hard-deleted: an
  * erroneous unit is `VOIDED` (barcode and history preserved) and excluded from
  * the batch's active measured weight.
@@ -94,6 +111,64 @@ export const BagCorrectionSchema = z.object({
 export type BagCorrection = z.infer<typeof BagCorrectionSchema>;
 
 /**
+ * Lifecycle of a piece-batch item line. An erroneous line is `VOIDED` (kept for
+ * traceability) rather than hard-deleted.
+ */
+export const BATCH_ITEM_STATUSES = ["ACTIVE", "VOIDED"] as const;
+export const BatchItemStatusSchema = z.enum(BATCH_ITEM_STATUSES);
+export type BatchItemStatus = z.infer<typeof BatchItemStatusSchema>;
+
+/** Lithuanian labels for a piece-batch item status (display only). */
+export const BATCH_ITEM_STATUS_LABELS: Record<BatchItemStatus, string> = {
+  ACTIVE: "Aktyvus",
+  VOIDED: "Anuliuotas",
+};
+
+/**
+ * One item line of a PIECE batch: "this concrete product, this many pieces,
+ * belonging to this purchase batch". One PIECE batch may contain many different
+ * resources, and the same product may appear in multiple locations (multiple
+ * lines). `quantity` is a positive whole number of pieces; physical
+ * package/barcode rows are NOT used for PIECE quantities. A `VOIDED` line is
+ * preserved but excluded from the batch's active totals.
+ */
+export const BatchItemSchema = z.object({
+  id: z.uuid(),
+  // Opaque, globally-unique barcode identifying this counted inventory group.
+  barcode: z.string(),
+  batchId: z.uuid(),
+  batchCode: z.string(),
+  resourceId: z.uuid(),
+  resourceName: z.string(),
+  warehouseLocationId: z.uuid(),
+  warehouseLocationName: z.string(),
+  quantity: z.number().int().positive(),
+  status: BatchItemStatusSchema,
+  voidedById: z.uuid().nullable(),
+  voidedByName: z.string().nullable(),
+  voidedAt: z.iso.datetime().nullable(),
+  voidReason: z.string().nullable(),
+  createdById: z.uuid(),
+  createdByName: z.string(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type BatchItem = z.infer<typeof BatchItemSchema>;
+
+/** A per-product PIECE reconciliation snapshot (detail view). */
+export const PieceReconciliationRowSchema = z.object({
+  resourceId: z.uuid(),
+  resourceName: z.string(),
+  actualPieces: z.number().int().nonnegative(),
+  // null before confirmation.
+  documentPieces: z.number().int().nonnegative().nullable(),
+  differencePieces: z.number().int().nullable(),
+});
+export type PieceReconciliationRow = z.infer<
+  typeof PieceReconciliationRowSchema
+>;
+
+/**
  * An internal receiving batch (Partija): the grouping of ONE resource into ONE
  * warehouse inside a single IncomingDelivery (`Gavimas`). A delivery may contain
  * several batches. `code` is an internal system-generated identifier (secondary
@@ -118,9 +193,12 @@ export const BatchSchema = z.object({
   code: z.string(),
   deliveryId: z.uuid(),
   deliveryCode: z.string(),
-  resourceId: z.uuid(),
-  resourceName: z.string(),
-  resourceCategoryName: z.string(),
+  receivingMode: BatchReceivingModeSchema,
+  // Batch-level resource: present for WEIGHT batches, `null` for PIECE batches
+  // (their products live on the item lines).
+  resourceId: z.uuid().nullable(),
+  resourceName: z.string().nullable(),
+  resourceCategoryName: z.string().nullable(),
   supplierId: z.uuid(),
   supplierName: z.string(),
   warehouseId: z.uuid(),
@@ -142,8 +220,12 @@ export const BatchSchema = z.object({
   confirmedAt: z.iso.datetime().nullable(),
   createdById: z.uuid(),
   createdByName: z.string(),
+  // WEIGHT totals (active packages). Zero for PIECE batches.
   bagCount: z.number().int().nonnegative(),
   totalNetWeight: z.string(),
+  // PIECE totals (active item lines / summed pieces). Zero for WEIGHT batches.
+  itemLineCount: z.number().int().nonnegative(),
+  totalPieces: z.number().int().nonnegative(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });
@@ -158,9 +240,15 @@ export type Batch = z.infer<typeof BatchSchema>;
  * comes from a voided package.
  */
 export const BatchDetailSchema = BatchSchema.extend({
+  // WEIGHT batches: physical packages + the small correction trail.
   bags: z.array(BagSchema),
   corrections: z.array(BagCorrectionSchema),
-  // The batch's discrepancy records (at most one today), newest first.
+  // PIECE batches: the product item lines.
+  items: z.array(BatchItemSchema),
+  // PIECE batches: the per-product documentary reconciliation (actual pieces
+  // always; document pieces/difference only once confirmed).
+  pieceReconciliation: z.array(PieceReconciliationRowSchema),
+  // The batch's discrepancy records, newest first.
   discrepancies: z.array(ReceivingDiscrepancySchema),
   suggestedLocationId: z.uuid().nullable(),
   suggestedPackagingTypeId: z.uuid().nullable(),
@@ -311,3 +399,123 @@ export const BatchReconciliationSchema = z.object({
   confirmedAt: z.iso.datetime().nullable(),
 });
 export type BatchReconciliation = z.infer<typeof BatchReconciliationSchema>;
+
+/**
+ * Request to add one item line to a PENDING PIECE batch. The location must exist,
+ * be active and belong to the batch's warehouse; the quantity is a positive whole
+ * number of pieces. The same product may be added in multiple locations (multiple
+ * lines).
+ */
+export const CreateBatchItemRequestSchema = z
+  .object({
+    resourceId: z.uuid(),
+    warehouseLocationId: requiredLocationId,
+    quantity: positiveInteger,
+  })
+  .strict();
+export type CreateBatchItemRequest = z.infer<
+  typeof CreateBatchItemRequestSchema
+>;
+
+/**
+ * Request to correct a PENDING PIECE item line (resource, quantity and/or
+ * location). At least one field is required; a voided line cannot be corrected.
+ */
+export const UpdateBatchItemRequestSchema = z
+  .object({
+    resourceId: z.uuid().optional(),
+    warehouseLocationId: z.uuid().optional(),
+    quantity: positiveInteger.optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.resourceId !== undefined ||
+      value.warehouseLocationId !== undefined ||
+      value.quantity !== undefined,
+    { message: "Nėra ką atnaujinti." },
+  );
+export type UpdateBatchItemRequest = z.infer<
+  typeof UpdateBatchItemRequestSchema
+>;
+
+/** Request to void a PIECE item line (never hard-deletes it). */
+export const VoidBatchItemRequestSchema = z
+  .object({
+    reason: z
+      .string()
+      .trim()
+      .min(1)
+      .max(CORRECTION_REASON_MAX_LENGTH)
+      .optional(),
+  })
+  .strict();
+export type VoidBatchItemRequest = z.infer<typeof VoidBatchItemRequestSchema>;
+
+/** One product's documentary quantity in a PIECE confirmation request. */
+export const PieceConfirmationProductSchema = z
+  .object({
+    resourceId: z.uuid(),
+    documentPieces: z
+      .number({ error: "Dokumentinis kiekis turi būti sveikasis skaičius." })
+      .int("Dokumentinis kiekis turi būti sveikasis skaičius.")
+      .nonnegative("Dokumentinis kiekis negali būti neigiamas."),
+  })
+  .strict();
+export type PieceConfirmationProduct = z.infer<
+  typeof PieceConfirmationProductSchema
+>;
+
+/**
+ * Request to confirm a PENDING PIECE batch, reconciling documentary quantities
+ * **per product**. `products` carries one entry per resource present in the
+ * active groups (server-validated). There is no measured/document weight; the
+ * actual pieces are derived server-side from the active groups and the signed
+ * difference is `actualPieces − documentPieces`. When any product differs,
+ * `acknowledgeDiscrepancies` must be `true`. The client never sends actual
+ * pieces, differences or status.
+ */
+export const ConfirmPieceBatchRequestSchema = z
+  .object({
+    acquisitionAmount: decimalString,
+    documentDate: z.iso.datetime().optional(),
+    documentNumber: z
+      .string()
+      .trim()
+      .min(1)
+      .max(DOCUMENT_NUMBER_MAX_LENGTH)
+      .optional(),
+    products: z.array(PieceConfirmationProductSchema),
+    acknowledgeDiscrepancies: z.boolean().optional(),
+  })
+  .strict();
+export type ConfirmPieceBatchRequest = z.infer<
+  typeof ConfirmPieceBatchRequestSchema
+>;
+
+/** A persisted PIECE reconciliation line (confirmation result). */
+export const PieceReconciliationLineSchema = PieceReconciliationRowSchema.extend({
+  documentPieces: z.number().int().nonnegative(),
+  differencePieces: z.number().int(),
+});
+export type PieceReconciliationLine = z.infer<
+  typeof PieceReconciliationLineSchema
+>;
+
+/** PIECE confirmation summary returned by `POST /batches/:id/confirm-piece`. */
+export const BatchPieceConfirmationSchema = z.object({
+  batchId: z.uuid(),
+  code: z.string(),
+  status: BatchStatusSchema,
+  itemLineCount: z.number().int().nonnegative(),
+  totalPieces: z.number().int().nonnegative(),
+  totalDocumentPieces: z.number().int().nonnegative(),
+  acquisitionAmount: z.string(),
+  documentDate: z.iso.datetime().nullable(),
+  documentNumber: z.string().nullable(),
+  confirmedAt: z.iso.datetime().nullable(),
+  lines: z.array(PieceReconciliationLineSchema),
+});
+export type BatchPieceConfirmation = z.infer<
+  typeof BatchPieceConfirmationSchema
+>;

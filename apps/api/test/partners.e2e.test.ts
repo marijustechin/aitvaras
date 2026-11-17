@@ -18,6 +18,12 @@ describe.skipIf(!dbAvailable)("Partners (integration)", () => {
   let attempts: LoginAttemptService;
   let adminCookie: string;
   let workerCookie: string;
+  let nextCompanyCode = 0;
+
+  function uniqueCompanyCode(): string {
+    nextCompanyCode += 1;
+    return `00${String(nextCompanyCode).padStart(5, "0")}`;
+  }
 
   beforeAll(async () => {
     app = await createTestApp();
@@ -96,7 +102,13 @@ describe.skipIf(!dbAvailable)("Partners (integration)", () => {
       method: "POST",
       url: "/partners",
       ...auth(adminCookie),
-      payload: { name, roles, ...extra },
+      payload: {
+        name,
+        roles,
+        country: "LT",
+        companyCode: uniqueCompanyCode(),
+        ...extra,
+      },
     });
     expect(res.statusCode).toBe(201);
     return res.json() as Partner;
@@ -162,24 +174,35 @@ describe.skipIf(!dbAvailable)("Partners (integration)", () => {
 
   it("defaults to active, trims text and normalises empty optionals to null", async () => {
     const partner = await createPartner(`${PREFIX}  trimmed  `, ["SUPPLIER"], {
-      country: "",
       notes: "  pastaba  ",
     });
 
     expect(partner.name).toBe(`${PREFIX}  trimmed  `.trim());
     expect(partner.active).toBe(true);
-    expect(partner.country).toBeNull();
+    expect(partner.country).toBe("LT");
     expect(partner.notes).toBe("pastaba");
-    expect(partner.companyCode).toBeNull();
+    expect(partner.companyCode).toMatch(/^00\d{5}$/);
   });
 
   it("rejects zero roles, blank name, unknown fields and malformed ids", async () => {
     for (const payload of [
-      { name: `${PREFIX}zero`, roles: [] },
-      { name: "   ", roles: ["SUPPLIER"] },
-      { roles: ["SUPPLIER"] },
-      { name: `${PREFIX}bogus`, roles: ["SUPPLIER"], id: UNKNOWN_UUID },
-      { name: `${PREFIX}bogus`, roles: ["SUPPLIER"], createdAt: "2026-01-01" },
+      { name: `${PREFIX}zero`, roles: [], country: "LT", companyCode: uniqueCompanyCode() },
+      { name: "   ", roles: ["SUPPLIER"], country: "LT", companyCode: uniqueCompanyCode() },
+      { roles: ["SUPPLIER"], country: "LT", companyCode: uniqueCompanyCode() },
+      {
+        name: `${PREFIX}bogus`,
+        roles: ["SUPPLIER"],
+        country: "LT",
+        companyCode: uniqueCompanyCode(),
+        id: UNKNOWN_UUID,
+      },
+      {
+        name: `${PREFIX}bogus`,
+        roles: ["SUPPLIER"],
+        country: "LT",
+        companyCode: uniqueCompanyCode(),
+        createdAt: "2026-01-01",
+      },
     ]) {
       const res = await app.inject({
         method: "POST",
@@ -203,6 +226,158 @@ describe.skipIf(!dbAvailable)("Partners (integration)", () => {
       ...auth(adminCookie),
     });
     expect(missing.statusCode).toBe(404);
+  });
+
+  it("requires name, country and registration number for company partners", async () => {
+    for (const payload of [
+      { roles: ["SUPPLIER"], country: "LT", companyCode: uniqueCompanyCode() },
+      { name: `${PREFIX}no-country`, roles: ["SUPPLIER"], companyCode: uniqueCompanyCode() },
+      { name: `${PREFIX}no-code`, roles: ["SUPPLIER"], country: "LT" },
+      {
+        name: `${PREFIX}blank-code`,
+        roles: ["SUPPLIER"],
+        country: "LT",
+        companyCode: "   ",
+      },
+      {
+        name: `${PREFIX}bad-country`,
+        roles: ["SUPPLIER"],
+        country: "Lietuva",
+        companyCode: uniqueCompanyCode(),
+      },
+    ]) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/partners",
+        ...auth(adminCookie),
+        payload,
+      });
+      expect(res.statusCode).toBe(400);
+    }
+  });
+
+  it("preserves leading zeros and trims the registration number", async () => {
+    const partner = await createPartner(`${PREFIX}zeros`, ["SUPPLIER"], {
+      country: "LT",
+      companyCode: "  0000123  ",
+    });
+    expect(partner.companyCode).toBe("0000123");
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/partners/${partner.id}`,
+      ...auth(adminCookie),
+    });
+    expect(detail.json().companyCode).toBe("0000123");
+  });
+
+  it("rejects duplicate country + registration number with field errors", async () => {
+    const code = uniqueCompanyCode();
+    await createPartner(`${PREFIX}duplicate-first`, ["SUPPLIER"], {
+      country: "LT",
+      companyCode: code,
+    });
+
+    const duplicate = await app.inject({
+      method: "POST",
+      url: "/partners",
+      ...auth(adminCookie),
+      payload: {
+        name: `${PREFIX}duplicate-second`,
+        roles: ["SUPPLIER"],
+        country: "LT",
+        companyCode: code,
+      },
+    });
+    expect(duplicate.statusCode).toBe(409);
+    const body = duplicate.json() as {
+      code: string;
+      errors: { path: string; message: string }[];
+    };
+    expect(body.code).toBe("PARTNER_DUPLICATE_IDENTIFICATION");
+    expect(body.errors).toContainEqual(
+      expect.objectContaining({
+        path: "companyCode",
+        message: expect.stringContaining("jau yra partneris"),
+      }),
+    );
+  });
+
+  it("allows the same registration number in a different country", async () => {
+    const code = uniqueCompanyCode();
+    const lithuanian = await createPartner(`${PREFIX}same-code-lt`, ["SUPPLIER"], {
+      country: "LT",
+      companyCode: code,
+    });
+    const latvian = await createPartner(`${PREFIX}same-code-lv`, ["SUPPLIER"], {
+      country: "LV",
+      companyCode: code,
+    });
+    expect(lithuanian.companyCode).toBe(code);
+    expect(latvian.companyCode).toBe(code);
+    expect(lithuanian.country).toBe("LT");
+    expect(latvian.country).toBe("LV");
+  });
+
+  it("enforces the unique combination in the database as a final guard", async () => {
+    const code = uniqueCompanyCode();
+    await createPartner(`${PREFIX}db-constraint-first`, ["SUPPLIER"], {
+      country: "LT",
+      companyCode: code,
+    });
+
+    await expect(
+      prisma.businessPartner.create({
+        data: {
+          name: `${PREFIX}db-constraint-second`,
+          country: "LT",
+          companyCode: code,
+        },
+      }),
+    ).rejects.toMatchObject({ code: "P2002" });
+  });
+
+  it("edits an existing partner without changing its identification", async () => {
+    const partner = await createPartner(`${PREFIX}unchanged-id`, ["SUPPLIER"], {
+      country: "GB",
+      companyCode: "000777",
+    });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/partners/${partner.id}`,
+      ...auth(adminCookie),
+      payload: {
+        name: `${PREFIX}unchanged-id-renamed`,
+        roles: ["SUPPLIER", "BUYER"],
+        country: "GB",
+        companyCode: "000777",
+        active: true,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().name).toBe(`${PREFIX}unchanged-id-renamed`);
+    expect(res.json().country).toBe("GB");
+    expect(res.json().companyCode).toBe("000777");
+  });
+
+  it("never allows clearing required identification on update", async () => {
+    const partner = await createPartner(`${PREFIX}clear-id`, ["SUPPLIER"]);
+
+    for (const payload of [
+      { companyCode: "" },
+      { country: "" },
+      { name: "   " },
+      { country: "Narnija" },
+    ]) {
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/partners/${partner.id}`,
+        ...auth(adminCookie),
+        payload,
+      });
+      expect(res.statusCode).toBe(400);
+    }
   });
 
   it("lets an admin change name and roles, keeping at least one role", async () => {

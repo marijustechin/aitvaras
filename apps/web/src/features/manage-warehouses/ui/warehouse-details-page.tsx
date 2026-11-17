@@ -13,7 +13,8 @@ import { ApiError, apiFetch } from "@/shared/api";
 import { activeStatusLabel } from "@/shared/lib/format";
 import { inactiveRowClass, toggleActionClass } from "@/shared/lib/row-styles";
 import { workSurfaceClass } from "@/shared/lib/surfaces";
-import { SECONDARY_NAV_BUTTON_CLASS } from "@/shared/ui";
+import { focusField } from "@/shared/lib/form-feedback";
+import { SECONDARY_NAV_BUTTON_CLASS, SectionTabs, useToast } from "@/shared/ui";
 
 /** Warehouse detail: rename/activate the warehouse and manage its locations. */
 export function WarehouseDetailsPage() {
@@ -21,10 +22,11 @@ export function WarehouseDetailsPage() {
   const id = typeof params.id === "string" ? params.id : "";
   const router = useRouter();
   const { user, clearSession } = useAuth();
+  const toast = useToast();
 
   const [warehouse, setWarehouse] = useState<WarehouseWithLocations | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState("");
   const [newLocationName, setNewLocationName] = useState("");
   const [editingLocationId, setEditingLocationId] = useState<string | null>(null);
@@ -39,13 +41,9 @@ export function WarehouseDetailsPage() {
         router.replace("/login");
         return;
       }
-      if (caught instanceof ApiError && caught.status === 404) {
-        setError("Sandėlis nerastas.");
-        return;
-      }
-      setError(caught instanceof ApiError ? caught.message : fallback);
+      toast.error(caught instanceof ApiError ? caught.message : fallback);
     },
-    [clearSession, router],
+    [clearSession, router, toast],
   );
 
   const load = useCallback(async (): Promise<void> => {
@@ -54,13 +52,24 @@ export function WarehouseDetailsPage() {
       const data = await apiFetch<WarehouseWithLocations>(`/warehouses/${id}`);
       setWarehouse(data);
       setNameDraft(data.name);
-      setError(null);
+      setLoadError(null);
     } catch (caught) {
-      handleError(caught, "Nepavyko įkelti sandėlio");
+      if (isUnauthorized(caught)) {
+        clearSession();
+        router.replace("/login");
+        return;
+      }
+      if (caught instanceof ApiError && caught.status === 404) {
+        setLoadError("Sandėlis nerastas.");
+        return;
+      }
+      setLoadError(
+        caught instanceof ApiError ? caught.message : "Nepavyko įkelti sandėlio",
+      );
     } finally {
       setLoading(false);
     }
-  }, [handleError, id]);
+  }, [clearSession, id, router]);
 
   useEffect(() => {
     void load();
@@ -69,10 +78,10 @@ export function WarehouseDetailsPage() {
   async function renameWarehouse(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (nameDraft.trim() === "") {
-      setError("Įveskite sandėlio pavadinimą.");
+      toast.error("Įveskite sandėlio pavadinimą.");
+      focusField("warehouse-name");
       return;
     }
-    setError(null);
     try {
       const updated = await apiFetch<WarehouseWithLocations>(`/warehouses/${id}`, {
         method: "PATCH",
@@ -80,6 +89,7 @@ export function WarehouseDetailsPage() {
       });
       setWarehouse(updated);
       setNameDraft(updated.name);
+      toast.success("Sandėlis atnaujintas.");
     } catch (caught) {
       handleError(caught, "Nepavyko atnaujinti sandėlio");
     }
@@ -89,13 +99,13 @@ export function WarehouseDetailsPage() {
     if (!warehouse) {
       return;
     }
-    setError(null);
     try {
       const updated = await apiFetch<WarehouseWithLocations>(`/warehouses/${id}`, {
         method: "PATCH",
         body: JSON.stringify({ active: !warehouse.active }),
       });
       setWarehouse(updated);
+      toast.success("Sandėlio būsena atnaujinta.");
     } catch (caught) {
       handleError(caught, "Nepavyko atnaujinti sandėlio");
     }
@@ -104,16 +114,17 @@ export function WarehouseDetailsPage() {
   async function addLocation(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (newLocationName.trim() === "") {
-      setError("Įveskite vietos pavadinimą.");
+      toast.error("Įveskite vietos pavadinimą.");
+      focusField("warehouse-new-location");
       return;
     }
-    setError(null);
     try {
       await apiFetch<WarehouseLocation>(`/warehouses/${id}/locations`, {
         method: "POST",
         body: JSON.stringify({ name: newLocationName.trim() }),
       });
       setNewLocationName("");
+      toast.success("Vieta sukurta.");
       await load();
     } catch (caught) {
       handleError(caught, "Nepavyko sukurti vietos");
@@ -122,10 +133,10 @@ export function WarehouseDetailsPage() {
 
   async function saveLocation(locationId: string): Promise<void> {
     if (editLocationName.trim() === "") {
-      setError("Įveskite vietos pavadinimą.");
+      toast.error("Įveskite vietos pavadinimą.");
+      focusField("warehouse-edit-location");
       return;
     }
-    setError(null);
     try {
       await apiFetch(`/warehouses/${id}/locations/${locationId}`, {
         method: "PATCH",
@@ -133,6 +144,7 @@ export function WarehouseDetailsPage() {
       });
       setEditingLocationId(null);
       setEditLocationName("");
+      toast.success("Vieta atnaujinta.");
       await load();
     } catch (caught) {
       handleError(caught, "Nepavyko atnaujinti vietos");
@@ -140,12 +152,12 @@ export function WarehouseDetailsPage() {
   }
 
   async function toggleLocationActive(location: WarehouseLocation): Promise<void> {
-    setError(null);
     try {
       await apiFetch(`/warehouses/${id}/locations/${location.id}`, {
         method: "PATCH",
         body: JSON.stringify({ active: !location.active }),
       });
+      toast.success("Vietos būsena atnaujinta.");
       await load();
     } catch (caught) {
       handleError(caught, "Nepavyko atnaujinti vietos");
@@ -156,11 +168,11 @@ export function WarehouseDetailsPage() {
     return <p className="text-sm text-muted-foreground">Kraunama…</p>;
   }
 
-  if (error && !warehouse) {
+  if (loadError && !warehouse) {
     return (
       <div className="flex flex-col gap-4">
         <p role="alert" className="text-sm text-destructive">
-          {error}
+          {loadError}
         </p>
         <Link href="/warehouses" className={SECONDARY_NAV_BUTTON_CLASS}>
           ← Sandėliai
@@ -195,17 +207,14 @@ export function WarehouseDetailsPage() {
         ) : null}
       </div>
 
-      {error ? (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
+      <SectionTabs />
 
       {isAdmin ? (
         <section className={workSurfaceClass()}>
           <h2 className="text-lg font-medium">Redaguoti sandėlį</h2>
           <form onSubmit={renameWarehouse} className="mt-4 flex flex-wrap gap-3">
             <input
+              id="warehouse-name"
               required
               value={nameDraft}
               onChange={(event) => setNameDraft(event.target.value)}
@@ -227,6 +236,7 @@ export function WarehouseDetailsPage() {
         {isAdmin ? (
           <form onSubmit={addLocation} className="flex flex-wrap gap-3">
             <input
+              id="warehouse-new-location"
               required
               placeholder="Vietos pavadinimas"
               value={newLocationName}
@@ -263,6 +273,7 @@ export function WarehouseDetailsPage() {
                     <td className="px-4 py-2">
                       {editingLocationId === location.id ? (
                         <input
+                          id="warehouse-edit-location"
                           value={editLocationName}
                           onChange={(event) => setEditLocationName(event.target.value)}
                           className="rounded-md border border-input bg-background px-2 py-1 text-sm"

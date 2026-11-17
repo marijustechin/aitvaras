@@ -22,7 +22,6 @@ export function ResourceForm({
   initialValues,
   submitLabel,
   submitting,
-  error,
   onSubmit,
   onCancel,
 }: {
@@ -30,7 +29,6 @@ export function ResourceForm({
   initialValues: ResourceFormValues;
   submitLabel: string;
   submitting: boolean;
-  error: string | null;
   onSubmit: (values: ResourceFormValues) => void;
   onCancel: () => void;
 }) {
@@ -53,6 +51,7 @@ export function ResourceForm({
       <label className="grid gap-1 text-sm">
         <span className="font-medium">Pavadinimas *</span>
         <input
+          id="resource-name"
           required
           value={values.name}
           onChange={(event) => set("name", event.target.value)}
@@ -63,6 +62,7 @@ export function ResourceForm({
       <label className="grid gap-1 text-sm">
         <span className="font-medium">Kategorija *</span>
         <select
+          id="resource-category"
           value={values.categoryId}
           onChange={(event) => set("categoryId", event.target.value)}
           className={inputClass}
@@ -83,6 +83,7 @@ export function ResourceForm({
       <label className="grid gap-1 text-sm">
         <span className="font-medium">Pastabos</span>
         <textarea
+          id="resource-notes"
           rows={3}
           value={values.notes}
           onChange={(event) => set("notes", event.target.value)}
@@ -113,12 +114,6 @@ export function ResourceForm({
           </label>
         </div>
       </fieldset>
-
-      {error ? (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
 
       <div className="flex gap-3">
         <button

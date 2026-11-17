@@ -9,7 +9,7 @@ import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
 import { activeStatusLabel } from "@/shared/lib/format";
 import { inactiveRowClass } from "@/shared/lib/row-styles";
-import { PRIMARY_BUTTON_CLASS, SECONDARY_NAV_BUTTON_CLASS } from "@/shared/ui";
+import { PRIMARY_BUTTON_CLASS, SectionTabs } from "@/shared/ui";
 
 /** Resources list composition (rendered inside the application shell). */
 export function ResourcesPage() {
@@ -48,20 +48,7 @@ export function ResourcesPage() {
         ) : null}
       </div>
 
-      <div className="-mt-2 flex flex-wrap gap-2">
-        <Link
-          href="/resources/categories"
-          className={SECONDARY_NAV_BUTTON_CLASS}
-        >
-          Kategorijos
-        </Link>
-        <Link
-          href="/resources/packaging-types"
-          className={SECONDARY_NAV_BUTTON_CLASS}
-        >
-          Tara
-        </Link>
-      </div>
+      <SectionTabs />
 
       {error ? (
         <p role="alert" className="text-sm text-destructive">

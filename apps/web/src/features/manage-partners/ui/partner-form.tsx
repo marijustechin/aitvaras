@@ -3,10 +3,15 @@
 import { useState, type FormEvent } from "react";
 import { PARTNER_ROLE_KEYS, type PartnerRoleKey } from "@aitvaras/contracts";
 import { partnerRoleLabel } from "@/entities/partner";
-import type { PartnerFormValues } from "../lib/partner-form";
+import { CountrySelect } from "@/shared/ui";
+import type {
+  PartnerFieldErrors,
+  PartnerFormValues,
+} from "../lib/partner-form";
 
 const inputClass =
   "rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
+const inputErrorClass = "border-destructive";
 
 /**
  * Reusable create/edit form for a partner. Owns only field state; the parent
@@ -16,16 +21,18 @@ export function PartnerForm({
   initialValues,
   submitLabel,
   submitting,
-  error,
+  fieldErrors,
   onSubmit,
   onCancel,
+  onFieldChange,
 }: {
   initialValues: PartnerFormValues;
   submitLabel: string;
   submitting: boolean;
-  error: string | null;
+  fieldErrors?: PartnerFieldErrors;
   onSubmit: (values: PartnerFormValues) => void;
   onCancel: () => void;
+  onFieldChange?: (field: keyof PartnerFormValues) => void;
 }) {
   const [values, setValues] = useState<PartnerFormValues>(initialValues);
 
@@ -34,6 +41,7 @@ export function PartnerForm({
     value: PartnerFormValues[K],
   ): void {
     setValues((current) => ({ ...current, [key]: value }));
+    onFieldChange?.(key);
   }
 
   function toggleRole(role: PartnerRoleKey): void {
@@ -43,6 +51,7 @@ export function PartnerForm({
         ? current.roles.filter((value) => value !== role)
         : [...current.roles, role],
     }));
+    onFieldChange?.("roles");
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>): void {
@@ -51,14 +60,16 @@ export function PartnerForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="grid gap-4">
+    <form onSubmit={handleSubmit} noValidate className="grid gap-4">
       <label className="grid gap-1 text-sm">
         <span className="font-medium">Pavadinimas *</span>
         <input
+          id="partner-name"
           required
           value={values.name}
           onChange={(event) => set("name", event.target.value)}
-          className={inputClass}
+          aria-invalid={fieldErrors?.name ? true : undefined}
+          className={`${inputClass} ${fieldErrors?.name ? inputErrorClass : ""}`}
         />
       </label>
 
@@ -68,6 +79,7 @@ export function PartnerForm({
           {PARTNER_ROLE_KEYS.map((key) => (
             <label key={key} className="flex items-center gap-2">
               <input
+                id={`partner-role-${key}`}
                 type="checkbox"
                 checked={values.roles.includes(key)}
                 onChange={() => toggleRole(key)}
@@ -80,11 +92,18 @@ export function PartnerForm({
 
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="grid gap-1 text-sm">
-          <span className="font-medium">Įmonės kodas</span>
+          <span className="font-medium">Įmonės kodas *</span>
           <input
+            id="partner-company-code"
+            required
+            inputMode="text"
+            autoComplete="off"
             value={values.companyCode}
             onChange={(event) => set("companyCode", event.target.value)}
-            className={inputClass}
+            aria-invalid={fieldErrors?.companyCode ? true : undefined}
+            className={`${inputClass} ${
+              fieldErrors?.companyCode ? inputErrorClass : ""
+            }`}
           />
         </label>
         <label className="grid gap-1 text-sm">
@@ -95,14 +114,12 @@ export function PartnerForm({
             className={inputClass}
           />
         </label>
-        <label className="grid gap-1 text-sm">
-          <span className="font-medium">Šalis</span>
-          <input
-            value={values.country}
-            onChange={(event) => set("country", event.target.value)}
-            className={inputClass}
-          />
-        </label>
+        <CountrySelect
+          id="partner-country"
+          value={values.country}
+          onChange={(code) => set("country", code)}
+          error={fieldErrors?.country}
+        />
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Kontaktinis asmuo</span>
           <input
@@ -171,12 +188,6 @@ export function PartnerForm({
           </label>
         </div>
       </fieldset>
-
-      {error ? (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
 
       <div className="flex gap-3">
         <button

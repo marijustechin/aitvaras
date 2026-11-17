@@ -1,4 +1,9 @@
-import type { Partner, PartnerRoleKey } from "@aitvaras/contracts";
+import {
+  canonicalCountryCode,
+  isCountryCode,
+  type Partner,
+  type PartnerRoleKey,
+} from "@aitvaras/contracts";
 
 /** Editable partner form values (all free-text inputs are strings). */
 export interface PartnerFormValues {
@@ -14,6 +19,11 @@ export interface PartnerFormValues {
   notes: string;
   active: boolean;
 }
+
+/** Identification fields that can carry a field-level error. */
+export type PartnerFieldKey = "name" | "roles" | "country" | "companyCode";
+
+export type PartnerFieldErrors = Partial<Record<PartnerFieldKey, string>>;
 
 /** Blank form values for a new partner (defaults to active, no roles). */
 export function emptyPartnerFormValues(): PartnerFormValues {
@@ -39,7 +49,7 @@ export function partnerToFormValues(partner: Partner): PartnerFormValues {
     roles: partner.roles,
     companyCode: partner.companyCode ?? "",
     vatCode: partner.vatCode ?? "",
-    country: partner.country ?? "",
+    country: canonicalCountryCode(partner.country) ?? "",
     address: partner.address ?? "",
     contactPerson: partner.contactPerson ?? "",
     phone: partner.phone ?? "",
@@ -66,9 +76,10 @@ export function partnerFormToPayload(values: PartnerFormValues): {
   return {
     name: values.name.trim(),
     roles: values.roles,
+    // A string, never a number: leading zeros remain significant.
     companyCode: values.companyCode.trim(),
     vatCode: values.vatCode.trim(),
-    country: values.country.trim(),
+    country: values.country.trim().toUpperCase(),
     address: values.address.trim(),
     contactPerson: values.contactPerson.trim(),
     phone: values.phone.trim(),
@@ -78,13 +89,33 @@ export function partnerFormToPayload(values: PartnerFormValues): {
   };
 }
 
-/** Client-side validation message keyed to a form problem, or null. */
-export function partnerFormError(values: PartnerFormValues): string | null {
+/**
+ * Field-level client validation for the partner form.
+ *
+ * Company identification (name, country, registration number) is required for
+ * every partner because the current model has no individual/natural-person
+ * distinction. Country must be selected from the ISO list.
+ */
+export function partnerFormFieldErrors(
+  values: PartnerFormValues,
+): PartnerFieldErrors {
+  const errors: PartnerFieldErrors = {};
+
   if (values.name.trim() === "") {
-    return "Įveskite partnerio pavadinimą.";
+    errors.name = "Įveskite partnerio pavadinimą.";
   }
   if (values.roles.length === 0) {
-    return "Pasirinkite bent vieną vaidmenį.";
+    errors.roles = "Pasirinkite bent vieną vaidmenį.";
   }
-  return null;
+  const country = values.country.trim().toUpperCase();
+  if (country === "") {
+    errors.country = "Pasirinkite šalį.";
+  } else if (!isCountryCode(country)) {
+    errors.country = "Pasirinkite šalį iš sąrašo.";
+  }
+  if (values.companyCode.trim() === "") {
+    errors.companyCode = "Įveskite įmonės kodą.";
+  }
+
+  return errors;
 }

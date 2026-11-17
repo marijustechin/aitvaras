@@ -29,9 +29,31 @@ export const RECEIVING_DISCREPANCY_STATUS_LABELS: Record<
 };
 
 /**
+ * What a discrepancy compares. `WEIGHT` = documentary vs measured net weight
+ * (quantities in kg, one per batch). `PIECE` = documentary vs actual counted
+ * pieces per resource (quantities in pieces, zero-to-many per batch).
+ */
+export const RECEIVING_DISCREPANCY_KINDS = ["WEIGHT", "PIECE"] as const;
+export const ReceivingDiscrepancyKindSchema = z.enum(
+  RECEIVING_DISCREPANCY_KINDS,
+);
+export type ReceivingDiscrepancyKind = z.infer<
+  typeof ReceivingDiscrepancyKindSchema
+>;
+
+/** Lithuanian labels for a discrepancy kind (display only). */
+export const RECEIVING_DISCREPANCY_KIND_LABELS: Record<
+  ReceivingDiscrepancyKind,
+  string
+> = {
+  WEIGHT: "Svorinė",
+  PIECE: "Vienetinė",
+};
+
+/**
  * User-facing direction of a signed discrepancy. Derived from the immutable
- * signed `differenceWeight = measuredWeight − documentWeight`: negative is a
- * shortage (`Trūkumas`), positive an overage (`Perteklius`).
+ * signed difference (WEIGHT `measured − document`, or PIECE `actual − document`):
+ * negative is a shortage (`Trūkumas`), positive an overage (`Perteklius`).
  */
 export const DISCREPANCY_DIRECTIONS = ["SHORTAGE", "OVERAGE"] as const;
 export const DiscrepancyDirectionSchema = z.enum(DISCREPANCY_DIRECTIONS);
@@ -44,11 +66,9 @@ export const DISCREPANCY_DIRECTION_LABELS: Record<DiscrepancyDirection, string> 
     OVERAGE: "Perteklius",
   };
 
-/** Direction of a signed discrepancy weight string (`−` = shortage). */
-export function discrepancyDirection(
-  differenceWeight: string,
-): DiscrepancyDirection {
-  return Number(differenceWeight) < 0 ? "SHORTAGE" : "OVERAGE";
+/** Direction of a signed discrepancy value (`−` = shortage). */
+export function discrepancyDirection(difference: string): DiscrepancyDirection {
+  return Number(difference) < 0 ? "SHORTAGE" : "OVERAGE";
 }
 
 /** How a settlement covers (part of) the original discrepancy magnitude. */
@@ -82,11 +102,18 @@ export const DEFAULT_DISCREPANCY_CURRENCY = "EUR";
  */
 export const ReceivingDiscrepancySchema = z.object({
   id: z.uuid(),
+  kind: ReceivingDiscrepancyKindSchema,
   batchId: z.uuid(),
+  resourceId: z.uuid().nullable(),
   supplierId: z.uuid(),
-  measuredWeight: z.string(),
-  documentWeight: z.string(),
-  differenceWeight: z.string(),
+  // WEIGHT quantities (null for PIECE).
+  measuredWeight: z.string().nullable(),
+  documentWeight: z.string().nullable(),
+  differenceWeight: z.string().nullable(),
+  // PIECE quantities (null for WEIGHT).
+  actualPieces: z.number().int().nullable(),
+  documentPieces: z.number().int().nullable(),
+  differencePieces: z.number().int().nullable(),
   status: ReceivingDiscrepancyStatusSchema,
   createdById: z.uuid(),
   createdAt: z.iso.datetime(),
@@ -129,23 +156,33 @@ export type DiscrepancySettlement = z.infer<
  */
 export const ReceivingDiscrepancyRegisterRowSchema = z.object({
   id: z.uuid(),
+  kind: ReceivingDiscrepancyKindSchema,
   batchId: z.uuid(),
   deliveryId: z.uuid(),
   deliveryCode: z.string(),
   batchCode: z.string(),
   supplierId: z.uuid(),
   supplierName: z.string(),
-  resourceId: z.uuid(),
-  resourceName: z.string(),
+  // null for a WEIGHT discrepancy (which has no single resource).
+  resourceId: z.uuid().nullable(),
+  resourceName: z.string().nullable(),
   warehouseName: z.string(),
   arrivalDate: z.iso.datetime(),
-  measuredWeight: z.string(),
-  documentWeight: z.string(),
-  differenceWeight: z.string(),
+  // WEIGHT quantities (null for PIECE).
+  measuredWeight: z.string().nullable(),
+  documentWeight: z.string().nullable(),
+  differenceWeight: z.string().nullable(),
+  // PIECE quantities (null for WEIGHT).
+  actualPieces: z.number().int().nullable(),
+  documentPieces: z.number().int().nullable(),
+  differencePieces: z.number().int().nullable(),
+  // Signed display value: the weight difference for WEIGHT, the piece
+  // difference for PIECE.
   direction: DiscrepancyDirectionSchema,
-  originalWeight: z.string(),
-  settledWeight: z.string(),
-  remainingWeight: z.string(),
+  // WEIGHT balance (server-derived); null for PIECE (settlement is weight-only).
+  originalWeight: z.string().nullable(),
+  settledWeight: z.string().nullable(),
+  remainingWeight: z.string().nullable(),
   status: ReceivingDiscrepancyStatusSchema,
   createdById: z.uuid(),
   createdByName: z.string(),

@@ -9,8 +9,10 @@ import {
 } from "@nestjs/common";
 import {
   CreateResourceRequestSchema,
+  QuickCreateResourceRequestSchema,
   UpdateResourceRequestSchema,
   type CreateResourceRequest,
+  type QuickCreateResourceRequest,
   type Resource,
   type UpdateResourceRequest,
 } from "@aitvaras/contracts";
@@ -45,6 +47,20 @@ export class ResourcesController {
     body: CreateResourceRequest,
   ): Promise<Resource> {
     return this.resourcesService.create(body);
+  }
+
+  /**
+   * Narrow receiving quick-create (name + category, always active). Permitted to
+   * warehouse workers for the PIECE receiving flow only; it is not broad resource
+   * administration.
+   */
+  @Post("receiving-quick-create")
+  @Roles("ADMIN", "WAREHOUSE_WORKER")
+  quickCreate(
+    @Body(new ZodValidationPipe(QuickCreateResourceRequestSchema))
+    body: QuickCreateResourceRequest,
+  ): Promise<Resource> {
+    return this.resourcesService.quickCreate(body);
   }
 
   @Patch(":id")

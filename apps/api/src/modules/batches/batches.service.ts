@@ -9,16 +9,24 @@ import type {
   Bag,
   Batch,
   BatchDetail,
+  BatchItem,
+  BatchPieceConfirmation,
   BatchReconciliation,
   BatchStatus,
+  ConfirmPieceBatchRequest,
   CreateBagRequest,
+  CreateBatchItemRequest,
   CreateIncomingDeliveryRequest,
   IncomingDelivery,
   IncomingDeliveryDetail,
+  PieceReconciliationRow,
   ReconcileBatchRequest,
   ResolveBatchRequest,
   UpdateBagRequest,
+  UpdateBatchItemRequest,
+  UpdateBatchRegistrationRequest,
   VoidBagRequest,
+  VoidBatchItemRequest,
 } from "@aitvaras/contracts";
 import { PrismaService } from "../../infrastructure/prisma/prisma.service";
 import { generateBagBarcode } from "./bag-barcode";
@@ -31,9 +39,12 @@ import {
   toBag,
   toBagCorrection,
   toBatch,
+  toBatchItem,
   toDelivery,
+  toPieceReconciliationRow,
   toReceivingDiscrepancy,
   type BatchSummary,
+  type PieceSummary,
 } from "./batch.mapper";
 import {
   deliveryCodePrefix,
@@ -90,6 +101,14 @@ const bagCorrectionInclude = {
   createdBy: true,
   bag: { select: { barcode: true } },
 } satisfies Prisma.BagCorrectionInclude;
+
+const itemInclude = {
+  batch: { select: { code: true } },
+  resource: { select: { name: true } },
+  warehouseLocation: { select: { name: true } },
+  createdBy: true,
+  voidedBy: true,
+} satisfies Prisma.BatchItemInclude;
 
 const deliveryInclude = {
   supplier: true,
@@ -244,22 +263,40 @@ export class BatchesService {
         message: "Gavimas nerastas.",
       });
     }
-    await this.assertActiveResource(input.resourceId);
+    const receivingMode = input.receivingMode ?? "WEIGHT";
+    if (receivingMode === "WEIGHT" && !input.resourceId) {
+      throw new BadRequestException({
+        code: "RESOURCE_REQUIRED",
+        message: "Svorinei partijai pasirinkite išteklių.",
+      });
+    }
+    if (receivingMode === "PIECE" && input.resourceId) {
+      throw new BadRequestException({
+        code: "RESOURCE_NOT_ALLOWED",
+        message: "Vienetinei partijai išteklius nenurodomas.",
+      });
+    }
     await this.assertActiveWarehouse(input.warehouseId);
+    if (input.resourceId) {
+      await this.assertActiveResource(input.resourceId);
+    }
 
-    const where = {
-      deliveryId_resourceId_warehouseId: {
-        deliveryId,
-        resourceId: input.resourceId,
-        warehouseId: input.warehouseId,
-      },
-    };
-    const existing = await this.prisma.batch.findUnique({
-      where,
-      select: { id: true },
-    });
-    if (existing) {
-      return this.get(existing.id);
+    // WEIGHT resolves/creates the unique (delivery, resource, warehouse) batch;
+    // PIECE always starts a new capture batch (a delivery may hold several).
+    if (receivingMode === "WEIGHT") {
+      const existing = await this.prisma.batch.findUnique({
+        where: {
+          deliveryId_resourceId_warehouseId: {
+            deliveryId,
+            resourceId: input.resourceId!,
+            warehouseId: input.warehouseId,
+          },
+        },
+        select: { id: true },
+      });
+      if (existing) {
+        return this.get(existing.id);
+      }
     }
 
     for (let attempt = 0; attempt < MAX_CODE_ATTEMPTS; attempt += 1) {
@@ -269,7 +306,8 @@ export class BatchesService {
           data: {
             code,
             deliveryId,
-            resourceId: input.resourceId,
+            receivingMode,
+            resourceId: input.resourceId ?? null,
             warehouseId: input.warehouseId,
             createdById: actorId,
           },
@@ -278,14 +316,22 @@ export class BatchesService {
         return this.get(created.id);
       } catch (error) {
         if (isUniqueConstraintError(error)) {
-          const raced = await this.prisma.batch.findUnique({
-            where,
-            select: { id: true },
-          });
-          if (raced) {
-            return this.get(raced.id);
+          if (receivingMode === "WEIGHT") {
+            const raced = await this.prisma.batch.findUnique({
+              where: {
+                deliveryId_resourceId_warehouseId: {
+                  deliveryId,
+                  resourceId: input.resourceId!,
+                  warehouseId: input.warehouseId,
+                },
+              },
+              select: { id: true },
+            });
+            if (raced) {
+              return this.get(raced.id);
+            }
           }
-          continue;
+          continue; // batch-code collision; retry
         }
         throw error;
       }
@@ -319,6 +365,167 @@ export class BatchesService {
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
     return this.withSummaries(batches);
+  }
+
+  /**
+   * Correct a PENDING batch's registration metadata without creating a new
+   * receipt/batch. Receipt-level supplier/date are shared by the delivery and are
+   * rejected when any sibling batch is confirmed. All delivery batches are locked
+   * for the transaction so an edit cannot slip past a concurrent confirmation.
+   */
+  async updateRegistration(
+    batchId: string,
+    input: UpdateBatchRegistrationRequest,
+    actorId: string,
+  ): Promise<BatchDetail> {
+    const batch = await this.prisma.batch.findUnique({
+      where: { id: batchId },
+      select: {
+        id: true,
+        deliveryId: true,
+        receivingMode: true,
+        status: true,
+        warehouseId: true,
+        resourceId: true,
+      },
+    });
+    if (!batch) {
+      throw new NotFoundException("Partija nerasta.");
+    }
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const lockedBatches = await tx.$queryRaw<
+          Array<{ id: string; status: string }>
+        >`
+          SELECT id, status::text AS status
+          FROM batches
+          WHERE delivery_id = ${batch.deliveryId}
+          ORDER BY id
+          FOR UPDATE
+        `;
+      const locked = lockedBatches.find((row) => row.id === batchId);
+      if (!locked) {
+        throw new NotFoundException("Partija nerasta.");
+      }
+      if (locked.status === "CONFIRMED") {
+        throw this.batchConfirmedError();
+      }
+
+      if (input.supplierId !== undefined || input.arrivalDate !== undefined) {
+        if (lockedBatches.some((row) => row.status === "CONFIRMED")) {
+          throw new ConflictException({
+            code: "DELIVERY_HAS_CONFIRMED_BATCHES",
+            message:
+              "Priėmimo tiekėjo ir datos keisti negalima, nes priėmime jau yra patvirtinta partija.",
+          });
+        }
+        if (input.supplierId !== undefined) {
+          await this.assertActiveSupplierTx(tx, input.supplierId);
+        }
+        await tx.incomingDelivery.update({
+          where: { id: batch.deliveryId },
+          data: {
+            ...(input.supplierId !== undefined
+              ? { supplierId: input.supplierId }
+              : {}),
+            ...(input.arrivalDate !== undefined
+              ? { arrivalDate: new Date(input.arrivalDate) }
+              : {}),
+          },
+        });
+      }
+
+      const batchData: Prisma.BatchUpdateInput = {};
+      if (input.resourceId !== undefined) {
+        if (batch.receivingMode !== "WEIGHT") {
+          throw new BadRequestException({
+            code: "BATCH_NOT_WEIGHT",
+            message: "Išteklius keičiamas tik svorinėje partijoje.",
+          });
+        }
+        if (input.resourceId === null) {
+          throw new BadRequestException({
+            code: "RESOURCE_REQUIRED",
+            message: "Pasirinkite išteklių.",
+          });
+        }
+        await this.assertActiveResourceTx(tx, input.resourceId);
+        batchData.resource = { connect: { id: input.resourceId } };
+      }
+
+      const warehouseChanged =
+        input.warehouseId !== undefined && input.warehouseId !== batch.warehouseId;
+      if (warehouseChanged) {
+        await this.assertActiveWarehouseTx(tx, input.warehouseId as string);
+        batchData.warehouse = { connect: { id: input.warehouseId as string } };
+      }
+
+      if (warehouseChanged || input.relocationLocationId !== undefined) {
+        const targetWarehouseId = input.warehouseId ?? batch.warehouseId;
+        const activeBags = await tx.bag.findMany({
+          where: { batchId, status: "ACTIVE" },
+          select: {
+            id: true,
+            warehouseLocation: { select: { name: true } },
+          },
+        });
+        const activeItemCount = await tx.batchItem.count({
+          where: { batchId, status: "ACTIVE" },
+        });
+        if (activeBags.length > 0 || activeItemCount > 0) {
+          if (!input.relocationLocationId) {
+            throw new BadRequestException({
+              code: "RELOCATION_LOCATION_REQUIRED",
+              message:
+                "Pasirinkite naują sandėlio vietą visoms aktyvioms pakuotėms ir eilutėms.",
+            });
+          }
+          const location = await this.assertLocationInWarehouseTx(
+            tx,
+            input.relocationLocationId,
+            targetWarehouseId,
+          );
+          if (activeBags.length > 0) {
+            await tx.bagCorrection.createMany({
+              data: activeBags.map((bag) => ({
+                bagId: bag.id,
+                kind: "LOCATION" as const,
+                previousValue: bag.warehouseLocation.name,
+                newValue: location.name,
+                createdById: actorId,
+              })),
+            });
+            await tx.bag.updateMany({
+              where: { batchId, status: "ACTIVE" },
+              data: { warehouseLocationId: input.relocationLocationId },
+            });
+          }
+          if (activeItemCount > 0) {
+            await tx.batchItem.updateMany({
+              where: { batchId, status: "ACTIVE" },
+              data: { warehouseLocationId: input.relocationLocationId },
+            });
+          }
+        }
+      }
+
+      if (Object.keys(batchData).length > 0) {
+        await tx.batch.update({ where: { id: batchId }, data: batchData });
+      }
+      });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        throw new ConflictException({
+          code: "BATCH_ALREADY_EXISTS",
+          message:
+            "Tokia partija (išteklius ir sandėlis) šiame priėmime jau yra.",
+        });
+      }
+      throw error;
+    }
+
+    return this.get(batchId);
   }
 
   /** One batch with its packages. */
@@ -356,18 +563,51 @@ export class BatchesService {
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
 
+    const items = await this.prisma.batchItem.findMany({
+      where: { batchId: id },
+      include: itemInclude,
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    });
+    const activeItems = items.filter((item) => item.status === "ACTIVE");
+    const lastActiveItem = activeItems[activeItems.length - 1];
+
+    const reconciliationLines = await this.prisma.pieceReconciliationLine.findMany({
+      where: { batchId: id },
+      include: { resource: { select: { name: true } } },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    });
+    // PIECE: the saved reconciliation once confirmed, otherwise the server-derived
+    // actual-pieces rows for the (pre-confirmation) ADMIN form.
+    const pieceReconciliation: PieceReconciliationRow[] =
+      batch.receivingMode === "PIECE"
+        ? reconciliationLines.length > 0
+          ? reconciliationLines.map(toPieceReconciliationRow)
+          : aggregateActualPieces(activeItems)
+        : [];
+
     return {
       ...toBatch(
         batch,
         { totalNetWeight, bagCount: activeBags.length },
         discrepancies.some((row) => row.status !== "SETTLED"),
+        {
+          itemLineCount: activeItems.length,
+          totalPieces: activeItems.reduce(
+            (sum, item) => sum + item.quantity,
+            0,
+          ),
+        },
       ),
       bags: bags.map(toBag),
       corrections: corrections.map(toBagCorrection),
+      items: items.map(toBatchItem),
+      pieceReconciliation,
       discrepancies: discrepancies.map(toReceivingDiscrepancy),
-      suggestedLocationId: lastActiveBag
-        ? lastActiveBag.warehouseLocationId
-        : null,
+      // WEIGHT suggests from the latest package; PIECE from the latest item.
+      suggestedLocationId:
+        lastActiveItem?.warehouseLocationId ??
+        lastActiveBag?.warehouseLocationId ??
+        null,
       suggestedPackagingTypeId: lastActiveBag
         ? lastActiveBag.packagingTypeId
         : null,
@@ -397,54 +637,53 @@ export class BatchesService {
     input: CreateBagRequest,
     actorId: string,
   ): Promise<Bag> {
-    const batch = await this.prisma.batch.findUnique({
-      where: { id: batchId },
-      select: { id: true, status: true, warehouseId: true },
-    });
-    if (!batch) {
-      throw new NotFoundException("Partija nerasta.");
-    }
-    if (batch.status === "CONFIRMED") {
-      throw new BadRequestException({
-        code: "BATCH_CONFIRMED",
-        message: "Į patvirtintą partiją maišų pridėti negalima.",
-      });
-    }
-    await this.assertLocationInWarehouse(
-      input.warehouseLocationId,
-      batch.warehouseId,
-    );
-    const packagingType = await this.assertActivePackagingType(
-      input.packagingTypeId,
-    );
-    const grossWeight = new Prisma.Decimal(input.grossWeight);
-    const netWeight = grossWeight.sub(packagingType.tareWeightKg);
-    if (netWeight.lte(0)) {
-      throw new BadRequestException({
-        code: "GROSS_NOT_ABOVE_TARE",
-        message: "Bruto svoris turi būti didesnis už taros svorį.",
-      });
-    }
-
     for (let attempt = 0; attempt < MAX_BARCODE_ATTEMPTS; attempt += 1) {
       const barcode = generateBagBarcode();
       try {
-        const bag = await this.prisma.bag.create({
-          data: {
-            barcode,
-            batchId,
-            packagingTypeId: packagingType.id,
-            grossWeight,
-            // Snapshot the tare used for this net calculation, so later edits to
-            // the PackagingType master record cannot change historical net.
-            tareWeightKg: packagingType.tareWeightKg,
-            netWeight,
-            warehouseLocationId: input.warehouseLocationId,
-            createdById: actorId,
-          },
-          include: bagInclude,
+        return await this.prisma.$transaction(async (tx) => {
+          const locked = await this.lockPendingBatch(tx, batchId, "WEIGHT");
+          await this.assertLocationInWarehouseTx(
+            tx,
+            input.warehouseLocationId,
+            locked.warehouseId,
+          );
+          const packagingType = await tx.packagingType.findUnique({
+            where: { id: input.packagingTypeId },
+          });
+          if (!packagingType) {
+            throw new BadRequestException("Pasirinkta tara nerasta.");
+          }
+          if (!packagingType.active) {
+            throw new BadRequestException({
+              code: "PACKAGING_INACTIVE",
+              message: "Pasirinkta tara neaktyvi.",
+            });
+          }
+          const grossWeight = new Prisma.Decimal(input.grossWeight);
+          const netWeight = grossWeight.sub(packagingType.tareWeightKg);
+          if (netWeight.lte(0)) {
+            throw new BadRequestException({
+              code: "GROSS_NOT_ABOVE_TARE",
+              message: "Bruto svoris turi būti didesnis už taros svorį.",
+            });
+          }
+          const bag = await tx.bag.create({
+            data: {
+              barcode,
+              batchId,
+              packagingTypeId: packagingType.id,
+              grossWeight,
+              // Snapshot the tare used for this net calculation, so later edits to
+              // the PackagingType master record cannot change historical net.
+              tareWeightKg: packagingType.tareWeightKg,
+              netWeight,
+              warehouseLocationId: input.warehouseLocationId,
+              createdById: actorId,
+            },
+            include: bagInclude,
+          });
+          return toBag(bag);
         });
-        return toBag(bag);
       } catch (error) {
         if (isUniqueConstraintError(error)) {
           continue;
@@ -473,94 +712,107 @@ export class BatchesService {
     actorId: string,
   ): Promise<Bag> {
     const bag = await this.loadCorrectableBag(batchId, bagId);
-    const data: Prisma.BagUpdateInput = {};
-    const corrections: Prisma.BagCorrectionCreateManyInput[] = [];
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await this.lockPendingBatch(tx, batchId, "WEIGHT");
+      const data: Prisma.BagUpdateInput = {};
+      const corrections: Prisma.BagCorrectionCreateManyInput[] = [];
 
-    // The tare to apply after the correction: the package's current snapshot by
-    // default, re-snapshotted from the selected PackagingType when it changes.
-    let tareWeightKg = bag.tareWeightKg;
-    let weightChanged = false;
+      // The tare to apply after the correction: the package's current snapshot by
+      // default, re-snapshotted from the selected PackagingType when it changes.
+      let tareWeightKg = bag.tareWeightKg;
+      let weightChanged = false;
 
-    if (
-      input.packagingTypeId !== undefined &&
-      input.packagingTypeId !== bag.packagingTypeId
-    ) {
-      const next = await this.assertActivePackagingType(input.packagingTypeId);
-      data.packagingType = { connect: { id: next.id } };
-      // Record both packaging names and their tare values so the previous/new
-      // tare state stays understandable in the audit trail.
-      corrections.push({
-        bagId: bag.id,
-        kind: "PACKAGING",
-        previousValue: `${bag.packagingType.name} (${bag.tareWeightKg.toString()} kg)`,
-        newValue: `${next.name} (${next.tareWeightKg.toString()} kg)`,
-        createdById: actorId,
-      });
-      tareWeightKg = next.tareWeightKg;
-      weightChanged = true;
-    }
-
-    let grossWeight = bag.grossWeight;
-    if (input.grossWeight !== undefined) {
-      const next = new Prisma.Decimal(input.grossWeight);
-      if (!next.equals(bag.grossWeight)) {
+      if (
+        input.packagingTypeId !== undefined &&
+        input.packagingTypeId !== bag.packagingTypeId
+      ) {
+        const next = await tx.packagingType.findUnique({
+          where: { id: input.packagingTypeId },
+        });
+        if (!next) {
+          throw new BadRequestException("Pasirinkta tara nerasta.");
+        }
+        if (!next.active) {
+          throw new BadRequestException({
+            code: "PACKAGING_INACTIVE",
+            message: "Pasirinkta tara neaktyvi.",
+          });
+        }
+        data.packagingType = { connect: { id: next.id } };
+        // Record both packaging names and their tare values so the previous/new
+        // tare state stays understandable in the audit trail.
         corrections.push({
           bagId: bag.id,
-          kind: "GROSS_WEIGHT",
-          previousValue: bag.grossWeight.toString(),
-          newValue: next.toString(),
+          kind: "PACKAGING",
+          previousValue: `${bag.packagingType.name} (${bag.tareWeightKg.toString()} kg)`,
+          newValue: `${next.name} (${next.tareWeightKg.toString()} kg)`,
           createdById: actorId,
         });
-        grossWeight = next;
+        tareWeightKg = next.tareWeightKg;
         weightChanged = true;
       }
-    }
 
-    if (weightChanged) {
-      const netWeight = grossWeight.sub(tareWeightKg);
-      if (netWeight.lte(0)) {
-        throw new BadRequestException({
-          code: "GROSS_NOT_ABOVE_TARE",
-          message: "Bruto svoris turi būti didesnis už taros svorį.",
+      let grossWeight = bag.grossWeight;
+      if (input.grossWeight !== undefined) {
+        const next = new Prisma.Decimal(input.grossWeight);
+        if (!next.equals(bag.grossWeight)) {
+          corrections.push({
+            bagId: bag.id,
+            kind: "GROSS_WEIGHT",
+            previousValue: bag.grossWeight.toString(),
+            newValue: next.toString(),
+            createdById: actorId,
+          });
+          grossWeight = next;
+          weightChanged = true;
+        }
+      }
+
+      if (weightChanged) {
+        const netWeight = grossWeight.sub(tareWeightKg);
+        if (netWeight.lte(0)) {
+          throw new BadRequestException({
+            code: "GROSS_NOT_ABOVE_TARE",
+            message: "Bruto svoris turi būti didesnis už taros svorį.",
+          });
+        }
+        data.grossWeight = grossWeight;
+        data.tareWeightKg = tareWeightKg;
+        data.netWeight = netWeight;
+      }
+
+      const targetLocationId = input.warehouseLocationId;
+      if (
+        targetLocationId !== undefined &&
+        targetLocationId !== bag.warehouseLocationId
+      ) {
+        const location = await this.assertLocationInWarehouseTx(
+          tx,
+          targetLocationId,
+          locked.warehouseId,
+        );
+        data.warehouseLocation = { connect: { id: targetLocationId } };
+        corrections.push({
+          bagId: bag.id,
+          kind: "LOCATION",
+          previousValue: bag.warehouseLocation.name,
+          newValue: location.name,
+          createdById: actorId,
         });
       }
-      data.grossWeight = grossWeight;
-      data.tareWeightKg = tareWeightKg;
-      data.netWeight = netWeight;
-    }
 
-    const targetLocationId = input.warehouseLocationId;
-    if (
-      targetLocationId !== undefined &&
-      targetLocationId !== bag.warehouseLocationId
-    ) {
-      const location = await this.assertLocationInWarehouse(
-        targetLocationId,
-        bag.batch.warehouseId,
-      );
-      data.warehouseLocation = { connect: { id: targetLocationId } };
-      corrections.push({
-        bagId: bag.id,
-        kind: "LOCATION",
-        previousValue: bag.warehouseLocation.name,
-        newValue: location.name,
-        createdById: actorId,
-      });
-    }
+      if (corrections.length === 0) {
+        return toBag(bag);
+      }
 
-    if (corrections.length === 0) {
-      return toBag(bag);
-    }
-
-    const updated = await this.prisma.$transaction(async (tx) => {
       await tx.bagCorrection.createMany({ data: corrections });
-      return tx.bag.update({
+      const updated = await tx.bag.update({
         where: { id: bag.id },
         data,
         include: bagInclude,
       });
+      return toBag(updated);
     });
-    return toBag(updated);
   }
 
   /**
@@ -578,6 +830,7 @@ export class BatchesService {
     const reason = input.reason ?? null;
 
     const updated = await this.prisma.$transaction(async (tx) => {
+      await this.lockPendingBatch(tx, batchId, "WEIGHT");
       await tx.bagCorrection.create({
         data: {
           bagId: bag.id,
@@ -614,6 +867,320 @@ export class BatchesService {
       );
     }
     return toBag(bag);
+  }
+
+  // ── PIECE batch items ───────────────────────────────────────────────────
+
+  /** The item lines of a batch, oldest first. */
+  async listItems(batchId: string): Promise<BatchItem[]> {
+    await this.assertBatchExists(batchId);
+    const items = await this.prisma.batchItem.findMany({
+      where: { batchId },
+      include: itemInclude,
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    });
+    return items.map(toBatchItem);
+  }
+
+  /**
+   * Add one item line to a PENDING PIECE batch. The resource must be active; the
+   * location must exist, be active and belong to the batch's warehouse. The same
+   * product may be added in multiple locations (multiple lines).
+   */
+  async addItem(
+    batchId: string,
+    input: CreateBatchItemRequest,
+    actorId: string,
+  ): Promise<BatchItem> {
+    for (let attempt = 0; attempt < MAX_BARCODE_ATTEMPTS; attempt += 1) {
+      const barcode = generateBagBarcode();
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          const locked = await this.lockPendingBatch(tx, batchId, "PIECE");
+          await this.assertActiveResourceTx(tx, input.resourceId);
+          await this.assertLocationInWarehouseTx(
+            tx,
+            input.warehouseLocationId,
+            locked.warehouseId,
+          );
+          const item = await tx.batchItem.create({
+            data: {
+              barcode,
+              batchId,
+              resourceId: input.resourceId,
+              warehouseLocationId: input.warehouseLocationId,
+              quantity: input.quantity,
+              createdById: actorId,
+            },
+            include: itemInclude,
+          });
+          return toBatchItem(item);
+        });
+      } catch (error) {
+        if (isUniqueConstraintError(error)) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw new ConflictException(
+      "Nepavyko sugeneruoti unikalaus brūkšninio kodo.",
+    );
+  }
+
+  /** Correct a PENDING PIECE item line (resource, quantity and/or location). */
+  async correctItem(
+    batchId: string,
+    itemId: string,
+    input: UpdateBatchItemRequest,
+  ): Promise<BatchItem> {
+    const item = await this.assertEditableItem(batchId, itemId);
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await this.lockPendingBatch(tx, batchId, "PIECE");
+      if (input.resourceId !== undefined) {
+        await this.assertActiveResourceTx(tx, input.resourceId);
+      }
+      if (input.warehouseLocationId !== undefined) {
+        await this.assertLocationInWarehouseTx(
+          tx,
+          input.warehouseLocationId,
+          locked.warehouseId,
+        );
+      }
+      const updated = await tx.batchItem.update({
+        where: { id: item.id },
+        data: {
+          ...(input.resourceId !== undefined
+            ? { resourceId: input.resourceId }
+            : {}),
+          ...(input.quantity !== undefined ? { quantity: input.quantity } : {}),
+          ...(input.warehouseLocationId !== undefined
+            ? { warehouseLocationId: input.warehouseLocationId }
+            : {}),
+        },
+        include: itemInclude,
+      });
+      return toBatchItem(updated);
+    });
+  }
+
+  /** Void a PENDING PIECE item line (never hard-deletes it). */
+  async voidItem(
+    batchId: string,
+    itemId: string,
+    input: VoidBatchItemRequest,
+    actorId: string,
+  ): Promise<BatchItem> {
+    const item = await this.assertEditableItem(batchId, itemId);
+    const reason = input.reason?.trim() ? input.reason.trim() : null;
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockPendingBatch(tx, batchId, "PIECE");
+      const updated = await tx.batchItem.update({
+        where: { id: item.id },
+        data: {
+          status: "VOIDED",
+          voidedById: actorId,
+          voidedAt: new Date(),
+          voidReason: reason,
+        },
+        include: itemInclude,
+      });
+      return toBatchItem(updated);
+    });
+  }
+
+  /**
+   * Confirm a PENDING PIECE batch, reconciling documentary quantities **per
+   * product**. `actualPieces` is derived server-side from the active groups
+   * (aggregated per resource); `documentPieces` comes from `input.products` and the
+   * signed difference is `actualPieces − documentPieces`. Every product with a
+   * non-zero difference requires `acknowledgeDiscrepancies`. Persists one
+   * `PieceReconciliationLine` per product and one PIECE `ReceivingDiscrepancy` per
+   * non-zero product, plus the batch acquisition/document metadata. One
+   * transaction guarded by the batch-status flip, so a retry cannot duplicate.
+   */
+  async confirmPiece(
+    batchId: string,
+    input: ConfirmPieceBatchRequest,
+    actorId: string,
+  ): Promise<BatchPieceConfirmation> {
+    const batch = await this.prisma.batch.findUnique({
+      where: { id: batchId },
+      select: {
+        id: true,
+        code: true,
+        status: true,
+        receivingMode: true,
+        delivery: { select: { supplierId: true } },
+      },
+    });
+    if (!batch) {
+      throw new NotFoundException({
+        code: "BATCH_NOT_FOUND",
+        message: "Partija nerasta.",
+      });
+    }
+    if (batch.receivingMode !== "PIECE") {
+      throw new BadRequestException({
+        code: "BATCH_NOT_PIECE",
+        message: "Vienetinė patvirtinama tik vienetinei partijai.",
+      });
+    }
+    if (batch.status === "CONFIRMED") {
+      throw new ConflictException({
+        code: "BATCH_ALREADY_CONFIRMED",
+        message: "Partija jau patvirtinta.",
+      });
+    }
+
+    const items = await this.prisma.batchItem.findMany({
+      where: { batchId, status: "ACTIVE" },
+      select: {
+        resourceId: true,
+        quantity: true,
+        resource: { select: { name: true } },
+      },
+    });
+    if (items.length === 0) {
+      throw new BadRequestException({
+        code: "BATCH_EMPTY",
+        message: "Partijoje dar nėra nė vienos eilutės.",
+      });
+    }
+    const actual = aggregateActualPieces(items);
+    const actualByResource = new Set(actual.map((row) => row.resourceId));
+
+    const documentByResource = new Map<string, number>();
+    for (const product of input.products) {
+      if (!actualByResource.has(product.resourceId)) {
+        throw new BadRequestException({
+          code: "UNKNOWN_RESOURCE",
+          message: "Nurodyta prekė nepriklauso šiai partijai.",
+        });
+      }
+      if (documentByResource.has(product.resourceId)) {
+        throw new BadRequestException({
+          code: "DUPLICATE_RESOURCE",
+          message: "Ta pati prekė nurodyta kelis kartus.",
+        });
+      }
+      documentByResource.set(product.resourceId, product.documentPieces);
+    }
+    if (actual.some((row) => !documentByResource.has(row.resourceId))) {
+      throw new BadRequestException({
+        code: "MISSING_DOCUMENT_PIECES",
+        message: "Įveskite dokumentinius kiekius visoms prekėms.",
+      });
+    }
+
+    const lines = actual.map((row) => {
+      const documentPieces = documentByResource.get(row.resourceId)!;
+      return {
+        resourceId: row.resourceId,
+        resourceName: row.resourceName,
+        actualPieces: row.actualPieces,
+        documentPieces,
+        differencePieces: row.actualPieces - documentPieces,
+      };
+    });
+    const mismatched = lines.filter((line) => line.differencePieces !== 0);
+    if (mismatched.length > 0 && input.acknowledgeDiscrepancies !== true) {
+      throw new BadRequestException({
+        code: "DISCREPANCY_NOT_ACKNOWLEDGED",
+        message: "Neatitikimai turi būti patvirtinti.",
+      });
+    }
+
+    const totalPieces = lines.reduce((sum, line) => sum + line.actualPieces, 0);
+    const totalDocumentPieces = lines.reduce(
+      (sum, line) => sum + line.documentPieces,
+      0,
+    );
+    const acquisitionAmount = new Prisma.Decimal(input.acquisitionAmount);
+    const documentDate = input.documentDate ? new Date(input.documentDate) : null;
+    const documentNumber = input.documentNumber ?? null;
+    const confirmedAt = new Date();
+
+    await this.prisma.$transaction(async (tx) => {
+      const result = await tx.batch.updateMany({
+        where: { id: batchId, status: { not: "CONFIRMED" } },
+        data: {
+          status: "CONFIRMED",
+          acquisitionAmount,
+          documentDate,
+          documentNumber,
+          confirmedAt,
+        },
+      });
+      if (result.count === 0) {
+        throw new ConflictException({
+          code: "BATCH_ALREADY_CONFIRMED",
+          message: "Partija jau patvirtinta.",
+        });
+      }
+      for (const line of lines) {
+        await tx.pieceReconciliationLine.create({
+          data: {
+            batchId,
+            resourceId: line.resourceId,
+            actualPieces: line.actualPieces,
+            documentPieces: line.documentPieces,
+            differencePieces: line.differencePieces,
+            createdById: actorId,
+          },
+        });
+      }
+      for (const line of mismatched) {
+        await tx.receivingDiscrepancy.create({
+          data: {
+            kind: "PIECE",
+            batchId,
+            resourceId: line.resourceId,
+            supplierId: batch.delivery.supplierId,
+            actualPieces: line.actualPieces,
+            documentPieces: line.documentPieces,
+            differencePieces: line.differencePieces,
+            createdById: actorId,
+          },
+        });
+      }
+    });
+
+    return {
+      batchId,
+      code: batch.code,
+      status: "CONFIRMED",
+      itemLineCount: actual.length,
+      totalPieces,
+      totalDocumentPieces,
+      acquisitionAmount: acquisitionAmount.toString(),
+      documentDate: documentDate?.toISOString() ?? null,
+      documentNumber,
+      confirmedAt: confirmedAt.toISOString(),
+      lines,
+    };
+  }
+
+  /** Assert the item exists, belongs to the batch and is not voided. */
+  private async assertEditableItem(
+    batchId: string,
+    itemId: string,
+  ): Promise<{ id: string }> {
+    const item = await this.prisma.batchItem.findUnique({
+      where: { id: itemId },
+      select: { id: true, batchId: true, status: true },
+    });
+    if (!item || item.batchId !== batchId) {
+      throw new NotFoundException("Eilutė nerasta.");
+    }
+    if (item.status !== "ACTIVE") {
+      throw new BadRequestException({
+        code: "ITEM_VOIDED",
+        message: "Anuliuotos eilutės keisti negalima.",
+      });
+    }
+    return { id: item.id };
   }
 
   /**
@@ -654,6 +1221,18 @@ export class BatchesService {
       throw new ConflictException({
         code: "BATCH_ALREADY_CONFIRMED",
         message: "Partija jau patvirtinta ir negali būti patvirtinta pakartotinai.",
+      });
+    }
+    if (batch.receivingMode !== "WEIGHT") {
+      throw new BadRequestException({
+        code: "BATCH_NOT_WEIGHT",
+        message: "Svorio suderinimas taikomas tik svorinėms partijoms.",
+      });
+    }
+    if (!batch.resourceId) {
+      throw new ConflictException({
+        code: "BATCH_WITHOUT_RESOURCE",
+        message: "Svorinė partija neturi ištekliaus.",
       });
     }
 
@@ -796,16 +1375,43 @@ export class BatchesService {
   private async withSummaries(
     batches: (BatchRecordLike & { id: string })[],
   ): Promise<Batch[]> {
-    const summaries = await this.summariesFor(batches.map((batch) => batch.id));
-    const openDiscrepancies = await this.openDiscrepancyBatchIds(
-      batches.map((batch) => batch.id),
-    );
+    const ids = batches.map((batch) => batch.id);
+    const [summaries, pieces, openDiscrepancies] = await Promise.all([
+      this.summariesFor(ids),
+      this.pieceSummariesFor(ids),
+      this.openDiscrepancyBatchIds(ids),
+    ]);
     return batches.map((batch) =>
       toBatch(
         batch,
         summaries.get(batch.id) ?? emptySummary(),
         openDiscrepancies.has(batch.id),
+        pieces.get(batch.id) ?? { itemLineCount: 0, totalPieces: 0 },
       ),
+    );
+  }
+
+  /** Derive active item-line count + total pieces for the given batches. */
+  private async pieceSummariesFor(
+    batchIds: string[],
+  ): Promise<Map<string, PieceSummary>> {
+    if (batchIds.length === 0) {
+      return new Map();
+    }
+    const groups = await this.prisma.batchItem.groupBy({
+      by: ["batchId"],
+      where: { batchId: { in: batchIds }, status: "ACTIVE" },
+      _sum: { quantity: true },
+      _count: { _all: true },
+    });
+    return new Map(
+      groups.map((group) => [
+        group.batchId,
+        {
+          itemLineCount: group._count._all,
+          totalPieces: group._sum.quantity ?? 0,
+        },
+      ]),
     );
   }
 
@@ -1056,32 +1662,116 @@ export class BatchesService {
     }
   }
 
-  /**
-   * Load an ACTIVE packaging type for a new registration or correction. An
-   * inactive packaging type may not be selected for new receiving (historical
-   * packages may still reference an inactive type).
-   */
-  private async assertActivePackagingType(packagingTypeId: string) {
-    const packagingType = await this.prisma.packagingType.findUnique({
-      where: { id: packagingTypeId },
+  private batchConfirmedError(): ConflictException {
+    return new ConflictException({
+      code: "BATCH_CONFIRMED",
+      message:
+        "Partija jau patvirtinta; pakeitimai neišsaugoti. Atnaujinkite partijos būseną.",
     });
-    if (!packagingType) {
-      throw new BadRequestException("Pasirinkta tara nerasta.");
-    }
-    if (!packagingType.active) {
-      throw new BadRequestException({
-        code: "PACKAGING_INACTIVE",
-        message: "Pasirinkta tara neaktyvi.",
-      });
-    }
-    return packagingType;
   }
 
-  private async assertLocationInWarehouse(
+  /**
+   * Lock the batch row for the current transaction and reject edits if it has
+   * been confirmed since the request started. This closes the edit/confirm race:
+   * confirmation updates the same row, so either the edit commits before it or
+   * the edit observes `CONFIRMED` and is rejected.
+   */
+  private async lockPendingBatch(
+    tx: Prisma.TransactionClient,
+    batchId: string,
+    expectedMode?: "WEIGHT" | "PIECE",
+  ): Promise<{ warehouseId: string; receivingMode: string }> {
+    const rows = await tx.$queryRaw<
+      Array<{
+        status: string;
+        receiving_mode: string;
+        warehouse_id: string;
+      }>
+    >`
+      SELECT status::text AS status,
+             receiving_mode::text AS receiving_mode,
+             warehouse_id
+      FROM batches
+      WHERE id = ${batchId}
+      FOR UPDATE
+    `;
+    const row = rows[0];
+    if (!row) {
+      throw new NotFoundException("Partija nerasta.");
+    }
+    if (row.status === "CONFIRMED") {
+      throw this.batchConfirmedError();
+    }
+    if (expectedMode && row.receiving_mode !== expectedMode) {
+      throw new BadRequestException({
+        code: expectedMode === "WEIGHT" ? "BATCH_NOT_WEIGHT" : "BATCH_NOT_PIECE",
+        message:
+          expectedMode === "WEIGHT"
+            ? "Pakuotės registruojamos tik svorinėje partijoje."
+            : "Eilutės registruojamos tik vienetinėje partijoje.",
+      });
+    }
+    return {
+      warehouseId: row.warehouse_id,
+      receivingMode: row.receiving_mode,
+    };
+  }
+
+  private async assertActiveResourceTx(
+    tx: Prisma.TransactionClient,
+    resourceId: string,
+  ): Promise<void> {
+    const resource = await tx.resource.findUnique({ where: { id: resourceId } });
+    if (!resource) {
+      throw new BadRequestException("Pasirinktas išteklius nerastas.");
+    }
+    if (!resource.active) {
+      throw new BadRequestException("Pasirinktas išteklius neaktyvus.");
+    }
+  }
+
+  private async assertActiveSupplierTx(
+    tx: Prisma.TransactionClient,
+    supplierId: string,
+  ): Promise<void> {
+    const supplier = await tx.businessPartner.findUnique({
+      where: { id: supplierId },
+      include: { roles: true },
+    });
+    if (!supplier) {
+      throw new BadRequestException("Pasirinktas tiekėjas nerastas.");
+    }
+    if (!supplier.active) {
+      throw new BadRequestException("Pasirinktas tiekėjas neaktyvus.");
+    }
+    if (!supplier.roles.some((assignment) => assignment.role === "SUPPLIER")) {
+      throw new BadRequestException(
+        "Pasirinktas partneris neturi tiekėjo vaidmens.",
+      );
+    }
+  }
+
+  private async assertActiveWarehouseTx(
+    tx: Prisma.TransactionClient,
+    warehouseId: string,
+  ): Promise<void> {
+    const warehouse = await tx.warehouse.findUnique({
+      where: { id: warehouseId },
+    });
+    if (!warehouse) {
+      throw new BadRequestException("Pasirinktas sandėlis nerastas.");
+    }
+    if (!warehouse.active) {
+      throw new BadRequestException("Pasirinktas sandėlis neaktyvus.");
+    }
+  }
+
+  private async assertLocationInWarehouseTx(
+    tx: Prisma.TransactionClient,
     locationId: string,
     warehouseId: string,
   ): Promise<{ id: string; name: string }> {
-    const location = await this.prisma.warehouseLocation.findUnique({
+    const location = await tx.warehouseLocation.findUnique({
       where: { id: locationId },
     });
     if (!location) {
@@ -1131,3 +1821,34 @@ export class BatchesService {
 
 /** A loaded batch row (structural alias for the mapper's record type). */
 type BatchRecordLike = Parameters<typeof toBatch>[0];
+
+/**
+ * Aggregate active PIECE groups into one row per resource (server-derived actual
+ * pieces). Used for the pre-confirmation ADMIN reconciliation form.
+ */
+function aggregateActualPieces(
+  items: readonly {
+    resourceId: string;
+    quantity: number;
+    resource: { name: string };
+  }[],
+): PieceReconciliationRow[] {
+  const byResource = new Map<string, PieceReconciliationRow>();
+  for (const item of items) {
+    const existing = byResource.get(item.resourceId);
+    if (existing) {
+      existing.actualPieces += item.quantity;
+      continue;
+    }
+    byResource.set(item.resourceId, {
+      resourceId: item.resourceId,
+      resourceName: item.resource.name,
+      actualPieces: item.quantity,
+      documentPieces: null,
+      differencePieces: null,
+    });
+  }
+  return [...byResource.values()].sort((a, b) =>
+    a.resourceName.localeCompare(b.resourceName, "lt"),
+  );
+}

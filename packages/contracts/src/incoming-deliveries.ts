@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BatchSchema } from "./batches";
+import { BatchReceivingModeSchema, BatchSchema } from "./batches";
 
 /** Prefix of the human-facing delivery code (`GYYMM-NN`). */
 export const DELIVERY_CODE_PREFIX = "G";
@@ -61,15 +61,57 @@ export type CreateIncomingDeliveryRequest = z.infer<
 >;
 
 /**
- * Request to start or resolve the internal batch for one resource + warehouse
- * inside a delivery. A batch is exactly one (delivery, resource, warehouse)
- * combination; the same resource into different warehouses creates different
- * batches.
+ * Request to start or resolve an internal batch inside a delivery.
+ *
+ * `WEIGHT` (the default, backward-compatible with the existing weight flow):
+ * exactly one (delivery, resource, warehouse) combination — `resourceId` is
+ * required; a batch is resolved or created. `PIECE`: a batch is the
+ * cost/provenance pool for several products — `resourceId` must be **absent**
+ * and only `warehouseId` is used; a new piece batch is created.
  */
 export const ResolveBatchRequestSchema = z
   .object({
-    resourceId: z.uuid(),
+    receivingMode: BatchReceivingModeSchema.optional(),
+    resourceId: z.uuid().optional(),
     warehouseId: z.uuid(),
   })
   .strict();
 export type ResolveBatchRequest = z.infer<typeof ResolveBatchRequestSchema>;
+
+/**
+ * Request to correct a PENDING batch's registration metadata.
+ *
+ * Receipt-level `supplierId`/`arrivalDate` apply to the whole delivery and are
+ * rejected when any sibling batch is already `CONFIRMED`. Batch-level
+ * `resourceId` applies only to WEIGHT batches; PIECE has per-line resources.
+ * Changing the warehouse while active units exist requires
+ * `relocationLocationId` (a location of the new warehouse) so existing package/
+ * item identities move without being recreated.
+ */
+export const UpdateBatchRegistrationRequestSchema = z
+  .object({
+    resourceId: z.uuid().nullable().optional(),
+    warehouseId: z.uuid().optional(),
+    relocationLocationId: z.uuid().optional(),
+    supplierId: z.uuid().optional(),
+    arrivalDate: z.iso.datetime().optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.resourceId !== undefined ||
+      value.warehouseId !== undefined ||
+      value.relocationLocationId !== undefined ||
+      value.supplierId !== undefined ||
+      value.arrivalDate !== undefined,
+    { message: "Nėra ką atnaujinti." },
+  )
+  .refine(
+    (value) =>
+      value.relocationLocationId === undefined ||
+      value.warehouseId !== undefined,
+    { message: "Perkėlimo vieta reikalauja naujo sandėlio." },
+  );
+export type UpdateBatchRegistrationRequest = z.infer<
+  typeof UpdateBatchRegistrationRequestSchema
+>;

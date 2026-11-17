@@ -1,10 +1,11 @@
 import type { Batch, BatchStatus } from "@aitvaras/contracts";
+import { isoDatePart } from "@/shared/lib/date";
 
-/** Heading for the ADMIN received-batch queue (`Gavimai`). */
+/** Heading for the received-batch queue (`Priėmimas`). */
 export const GAVIMAI_HEADING = "Gautos partijos";
 
 /** The ADMIN formal confirmation action (reconciliation card heading + button). */
-export const CONFIRM_RECEIPT_LABEL = "Patvirtinti gavimą";
+export const CONFIRM_RECEIPT_LABEL = "Patvirtinti priėmimą";
 
 /** Empty-state text when no batch matches the current queue filters. */
 export const EMPTY_GAVIMAI_MESSAGE =
@@ -75,6 +76,41 @@ export function createBatchListFilters(): BatchListFilters {
   };
 }
 
+/** Session key for restoring the list view after visiting a batch detail/edit. */
+export const BATCH_LIST_FILTERS_STORAGE_KEY =
+  "aitvaras.priemimas.filters.v1";
+
+/** Parse persisted filters defensively; malformed values fall back to defaults. */
+export function parseBatchListFilters(raw: string | null): BatchListFilters {
+  const defaults = createBatchListFilters();
+  if (!raw) {
+    return defaults;
+  }
+  try {
+    const value = JSON.parse(raw) as Record<string, unknown>;
+    const status = BATCH_STATUS_FILTERS.includes(
+      value.status as BatchStatusFilter,
+    )
+      ? (value.status as BatchStatusFilter)
+      : defaults.status;
+    const text = (key: keyof BatchListFilters): string =>
+      typeof value[key] === "string"
+        ? (value[key] as string)
+        : (defaults[key] as string);
+    return {
+      status,
+      supplierId: text("supplierId"),
+      resourceId: text("resourceId"),
+      warehouseId: text("warehouseId"),
+      arrivalFrom: text("arrivalFrom"),
+      arrivalTo: text("arrivalTo"),
+      code: text("code"),
+    };
+  } catch {
+    return defaults;
+  }
+}
+
 /** Whether any filter differs from the default queue view. */
 export function hasActiveBatchFilters(filters: BatchListFilters): boolean {
   const defaults = createBatchListFilters();
@@ -84,7 +120,7 @@ export function hasActiveBatchFilters(filters: BatchListFilters): boolean {
 }
 
 function withinArrivalRange(iso: string, from: string, to: string): boolean {
-  const date = iso.slice(0, 10);
+  const date = isoDatePart(iso);
   if (from && date < from) {
     return false;
   }
@@ -162,11 +198,12 @@ export function supplierFilterOptions(batches: readonly Batch[]): FilterOption[]
 }
 
 export function resourceFilterOptions(batches: readonly Batch[]): FilterOption[] {
+  // PIECE batches have no batch-level resource; skip them from the options.
   return distinctOptions(
     batches,
-    (batch) => batch.resourceId,
-    (batch) => batch.resourceName,
-  );
+    (batch) => batch.resourceId ?? "",
+    (batch) => batch.resourceName ?? "",
+  ).filter((option) => option.id !== "");
 }
 
 export function warehouseFilterOptions(batches: readonly Batch[]): FilterOption[] {

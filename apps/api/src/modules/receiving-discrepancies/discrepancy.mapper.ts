@@ -4,6 +4,7 @@ import {
   type DiscrepancySettlement,
   type DiscrepancySettlementType,
   type ReceivingDiscrepancyDetail,
+  type ReceivingDiscrepancyKind,
   type ReceivingDiscrepancyRegisterRow,
   type ReceivingDiscrepancyStatus,
 } from "@aitvaras/contracts";
@@ -18,9 +19,10 @@ export const settlementInclude = {
   sourceBatch: { include: { delivery: true } },
 } satisfies Prisma.DiscrepancySettlementInclude;
 
-/** A discrepancy with its origin context (supplier + batch → delivery/resource/warehouse). */
+/** A discrepancy with its origin context (supplier + batch → delivery/warehouse + PIECE resource). */
 export const discrepancyBaseInclude = {
   supplier: true,
+  resource: true,
   createdBy: true,
   batch: {
     include: { delivery: true, resource: true, warehouse: true },
@@ -99,27 +101,44 @@ export function toSettlement(record: SettlementRecord): DiscrepancySettlement {
 export function toRegisterRow(
   record: ListRecord | DetailRecord,
 ): ReceivingDiscrepancyRegisterRow {
-  const differenceWeight = record.differenceWeight.toString();
-  const balance = settlementBalance(record.differenceWeight, record.settlements);
+  const kind = record.kind as ReceivingDiscrepancyKind;
+  // PIECE discrepancies carry the product on their own resource relation; WEIGHT
+  // discrepancies have no resource (the batch owns it).
+  const resourceId = record.resourceId ?? record.batch.resourceId ?? null;
+  const resourceName =
+    record.resource?.name ?? record.batch.resource?.name ?? null;
+  // Signed display value: pieces for PIECE, weight for WEIGHT.
+  const signedDifference =
+    kind === "PIECE"
+      ? (record.differencePieces ?? 0).toString()
+      : (record.differenceWeight?.toString() ?? "0");
+  const balance =
+    kind === "WEIGHT" && record.differenceWeight !== null
+      ? settlementBalance(record.differenceWeight, record.settlements)
+      : null;
   return {
     id: record.id,
+    kind,
     batchId: record.batchId,
     deliveryId: record.batch.deliveryId,
     deliveryCode: record.batch.delivery.code,
     batchCode: record.batch.code,
     supplierId: record.supplierId,
     supplierName: record.supplier.name,
-    resourceId: record.batch.resourceId,
-    resourceName: record.batch.resource.name,
+    resourceId,
+    resourceName,
     warehouseName: record.batch.warehouse.name,
     arrivalDate: record.batch.delivery.arrivalDate.toISOString(),
-    measuredWeight: record.measuredWeight.toString(),
-    documentWeight: record.documentWeight.toString(),
-    differenceWeight,
-    direction: discrepancyDirection(differenceWeight),
-    originalWeight: balance.originalWeight.toString(),
-    settledWeight: balance.settledWeight.toString(),
-    remainingWeight: balance.remainingWeight.toString(),
+    measuredWeight: record.measuredWeight?.toString() ?? null,
+    documentWeight: record.documentWeight?.toString() ?? null,
+    differenceWeight: record.differenceWeight?.toString() ?? null,
+    actualPieces: record.actualPieces,
+    documentPieces: record.documentPieces,
+    differencePieces: record.differencePieces,
+    direction: discrepancyDirection(signedDifference),
+    originalWeight: balance?.originalWeight.toString() ?? null,
+    settledWeight: balance?.settledWeight.toString() ?? null,
+    remainingWeight: balance?.remainingWeight.toString() ?? null,
     status: record.status as ReceivingDiscrepancyStatus,
     createdById: record.createdById,
     createdByName: displayName(record.createdBy),

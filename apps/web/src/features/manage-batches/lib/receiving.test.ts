@@ -10,14 +10,11 @@ import type {
 } from "@aitvaras/contracts";
 import {
   activeBatchUnits,
-  ANOTHER_RESOURCE_LABEL,
   applyUnitSaveFailed,
   applyUnitSaved,
   applyUnitSavedSilently,
   BAG_RECEIVING_FIELDS,
-  BAG_SURFACES,
   bagLabelData,
-  bagSurface,
   batchUnitRow,
   batchUnitsNewestFirst,
   BATCH_UNITS_HEADING,
@@ -39,13 +36,11 @@ import {
   openReceivingDeliveries,
   OPEN_DELIVERIES_HEADING,
   REPRINT_LABEL,
-  RESOURCE_HEADING,
   RESOURCE_SELECTION_FIELDS,
   SAVE_AND_PRINT_LABEL,
   SAVE_LABEL,
   START_DELIVERY_LABEL,
   START_RESOURCE_LABEL,
-  startAnotherResource,
   VOID_CONFIRM_LABEL,
   VOID_LABEL,
   VOIDED_UNITS_HEADING,
@@ -64,6 +59,7 @@ function batch(overrides: Partial<Batch> = {}): Batch {
     code: "P01",
     deliveryId: DELIVERY_ID,
     deliveryCode: "G2609-01",
+    receivingMode: "WEIGHT",
     resourceId: RESOURCE_ID,
     resourceName: "Cukrus",
     resourceCategoryName: "Žaliava",
@@ -87,6 +83,8 @@ function batch(overrides: Partial<Batch> = {}): Batch {
     createdByName: "Vardas Pavardė",
     bagCount: 2,
     totalNetWeight: "19.75",
+    itemLineCount: 0,
+    totalPieces: 0,
     createdAt: "2026-09-29T09:00:00.000Z",
     updatedAt: "2026-09-29T09:00:00.000Z",
     ...overrides,
@@ -97,6 +95,8 @@ function detail(overrides: Partial<BatchDetail> = {}): BatchDetail {
   return {
     ...batch(),
     bags: [],
+    items: [],
+    pieceReconciliation: [],
     corrections: [],
     discrepancies: [],
     suggestedLocationId: null,
@@ -149,17 +149,15 @@ const bag: Bag = {
 };
 
 describe("receiving modes and labels", () => {
-  it("exposes the delivery-centric labels", () => {
-    expect(NEW_DELIVERY_LABEL).toBe("Naujas gavimas");
-    expect(START_DELIVERY_LABEL).toBe("Pradėti gavimą");
-    expect(OPEN_DELIVERIES_HEADING).toBe("Nepatvirtinti gavimai");
-    expect(EMPTY_DELIVERIES_MESSAGE).toBe("Nėra gavimų.");
-    expect(RESOURCE_HEADING).toBe("Registruojama rūšis");
+  it("exposes the receipt-centric labels", () => {
+    expect(NEW_DELIVERY_LABEL).toBe("Naujas priėmimas");
+    expect(START_DELIVERY_LABEL).toBe("Pradėti priėmimą");
+    expect(OPEN_DELIVERIES_HEADING).toBe("Nepatvirtinti priėmimai");
+    expect(EMPTY_DELIVERIES_MESSAGE).toBe("Nėra priėmimų.");
     expect(START_RESOURCE_LABEL).toBe("Pradėti registruoti");
-    expect(ANOTHER_RESOURCE_LABEL).toBe("Kitas išteklius");
-    expect(DELIVERY_CONTENTS_HEADING).toBe("Gavimo turinys");
+    expect(DELIVERY_CONTENTS_HEADING).toBe("Priėmimo turinys");
     expect(EMPTY_DELIVERY_CONTENTS_MESSAGE).toBe(
-      "Šiame gavime dar nėra užregistruotų išteklių.",
+      "Šiame priėmime dar nėra užregistruotų išteklių.",
     );
     expect(SAVE_LABEL).toBe("Išsaugoti");
     expect(SAVE_AND_PRINT_LABEL).toBe("Išsaugoti ir spausdinti");
@@ -229,12 +227,6 @@ describe("receiving state", () => {
     expect(state.delivery).toBeNull();
     expect(state.batch).toBeNull();
     expect(state.label).toBeNull();
-    expect(bagSurface(state)).toBe("form");
-  });
-
-  it("has only form and label surfaces (no intermediate detail)", () => {
-    expect([...BAG_SURFACES]).toEqual(["form", "label"]);
-    expect(BAG_SURFACES as readonly string[]).not.toContain("detail");
   });
 
   it("entering a delivery clears the batch/resource selection", () => {
@@ -295,27 +287,12 @@ describe("receiving state", () => {
     expect(bag.tareWeightKg).toBe("27.000");
   });
 
-  it("starts another resource while keeping the delivery open", () => {
-    const state = startAnotherResource(
-      enterBatch(
-        enterDelivery(delivery()),
-        detail({ suggestedPackagingTypeId: "tara-x" }),
-      ),
-    );
-    expect(state.delivery).not.toBeNull();
-    expect(state.batch).toBeNull();
-    expect(state.resource).toEqual({ resourceId: "", warehouseId: "" });
-    // A new batch does not inherit the previous batch's packaging type.
-    expect(state.draft.packagingTypeId).toBe("");
-  });
-
   it("a successful save goes straight to the label (no detail state)", () => {
     const state = applyUnitSaved(
       enterDelivery(delivery()),
       detail({ suggestedLocationId: LOCATION_ID }),
       bag,
     );
-    expect(bagSurface(state)).toBe("label");
     expect(state.label).toBe(bag);
     expect(state.draft).toEqual({
       packagingTypeId: "",
@@ -326,12 +303,10 @@ describe("receiving state", () => {
 
   it("save-only stays on the form; closing the label returns to it", () => {
     const savedOnly = applyUnitSavedSilently(enterDelivery(delivery()), detail());
-    expect(bagSurface(savedOnly)).toBe("form");
     expect(savedOnly.label).toBeNull();
 
     const printed = applyUnitSaved(enterDelivery(delivery()), detail(), bag);
     const closed = closeLabel(printed);
-    expect(bagSurface(closed)).toBe("form");
     expect(closed.label).toBeNull();
     expect(closed.batch).toBe(printed.batch);
   });
@@ -462,11 +437,11 @@ describe("receiving routes and navigation (source)", () => {
     expect(listSource).not.toContain("window.location");
   });
 
-  it("offers a Gavimų sąrašas back action that returns to the list", () => {
-    expect(DELIVERIES_LIST_BACK_LABEL).toBe("← Gavimų sąrašas");
+  it("offers a Priėmimų sąrašas back action that returns to the list", () => {
+    expect(DELIVERIES_LIST_BACK_LABEL).toBe("← Priėmimų sąrašas");
     expect(detailSource).toContain("DELIVERIES_LIST_BACK_LABEL");
     expect(detailSource).toContain('href="/receiving"');
-    expect(detailSource).not.toContain("Kitas gavimas");
+    expect(detailSource).not.toContain("Kitas priėmimas");
     expect(detailSource).not.toContain("window.location");
   });
 });
@@ -485,5 +460,85 @@ describe("receiving page terminology (source)", () => {
 
   it("keeps Tara as the packaging selector label", () => {
     expect(source).toContain("Tara");
+  });
+});
+
+describe("receiving-delivery mode UI (source)", () => {
+  const source = readFileSync(
+    fileURLToPath(new URL("../ui/receiving-delivery.tsx", import.meta.url)),
+    "utf8",
+  );
+
+  it("offers a Partijos tipas selector (Svorinė/Vienetinė)", () => {
+    expect(source).toContain("BATCH_TYPE_LABEL");
+    expect(source).toContain("BATCH_RECEIVING_MODES");
+    expect(source).toContain("BATCH_RECEIVING_MODE_LABELS");
+  });
+
+  it("renders the PIECE item flow with barcode, save/print and a total", () => {
+    expect(source).toContain("PIECE_BATCH_HEADING");
+    expect(source).toContain("ITEM_RESOURCE_LABEL");
+    expect(source).toContain("ITEM_QUANTITY_LABEL");
+    expect(source).toContain("ITEM_LOCATION_LABEL");
+    expect(source).toContain("ITEMS_TOTAL_LABEL");
+    expect(source).toContain("NEW_PRODUCT_LABEL");
+    expect(source).toContain("PIECE_BARCODE_LABEL");
+    expect(source).toContain("SAVE_AND_PRINT_LABEL");
+    expect(source).toContain("formatPieces");
+  });
+
+  it("gates the weight (Tara/weight) sections to WEIGHT batches", () => {
+    expect(source).toContain('activeBatch?.receivingMode === "WEIGHT"');
+  });
+
+  it("resumes a batch from its own route and offers explicit new-batch only", () => {
+    expect(source).toContain("params.batchId");
+    expect(source).toContain("/batches/${batch.id}");
+    expect(source).toContain("NEW_BATCH_LABEL");
+    expect(source).not.toContain("Kitas išteklius");
+  });
+
+  it("renders a PIECE group label with a reprint action", () => {
+    expect(source).toContain("PieceLabel");
+    expect(source).toContain("pieceLabelData");
+    expect(source).toContain("reprintPiece");
+    expect(source).toContain("PRINT_LABEL");
+  });
+
+  it("refreshes the parent delivery summary after mutations (shared mechanism)", () => {
+    // Both PIECE and WEIGHT mutations re-fetch the parent delivery so the
+    // `Priėmimo turinys` summary is never stale.
+    expect(source).toContain("refreshBatchAndDelivery");
+    expect(source).toMatch(
+      /batch:\s*refreshed\.batch,\s*delivery:\s*refreshed\.delivery/,
+    );
+    expect(source).not.toContain("window.location");
+  });
+});
+
+describe("PIECE batch confirmation (source)", () => {
+  const source = readFileSync(
+    fileURLToPath(new URL("../ui/batch-details-page.tsx", import.meta.url)),
+    "utf8",
+  );
+
+  it("uses counted wording for PIECE (not weight wording)", () => {
+    expect(source).toContain("Faktiškai užregistruota");
+    expect(source).toContain("formatPieces");
+    expect(source).toContain("formatSignedPieces");
+  });
+
+  it("renders the per-product reconciliation table", () => {
+    expect(source).toContain("Sutampa");
+    expect(source).toContain("Dokumentuose");
+    expect(source).toContain("Skirtumas");
+    expect(source).toContain("pieceReconciliation");
+  });
+
+  it("requires acknowledgement when any product mismatches", () => {
+    expect(source).toContain("Patvirtinti priėmimą su neatitikimais?");
+    expect(source).toContain("toConfirmPiecePayload(draftPiece, rows, acknowledge)");
+    expect(source).toContain("pieceRowDifference");
+    expect(source).toContain("confirmPieceWith(true)");
   });
 });

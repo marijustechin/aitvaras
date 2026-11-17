@@ -8,7 +8,8 @@ import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
 import { activeStatusLabel, valueOrPlaceholder } from "@/shared/lib/format";
 import { workSurfaceClass } from "@/shared/lib/surfaces";
-import { SECONDARY_NAV_BUTTON_CLASS } from "@/shared/ui";
+import { focusField } from "@/shared/lib/form-feedback";
+import { SECONDARY_NAV_BUTTON_CLASS, SectionTabs, useToast } from "@/shared/ui";
 import {
   resourceFormError,
   resourceFormToPayload,
@@ -23,6 +24,7 @@ export function ResourceDetailsPage() {
   const id = typeof params.id === "string" ? params.id : "";
   const router = useRouter();
   const { user, clearSession } = useAuth();
+  const toast = useToast();
 
   const [resource, setResource] = useState<Resource | null>(null);
   const [categories, setCategories] = useState<ResourceCategory[]>([]);
@@ -30,7 +32,6 @@ export function ResourceDetailsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
 
   const isAdmin = user?.roles.includes("ADMIN") ?? false;
 
@@ -74,11 +75,11 @@ export function ResourceDetailsPage() {
   async function save(values: ResourceFormValues): Promise<void> {
     const validation = resourceFormError(values);
     if (validation) {
-      setSaveError(validation);
+      toast.error(validation);
+      focusField(values.name.trim() === "" ? "resource-name" : "resource-category");
       return;
     }
     setSubmitting(true);
-    setSaveError(null);
     try {
       const updated = await apiFetch<Resource>(`/resources/${id}`, {
         method: "PATCH",
@@ -86,13 +87,14 @@ export function ResourceDetailsPage() {
       });
       setResource(updated);
       setEditing(false);
+      toast.success("Išteklius atnaujintas.");
     } catch (caught) {
       if (isUnauthorized(caught)) {
         clearSession();
         router.replace("/login");
         return;
       }
-      setSaveError(
+      toast.error(
         caught instanceof ApiError ? caught.message : "Nepavyko atnaujinti ištekliaus",
       );
     } finally {
@@ -125,7 +127,6 @@ export function ResourceDetailsPage() {
           <button
             type="button"
             onClick={() => {
-              setSaveError(null);
               setEditing(true);
             }}
             className="rounded-md border border-border px-3 py-2 text-sm hover:bg-accent"
@@ -135,6 +136,8 @@ export function ResourceDetailsPage() {
         ) : null}
       </div>
 
+      <SectionTabs />
+
       {editing ? (
         <section className={workSurfaceClass()}>
           <ResourceForm
@@ -142,7 +145,6 @@ export function ResourceDetailsPage() {
             initialValues={resourceToFormValues(resource)}
             submitLabel="Išsaugoti"
             submitting={submitting}
-            error={saveError}
             onSubmit={(values) => void save(values)}
             onCancel={() => setEditing(false)}
           />

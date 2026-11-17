@@ -12,11 +12,6 @@ export interface DraftPackagingType {
 /** A non-negative decimal with at most 3 decimals (`0` and `0.000` allowed). */
 const TARE = /^\d+(\.\d{1,3})?$/;
 
-/** A blank packaging-type draft. */
-export function createDraftPackagingType(): DraftPackagingType {
-  return { name: "", tareWeightKg: "" };
-}
-
 /** Client-side validation message, or null when the draft is submittable. */
 export function packagingTypeFormError(
   draft: DraftPackagingType,

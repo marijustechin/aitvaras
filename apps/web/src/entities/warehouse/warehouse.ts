@@ -40,15 +40,4 @@ export function locationsForWarehouse(
   return warehouse ? activeLocations(warehouse) : [];
 }
 
-/** True when a location id is currently selectable for the given warehouse. */
-export function isLocationInWarehouse(
-  warehouses: readonly WarehouseWithLocations[],
-  warehouseId: string,
-  locationId: string,
-): boolean {
-  return locationsForWarehouse(warehouses, warehouseId).some(
-    (location) => location.id === locationId,
-  );
-}
-
 export type { Warehouse, WarehouseLocation, WarehouseWithLocations };

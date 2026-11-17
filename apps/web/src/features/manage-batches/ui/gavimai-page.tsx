@@ -5,16 +5,21 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Batch } from "@aitvaras/contracts";
 import {
+  batchReceivingModeLabel,
   batchStatusLabel,
+  canReceiveStock,
   formatArrivalDate,
   formatBatchDateTime,
+  formatPieces,
   formatWeight,
 } from "@/entities/batch";
 import { isUnauthorized, useAuth } from "@/features/auth";
 import { ApiError, apiFetch } from "@/shared/api";
+import { DateInput, PlusIcon, PRIMARY_BUTTON_CLASS, useToast } from "@/shared/ui";
 import {
   BATCH_STATUS_FILTERS,
   BATCH_STATUS_FILTER_LABELS,
+  BATCH_LIST_FILTERS_STORAGE_KEY,
   batchDetailHref,
   batchStatusClass,
   createBatchListFilters,
@@ -22,6 +27,7 @@ import {
   filterBatches,
   GAVIMAI_HEADING,
   hasActiveBatchFilters,
+  parseBatchListFilters,
   RESET_FILTERS_LABEL,
   resourceFilterOptions,
   supplierFilterOptions,
@@ -34,23 +40,22 @@ const filterInputClass =
   "w-full rounded-md border border-input bg-background px-2 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 /**
- * `Gavimai` — the ADMIN received-batch queue and history.
+ * `Priėmimas` — the received-batch list and history (`Gautos partijos`).
  *
- * The batches here are the physical receipts created through the warehouse-worker
- * `Registruoti sandėlyje` flow; ADMIN does not create batches here. The page opens
- * on the `Reikia patvirtinti` queue (the not-yet-confirmed `PENDING` batches; a
- * documentary mismatch is recorded separately and does not keep a batch
- * unconfirmed) and links each row to
- * the batch detail / formal reconciliation screen. Filtering is client-side over
- * the small received-batch dataset.
+ * The batches here are the physical receipts created through the receiving
+ * workflow; ADMIN confirms them here. The page opens on the `Reikia patvirtinti`
+ * queue and links each row to the batch detail / formal reconciliation screen.
+ * Filtering is client-side over the small received-batch dataset.
  */
 export function GavimaiPage() {
   const router = useRouter();
-  const { clearSession } = useAuth();
+  const { user, clearSession } = useAuth();
+  const toast = useToast();
+  const canStartReceipt = user ? canReceiveStock(user.roles) : false;
 
   const [batches, setBatches] = useState<Batch[] | null>(null);
   const [filters, setFilters] = useState<BatchListFilters>(createBatchListFilters);
-  const [error, setError] = useState<string | null>(null);
+  const [filtersRestored, setFiltersRestored] = useState(false);
 
   const handleError = useCallback(
     (caught: unknown, fallback: string): void => {
@@ -59,9 +64,9 @@ export function GavimaiPage() {
         router.replace("/login");
         return;
       }
-      setError(caught instanceof ApiError ? caught.message : fallback);
+      toast.error(caught instanceof ApiError ? caught.message : fallback);
     },
-    [clearSession, router],
+    [clearSession, router, toast],
   );
 
   useEffect(() => {
@@ -73,7 +78,6 @@ export function GavimaiPage() {
           return;
         }
         setBatches(list);
-        setError(null);
       } catch (caught) {
         if (active) {
           handleError(caught, "Nepavyko įkelti gautų partijų");
@@ -85,6 +89,28 @@ export function GavimaiPage() {
       active = false;
     };
   }, [handleError]);
+
+  useEffect(() => {
+    try {
+      setFilters(
+        parseBatchListFilters(
+          window.sessionStorage.getItem(BATCH_LIST_FILTERS_STORAGE_KEY),
+        ),
+      );
+    } finally {
+      setFiltersRestored(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!filtersRestored) {
+      return;
+    }
+    window.sessionStorage.setItem(
+      BATCH_LIST_FILTERS_STORAGE_KEY,
+      JSON.stringify(filters),
+    );
+  }, [filters, filtersRestored]);
 
   const all = batches ?? [];
   const visible = filterBatches(all, filters);
@@ -123,13 +149,15 @@ export function GavimaiPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold tracking-tight">{GAVIMAI_HEADING}</h1>
-
-      {error ? (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight">{GAVIMAI_HEADING}</h1>
+        {canStartReceipt ? (
+          <Link href="/receiving/new" className={PRIMARY_BUTTON_CLASS}>
+            <PlusIcon />
+            Naujas priėmimas
+          </Link>
+        ) : null}
+      </div>
 
       <section className="grid gap-3 rounded-xl border border-border p-4 sm:grid-cols-2 lg:grid-cols-3">
         <label className="grid gap-1 text-sm">
@@ -159,19 +187,17 @@ export function GavimaiPage() {
         )}
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Priėmimo data nuo</span>
-          <input
-            type="date"
+          <DateInput
             value={filters.arrivalFrom}
-            onChange={(event) => update({ arrivalFrom: event.target.value })}
+            onChange={(arrivalFrom) => update({ arrivalFrom })}
             className={filterInputClass}
           />
         </label>
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Priėmimo data iki</span>
-          <input
-            type="date"
+          <DateInput
             value={filters.arrivalTo}
-            onChange={(event) => update({ arrivalTo: event.target.value })}
+            onChange={(arrivalTo) => update({ arrivalTo })}
             className={filterInputClass}
           />
         </label>
@@ -206,16 +232,16 @@ export function GavimaiPage() {
           <table className="w-full text-left text-sm">
             <thead className="bg-muted text-muted-foreground">
               <tr>
-                <th className="whitespace-nowrap px-4 py-2 font-medium">Gavimas</th>
+                <th className="whitespace-nowrap px-4 py-2 font-medium">Priėmimas</th>
                 <th className="whitespace-nowrap px-4 py-2 font-medium">Partija</th>
                 <th className="whitespace-nowrap px-4 py-2 font-medium">
                   Priėmimo data
                 </th>
                 <th className="px-4 py-2 font-medium">Tiekėjas</th>
-                <th className="px-4 py-2 font-medium">Išteklius</th>
+                <th className="px-4 py-2 font-medium">Tipas / turinys</th>
                 <th className="px-4 py-2 font-medium">Sandėlis</th>
                 <th className="whitespace-nowrap px-4 py-2 font-medium">
-                  Pakuotės / kiekis
+                  Kiekis
                 </th>
                 <th className="whitespace-nowrap px-4 py-2 font-medium">Būsena</th>
               </tr>
@@ -243,10 +269,16 @@ export function GavimaiPage() {
                     {formatArrivalDate(batch.arrivalDate)}
                   </td>
                   <td className="px-4 py-2">{batch.supplierName}</td>
-                  <td className="px-4 py-2">{batch.resourceName}</td>
+                  <td className="px-4 py-2">
+                    {batch.receivingMode === "PIECE"
+                      ? batchReceivingModeLabel(batch.receivingMode)
+                      : batch.resourceName}
+                  </td>
                   <td className="px-4 py-2">{batch.warehouseName}</td>
                   <td className="whitespace-nowrap px-4 py-2">
-                    {batch.bagCount} · {formatWeight(batch.totalNetWeight)}
+                    {batch.receivingMode === "PIECE"
+                      ? `${batch.itemLineCount} eil. · ${formatPieces(batch.totalPieces)}`
+                      : `${batch.bagCount} · ${formatWeight(batch.totalNetWeight)}`}
                   </td>
                   <td className="whitespace-nowrap px-4 py-2">
                     <span className={batchStatusClass(batch.status)}>

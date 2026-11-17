@@ -425,6 +425,20 @@ describe.skipIf(!dbAvailable)(
       return { statusCode: res.statusCode, body: res.json() };
     }
 
+    async function patchRegistration(
+      batchId: string,
+      payload: Record<string, unknown>,
+      asAdmin = false,
+    ): Promise<{ statusCode: number; body: unknown }> {
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/batches/${batchId}/registration`,
+        cookies: { [AUTH_COOKIE_NAME]: asAdmin ? adminCookie : cookie },
+        payload,
+      });
+      return { statusCode: res.statusCode, body: res.json() };
+    }
+
     async function voidBag(
       batchId: string,
       bagId: string,
@@ -818,6 +832,37 @@ describe.skipIf(!dbAvailable)(
       expect(found?.pendingBatchCount).toBe(0);
     });
 
+    it("reflects package add/correct/void in the delivery summary immediately", async () => {
+      const batch = await createBatchOk();
+      const summary = async (): Promise<Batch> =>
+        (await getDeliveryDetail(batch.deliveryId)).batches.find(
+          (b) => b.id === batch.id,
+        )!;
+
+      const first = await addBag(batch.id, bagPayload({ grossWeight: "10" }));
+      expect(first.statusCode).toBe(201);
+      const bag = first.body as Bag;
+      // The parent delivery row reflects the package right away (server-derived).
+      expect(await summary()).toMatchObject({
+        bagCount: 1,
+        totalNetWeight: "10",
+      });
+
+      const corrected = await patchBag(batch.id, bag.id, { grossWeight: "12.5" });
+      expect(corrected.statusCode).toBe(200);
+      expect(await summary()).toMatchObject({
+        bagCount: 1,
+        totalNetWeight: "12.5",
+      });
+
+      const voided = await voidBag(batch.id, bag.id);
+      expect(voided.statusCode).toBe(200);
+      expect(await summary()).toMatchObject({
+        bagCount: 0,
+        totalNetWeight: "0",
+      });
+    });
+
     // ── Packages ──────────────────────────────────────────────────────────
 
     it("generates unique, valid EAN-13 barcodes and derives the measured weight", async () => {
@@ -938,7 +983,7 @@ describe.skipIf(!dbAvailable)(
         data: { status: "CONFIRMED" },
       });
       const result = await addBag(batch.id, bagPayload({ grossWeight: "1" }));
-      expect(result.statusCode).toBe(400);
+      expect(result.statusCode).toBe(409);
       expect((result.body as { code: string }).code).toBe("BATCH_CONFIRMED");
     });
 
@@ -1589,6 +1634,152 @@ describe.skipIf(!dbAvailable)(
       expect(
         (await patchBag(MISSING_UUID, bag.id, { grossWeight: "1" })).statusCode,
       ).toBe(404);
+    });
+
+    // ── Pending registration editing ─────────────────────────────────────
+
+    it("edits batch/resource/warehouse and receipt date without a new batch", async () => {
+      const batch = await createBatchWithBags(["10", "5"]);
+      const before = await getDetail(batch.id);
+      const beforeBarcodes = before.bags.map((bag) => bag.barcode).sort();
+
+      const result = await patchRegistration(batch.id, {
+        resourceId: activeResource2Id,
+        warehouseId: warehouseBId,
+        relocationLocationId: locationB1Id,
+        arrivalDate: "2026-09-30T00:00:00.000Z",
+      });
+      expect(result.statusCode).toBe(200);
+      const updated = result.body as BatchDetail;
+      expect(updated.id).toBe(batch.id);
+      expect(updated.code).toBe(batch.code);
+      expect(updated.deliveryId).toBe(batch.deliveryId);
+      expect(updated.receivingMode).toBe("WEIGHT");
+      expect(updated.status).toBe("PENDING");
+      expect(updated.resourceId).toBe(activeResource2Id);
+      expect(updated.warehouseId).toBe(warehouseBId);
+      expect(updated.arrivalDate).toBe("2026-09-30T00:00:00.000Z");
+      expect(updated.bags.map((bag) => bag.barcode).sort()).toEqual(beforeBarcodes);
+      for (const bag of updated.bags) {
+        expect(bag.warehouseLocationId).toBe(locationB1Id);
+      }
+
+      // Same delivery/batch identity, no duplicate creation.
+      expect(await prisma.batch.count({ where: { deliveryId: batch.deliveryId } })).toBe(1);
+    });
+
+    it("requires a relocation location when changing warehouse with active units", async () => {
+      const batch = await createBatchWithBags(["4"]);
+      const res = await patchRegistration(batch.id, {
+        warehouseId: warehouseBId,
+      });
+      expect(res.statusCode).toBe(400);
+      expect((res.body as { code: string }).code).toBe(
+        "RELOCATION_LOCATION_REQUIRED",
+      );
+    });
+
+    it("protects shared receipt fields when a sibling batch is confirmed", async () => {
+      const delivery = await createDeliveryOk();
+      const first = await resolveBatchOk(delivery.id, {
+        resourceId: activeResourceId,
+        warehouseId: warehouseAId,
+      });
+      expect(
+        (
+          await addBag(
+            first.id,
+            bagPayload({ grossWeight: "5", warehouseLocationId: locationA1Id }),
+          )
+        ).statusCode,
+      ).toBe(201);
+      const confirmed = await reconcile(first.id, {
+        documentWeight: "5",
+        acquisitionAmount: "10",
+      });
+      expect(confirmed.statusCode).toBe(200);
+
+      const second = await resolveBatchOk(delivery.id, {
+        resourceId: activeResource2Id,
+        warehouseId: warehouseAId,
+      });
+      const receiptEdit = await patchRegistration(second.id, {
+        arrivalDate: "2026-09-30T00:00:00.000Z",
+      });
+      expect(receiptEdit.statusCode).toBe(409);
+      expect((receiptEdit.body as { code: string }).code).toBe(
+        "DELIVERY_HAS_CONFIRMED_BATCHES",
+      );
+
+      // Batch-only fields remain editable on the pending sibling.
+      const batchEdit = await patchRegistration(second.id, {
+        warehouseId: warehouseBId,
+      });
+      expect(batchEdit.statusCode).toBe(200);
+      expect((batchEdit.body as BatchDetail).warehouseId).toBe(warehouseBId);
+    });
+
+    it("rejects all direct content edits after confirmation", async () => {
+      const batch = await createBatchWithBags(["8"]);
+      const bag = (await getDetail(batch.id)).bags[0]!;
+      expect(
+        (
+          await reconcile(batch.id, {
+            documentWeight: "8",
+            acquisitionAmount: "16",
+          })
+        ).statusCode,
+      ).toBe(200);
+
+      const registration = await patchRegistration(batch.id, {
+        resourceId: activeResource2Id,
+      });
+      expect(registration.statusCode).toBe(409);
+      expect((registration.body as { code: string }).code).toBe(
+        "BATCH_CONFIRMED",
+      );
+
+      const add = await addBag(batch.id, bagPayload({ grossWeight: "1" }));
+      expect(add.statusCode).toBe(409);
+      expect((add.body as { code: string }).code).toBe("BATCH_CONFIRMED");
+
+      const correct = await patchBag(batch.id, bag.id, { grossWeight: "9" });
+      expect(correct.statusCode).toBe(409);
+      expect((correct.body as { code: string }).code).toBe("BATCH_CONFIRMED");
+
+      const voided = await voidBag(batch.id, bag.id, { reason: "test" });
+      expect(voided.statusCode).toBe(409);
+      expect((voided.body as { code: string }).code).toBe("BATCH_CONFIRMED");
+    });
+
+    it("serializes concurrent registration edit and confirmation", async () => {
+      const batch = await createBatchWithBags(["5"]);
+      const newArrival = "2026-10-01T00:00:00.000Z";
+      const [edit, confirmation] = await Promise.all([
+        patchRegistration(batch.id, { arrivalDate: newArrival }),
+        reconcile(batch.id, {
+          documentWeight: "5",
+          acquisitionAmount: "10",
+        }),
+      ]);
+
+      expect(confirmation.statusCode).toBe(200);
+      expect([200, 409]).toContain(edit.statusCode);
+      const detail = await getDetail(batch.id);
+      expect(detail.status).toBe("CONFIRMED");
+
+      const delivery = await app
+        .inject({
+          method: "GET",
+          url: `/deliveries/${batch.deliveryId}`,
+          ...auth(),
+        })
+        .then((res) => res.json() as IncomingDeliveryDetail);
+      // Either the edit committed before confirmation, or it was rejected and the
+      // receipt kept its original date. No partial mutation is accepted.
+      expect(delivery.arrivalDate).toBe(
+        edit.statusCode === 200 ? newArrival : ARRIVAL,
+      );
     });
   },
 );
