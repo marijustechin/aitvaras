@@ -537,23 +537,15 @@ Status legend: **DONE** · **CURRENT** · **NEXT** · **LATER / DISCOVERY ONLY**
 
 ## CURRENT
 
-- **Uncommitted work awaiting human review/commit:** repository audit and cleanup
-  (ATV-061) on top of global notifications, scroll-to-top, company details and
-  `Nustatymai` navigation (ATV-060), editing PENDING receiving batches (ATV-059),
-  dashboard stock summary cards (ATV-058), receiving entry point + date
-  standardisation + migration repair (ATV-057), dashboard label + partner
-  identification (ATV-056), sidebar layout + contextual child navigation
-  (ATV-055), PIECE product-by-product reconciliation (ATV-054), delivery summary
-  refresh (ATV-053), PIECE resume + barcode-addressable groups (ATV-052) and
-  piece-based receiving batches (ATV-051), plus the earlier uncommitted receiving/
-  discrepancy work. No functional scope beyond confirmed requirements was added;
-  stock balances, movements, purchasing/accounting, production, orders and sales
-  remain unconfirmed.
+- **No uncommitted work.** The ATV-051…061 package (receiving, stock summary,
+  navigation, notifications, company settings and the repository audit) is
+  committed and pushed on `main`. No functional scope beyond confirmed
+  requirements was added; stock balances, movements, purchasing/accounting,
+  production, orders and sales remain unconfirmed.
 
 ## NEXT (only with a confirmed requirement)
 
-1. Human review, then commit and push the accumulated **ATV-051…061** package.
-2. Any new functional scope — **none confirmed**. Requires a confirmed
+1. Any new functional scope — **none confirmed**. Requires a confirmed
    requirement and a new task; do not infer from `/sandelys`.
 
 ## LATER / DISCOVERY ONLY (not approved, do not build)

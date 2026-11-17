@@ -195,8 +195,15 @@ removed with them; no meaningful behaviour test was dropped.
 - Zero-scan indexes are retained pending real-volume evidence.
 - Physical printing was not verified; label preview only.
 
-## 8. Commit/push readiness
+## 8. Commit/push status
 
-No technical blocker to committing. Per task instruction, **nothing has been
-committed or pushed**; the working tree is left ready for the subsequent
-commit-and-push step and human review.
+- Branch: `main`; normal push to `origin/main` (no force-push).
+- Main delivery commit: `52cc3aa` — application, migrations, tests.
+- Documentation/audit commit: `82ef832` — module docs, screenshots, task
+  records, audit report and npm command convention.
+- A follow-up documentation commit records this final push state and the
+  package-manager convention correction.
+- Working tree is clean after the push; no secrets, dumps or temporary artifacts
+  were included.
+- Physical label printing remains **unverified**; only label preview/print
+  preparation was checked.

@@ -1,6 +1,6 @@
 # ATV-061 — Repository audit and cleanup
 
-- **Status:** READY_FOR_HUMAN_REVIEW (uncommitted)
+- **Status:** Committed and pushed to `main` (2026-11-17)
 - **Scope:** working-tree audit of code, database/migrations and project docs;
   justified dead-code cleanup only
 - **Audit report:** `docs/audits/ATV-061-audit-report.md`
@@ -90,8 +90,9 @@ Preserved all historical task records and referenced screenshots. Added
   evidence.
 - Physical print was not verified; only label preview/print preparation.
 
-## Unresolved / next
+## Final state
 
-Human review of the audit report and full diff, then commit and push the combined
-ATV-051…061 package. No technical blocker to committing; nothing was committed or
-pushed per task instruction.
+Committed and pushed normally to `origin/main`; no force-push. Main delivery
+commit `52cc3aa`, documentation/audit commit `82ef832`, plus the follow-up
+documentation correction commit for the final push state and npm command
+convention. Working tree clean. Physical printing remains unverified.
