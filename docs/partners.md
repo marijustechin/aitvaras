@@ -46,25 +46,77 @@ model (see [legacy-as-reference.md](legacy-as-reference.md), ADR-004).
 | `name` | yes | non-empty, trimmed, ≤ 255 |
 | `roles` | yes | at least one; `SUPPLIER` and/or `BUYER` |
 | `active` | yes | defaults to `true` |
-| `companyCode` | no | ≤ 64 |
+| `companyCode` | yes (company partner) | registration number as text, trimmed, ≤ 64; leading zeros preserved |
 | `vatCode` | no | ≤ 64 |
 | `address` | no | ≤ 500 |
-| `country` | no | ≤ 100, **free text** (no country subsystem yet) |
+| `country` | yes (company partner) | ISO 3166-1 alpha-2 code, uppercase, selected from the standard list |
 | `contactPerson` | no | ≤ 200 |
 | `phone` | no | ≤ 64 |
 | `email` | no | ≤ 254 |
 | `notes` | no | internal free text, ≤ 2000; not shown in the list |
 
+### Individual / natural-person distinction
+
+The current model has **no** individual/natural-person flag or partner type. Every
+partner is therefore treated as a company and requires the company
+identification fields. If individuals become a confirmed requirement later, the
+distinction must be modelled explicitly before relaxing the registration-number
+rule — it must not be inferred from a missing code.
+
 Rules:
 
+- Name, country and registration number are required in **both** creation and
+  editing, with frontend **and** API validation. A record may never be saved
+  without them.
+- **No Lithuania-only format.** Registration numbers are not validated by an
+  LT-specific length, checksum or numeric pattern. Foreign formats are valid.
+- Registration numbers are stored as **strings**, trimmed. Leading zeros are
+  significant (`000123` stays `000123`). They are never parsed as numbers.
+- `(country, companyCode)` is **unique**. The same registration number in a
+  different country is allowed. The database has a unique index
+  `business_partners_country_company_code_key` as the final guard.
+- Duplicate submission returns HTTP `409` with a field-level Lithuanian message
+  (`Šioje šalyje jau yra partneris su tokiu įmonės kodu.`) mapped to the
+  `companyCode` input. It is not shown as a generic failure.
+- Editing a partner without changing its identification is valid; the duplicate
+  check excludes the record itself.
 - Optional text is trimmed; an empty value is stored as `NULL`, never `""`.
-- **No Lithuania-only validation.** Company codes and VAT codes may be foreign
-  or unknown: no fixed length, no VAT prefix assumption, no numeric-only rule.
-- `companyCode` and `vatCode` are deliberately **not unique**. Foreign/unknown
-  values and real operational requirements make global uniqueness speculative;
-  it must be decided separately before being added.
-- Country is intentionally lightweight for now (free text), to be normalised
-  later only if real workflows require it.
+- `vatCode` remains optional and non-unique.
+
+## Country selection
+
+- The web form uses a searchable selector backed by the standard ISO 3166-1
+  dataset (`i18n-iso-countries`, Lithuanian locale, shared from
+  `@aitvaras/contracts`).
+- It displays full **Lithuanian country names** and stores the **alpha-2 code**
+  (`Lietuva` → `LT`, `Jungtinė Karalystė` → `GB`).
+- Search matches Lithuanian names (diacritics ignored) and country codes.
+  Free text never becomes a value: the user must choose an option from the list.
+- The same component is used for creating and editing partners.
+- The complete country list is available; there is no separate
+  country-management screen.
+
+## Existing-data inspection and migration
+
+Before adding the constraint, the development database was inspected
+(2026-11-17):
+
+| Finding | Result |
+|---|---|
+| Partners | 2, both named `Ediltex Ltd.` |
+| Country values | both `Jungtinė Karalystė` → converted to `GB` |
+| Missing registration numbers | 2 (left `NULL`; no numbers invented) |
+| Duplicate non-null `(country, companyCode)` pairs | none |
+| Ambiguous country values | none |
+| Conflicting records | none (identical names/countries but no registration numbers) |
+| Linked operations | both records have receipts/deliveries/discrepancies (8 receipts, 10 deliveries, 5 discrepancies in total) |
+
+Migration `20261117120000_partner_identification` converts the recognizable UK
+values to `GB`, normalises existing two-letter codes to uppercase, and creates
+the unique index. Records are **not** merged and no registration numbers are
+invented. The legacy rows keep `NULL` registration numbers until an administrator
+fills them in through the edit form — the API rejects any further save that
+leaves them missing (including partial updates).
 
 ## Lifecycle
 
@@ -104,7 +156,15 @@ controls. **The server is the enforcement point**: a non-admin who calls
   (ADMIN create), `/partners/[id]` (details; ADMIN edit). Navigation item:
   `Partneriai` (visible to authenticated users).
 - UI messages are Lithuanian (`Partnerių dar nėra.`, `Įveskite partnerio
-  pavadinimą.`, `Pasirinkite bent vieną vaidmenį.`).
+  pavadinimą.`, `Pasirinkite bent vieną vaidmenį.`, `Įveskite įmonės kodą.`,
+  `Pasirinkite šalį.`).
+- Duplicate registration numbers are reported on the `Įmonės kodas` field, not
+  as a generic request failure.
+
+## Verification evidence
+
+Screenshots of the required-field state, country search/selection, duplicate
+field error and successful edit are in `docs/screenshots/atv-056/`.
 
 ## Future relationships (not specified)
 

@@ -10,32 +10,39 @@ See also [batches.md](batches.md) (reconciliation creates a discrepancy),
 
 ## What a discrepancy is
 
-When a batch is **confirmed** with a documentary/physical weight mismatch, a
-`ReceivingDiscrepancy` is recorded (see
-[batches.md](batches.md#reconciliation-formal-confirmation)). The batch is
-`CONFIRMED` and the physical stock stays the measured net weight; the mismatch
-lives on independently in the register.
+When a batch is **confirmed** with a documentary mismatch, a
+`ReceivingDiscrepancy` is recorded. The batch is `CONFIRMED` and the physical
+stock is never changed; the mismatch lives on independently in the register. A
+discrepancy has a **kind**:
 
-Immutable signed convention:
+- **WEIGHT** — documentary weight vs the measured net weight (see
+  [batches.md](batches.md#reconciliation-formal-confirmation)); one per batch.
+  Signed `differenceWeight = measuredWeight − documentWeight`.
+- **PIECE** — documentary pieces vs the actual counted pieces **per product**
+  (see [piece-batches.md](piece-batches.md)); zero-to-many per batch, one per
+  resource. Signed `differencePieces = actualPieces − documentPieces`, carrying
+  piece quantities only (never fake weight).
 
-```text
-differenceWeight = measuredWeight − documentWeight
-```
-
-| Example | differenceWeight | Direction |
+| Example | Signed difference | Direction |
 |---|---|---|
-| measured 980, document 1000 | `−20 kg` | `Trūkumas` (shortage) |
-| measured 1020, document 1000 | `+20 kg` | `Perteklius` (overage) |
+| WEIGHT: measured 980, document 1000 | `−20 kg` | `Trūkumas` (shortage) |
+| WEIGHT: measured 1020, document 1000 | `+20 kg` | `Perteklius` (overage) |
+| PIECE: actual 60, document 65 | `−5 vnt.` | `Trūkumas` (shortage) |
+| PIECE: actual 70, document 65 | `+5 vnt.` | `Perteklius` (overage) |
 
 The signed difference is **never** changed after creation. Both shortages and
-overages use the same ledger; no separate overage-return/write-off workflow exists
+overages use the same model; no separate overage-return/write-off workflow exists
 yet.
 
-## Settlement ledger
+## Settlement ledger (WEIGHT only)
 
 `DiscrepancySettlement` entries are **append-only** — there is no delete/edit UI.
 A future correction/reversal would be a separate audited workflow, not a silent
-rewrite.
+rewrite. Settlement is a **WEIGHT-only** workflow today: `coveredWeightKg` and the
+`WEIGHT`/`MONEY` types apply to weight discrepancies. **PIECE discrepancy
+settlement is not defined yet** — the detail shows the product and the signed
+`vnt.` difference and no weight-settlement form (a piece shortage could later be
+covered by pieces, money, replacement products, etc.; that is unconfirmed).
 
 | Field | Meaning |
 |---|---|
@@ -131,7 +138,7 @@ authorization remains authoritative.
 
 ## Register / detail / settlement UI
 
-- Register heading `Neatitikimai`; columns `Data`, `Gavimas`, `Partija`,
+- Register heading `Neatitikimai`; columns `Data`, `Priėmimas`, `Partija`,
   `Tiekėjas`, `Išteklius`, `Tipas`, `Neatitikimas`, `Padengta`, `Likutis`,
   `Būsena`. The original difference is shown signed (`−20,000 kg` / `+12,500 kg`)
   with direction `Trūkumas` / `Perteklius`.

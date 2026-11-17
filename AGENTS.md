@@ -18,13 +18,15 @@ concise and operational; put durable knowledge in `docs/`.
   (`Tara` / `PackagingType`), warehouses + locations
   (`Sandėliai`), the first minimal goods-receipt workflow (`Pajamavimas`)
   with physical placement, and incoming batches/lots with per-package handling
-  units (`Partijos ir pakuotės`) reconciled with a `Pajamavimas` line.** Identity/access is
+  units (`Partijos ir pakuotės`) reconciled with a `Pajamavimas` line, and
+  shared operator company settings (`Nustatymai` → `Įmonė`).** Identity/access is
   `docs/scope.md`,
   `docs/authentication.md`, `docs/authorization.md`; business partners are
   [docs/partners.md](docs/partners.md); resources and packaging types are
   [docs/resources.md](docs/resources.md); goods receipts, warehouses and batches
   are [docs/receipts.md](docs/receipts.md), [docs/warehouses.md](docs/warehouses.md)
-  and [docs/batches.md](docs/batches.md). The canonical scope statement is
+  and [docs/batches.md](docs/batches.md); company settings are
+  [docs/company-settings.md](docs/company-settings.md). The canonical scope statement is
   [docs/scope.md](docs/scope.md). Everything else — stock balances, warehouse
   movements, purchasing/accounting, production, orders, sales, reporting, tenant
   architecture, Sandėlys integration, migration, synchronisation — is
@@ -32,20 +34,24 @@ concise and operational; put durable knowledge in `docs/`.
   and first slices in `docs/` are evidence, not a roadmap.
 - **Inventory/production principles are part-implemented.** Resource categories
   are **classification only** (no implicit `Žaliava -> Pusgaminis -> Gaminys`
-  lifecycle and no provenance). Incoming **deliveries** (`Gavimai`, one arrival =
-  one supplier + one arrival date, containing **one resource into one warehouse per
-  batch**), **weight-based** physical receiving (managed packaging/tare
-  **`Tara`**; a package stores `grossWeight` and the server-derived
-  `netWeight = gross − tare`; **no KG/PCS unit selector**), a **required**
-  warehouse location per package, formal **GoodsReceipt reconciliation**
-  (documentary weight + optional documentary piece count + initial acquisition
-  value; a mismatch **does not block confirmation** — it confirms and records a
-  long-lived `ReceivingDiscrepancy`), the append-only discrepancy settlement
-  ledger (`DiscrepancySettlement`, `WEIGHT`/`MONEY`; never changes inventory and
-  never converts money↔weight) and auditable physical package
-  **correction/void** (packaging/gross/location/void; `PENDING` only) are
-  implemented
-  ([docs/batches.md](docs/batches.md), [docs/discrepancies.md](docs/discrepancies.md),
+  lifecycle and no provenance). Incoming **deliveries** (`Priėmimas`, one arrival =
+  one supplier + one arrival date) contain batches with a **receiving mode**: a
+  **`WEIGHT`** (`Svorinė`) batch is one resource into one warehouse, received
+  **by weight** (managed packaging/tare **`Tara`**; a package stores `grossWeight`
+  and the server-derived `netWeight = gross − tare`; **no KG/PCS unit selector**; a
+  **required** warehouse location per package); a **`PIECE`** (`Vienetinė`) batch
+  is several product/resource **item lines** with integer quantities into one
+  warehouse and owns **no** batch-level resource (the batch is the cost/provenance
+  pool; the purchase value is not allocated per line). Also implemented: formal
+  **GoodsReceipt reconciliation** for WEIGHT (documentary weight + optional
+  documentary piece count + initial acquisition value; a mismatch **does not block
+  confirmation** — it confirms and records a long-lived `ReceivingDiscrepancy`),
+  the append-only discrepancy settlement ledger (`DiscrepancySettlement`,
+  `WEIGHT`/`MONEY`; never changes inventory and never converts money↔weight) and
+  auditable physical package **correction/void** (packaging/gross/location/void;
+  `PENDING` only)
+  ([docs/batches.md](docs/batches.md), [docs/piece-batches.md](docs/piece-batches.md),
+  [docs/discrepancies.md](docs/discrepancies.md),
   [docs/packaging-types.md](docs/packaging-types.md));
   vehicles/transport are **outside scope**; scan-driven movements, package
   **split/merge**, settlement reversal/correction, overage-specific
@@ -67,7 +73,10 @@ concise and operational; put durable knowledge in `docs/`.
 
 ## Stack constraints
 
-- TypeScript, Node.js >= 22, **pnpm** workspaces. Use `pnpm`, not npm/yarn.
+- TypeScript, Node.js >= 22, **pnpm workspace** (pinned via `packageManager` and
+  `pnpm-lock.yaml`). The project's **command convention is npm**: user-facing
+  scripts are documented and run as `npm run <script>`. Do not add a second
+  lockfile or mix yarn.
 - Web: Next.js App Router + Tailwind CSS, shadcn/ui-compatible structure.
 - API: NestJS with the Fastify adapter.
 - Database: PostgreSQL via Prisma. Aitvaras owns its schema.
@@ -218,7 +227,7 @@ illustrations, or new design systems/palettes without a confirmed requirement.
 **Button hierarchy:** use the shared `shared/ui/button.ts` variants — **primary**
 (solid black, the main action), **secondary** (filled neutral gray, for
 navigation/context/helper actions such as `Kategorijos`, `Tara`, `← Ištekliai`,
-`← Gavimų sąrašas`), **outline** (compact neutral row actions) and **destructive**
+`← Priėmimų sąrašas`), **outline** (compact neutral row actions) and **destructive**
 (red). Do not invent one-off button colours per page.
 
 **Pointer cursor:** all clickable buttons/actions must use `cursor-pointer`.
@@ -226,6 +235,25 @@ shadcn defaults are not sufficient — verify the pointer cursor explicitly.
 Disabled controls retain their disabled cursor semantics. This is enforced once,
 app-wide, in `apps/web/src/app/globals.css` (`@layer base`); do not scatter
 `cursor-pointer` per button.
+
+**Operation feedback:** use the shared `ToastProvider`/`useToast` (root layout,
+top-right) for **all** user-action feedback: required/invalid/conflicting fields,
+saving/creating/updating/voiding/confirmation results, and API/network failures.
+Client validation that blocks a request also goes to the toaster. Keep invalid
+field borders and `aria-invalid` and focus the first invalid field; entered values
+must survive a failed submit. One useful notification per attempt (a concise
+summary when several fields fail), never on every keystroke. Do not add inline
+action error banners or browser `alert`s; permanent explanatory/load/not-found
+states may stay inline. Decision dialogs stay dialogs. Errors stay longer, toasts
+are dismissible/de-duplicated, and opening the browser print dialog is not
+reported as successful physical printing. See `docs/frontend-architecture.md`.
+
+**Voided label actions:** label printing is allowed only for `ACTIVE` units
+(`canPrintLabel`). Voided bags/packages/piece entries use a genuinely disabled
+control and reprint handlers must reject voided state.
+
+**Tare selectors:** use `packagingTypeOptionLabel` (`Pavadinimas (svoris kg)`) and
+preserve option IDs/calculations.
 
 ## Brand assets
 
@@ -239,9 +267,9 @@ recolour the source assets. See `docs/branding.md`.
 ## Development credentials
 
 `localdev` / `localdev` exists **only** for local development via
-`pnpm seed:dev`, which refuses to run unless `NODE_ENV=development` and the
+`npm run seed:dev`, which refuses to run unless `NODE_ENV=development` and the
 database is local. Never reuse development credentials in staging or
-production. The secure `pnpm bootstrap:admin` (env-supplied credentials, no
+production. The secure `npm run bootstrap:admin` (env-supplied credentials, no
 defaults) remains a separate mechanism.
 
 ## Browser authentication
@@ -266,18 +294,23 @@ control (with Lithuanian `aria-label`s) unless there is a specific reason not to
 ## Navigation and application shell
 
 - Authenticated pages use the shared application shell
-  (`apps/web/src/widgets/app-shell/`: sticky top bar, role-aware navigation and
-  user menu); do **not** duplicate header markup per page.
+  (`apps/web/src/widgets/app-shell/`: persistent dark sidebar on desktop,
+  collapsible drawer on narrow screens, compact top bar with breadcrumb + user
+  menu); do **not** duplicate header or sidebar markup per page.
 - **Navigation must contain only implemented and confirmed functionality.** Do
-  not add placeholder links for future business domains. A reserved *group* (e.g.
-  `Ataskaitos`) is allowed; reserved *routes* are not.
-- **Information architecture** (`widgets/app-shell/model/navigation.ts`):
-  operational workflows stay top-level (`Pradžia`, `Registruoti sandėlyje`,
-  `Gavimai`); `Žinynai` = master/reference data (`Partneriai`, `Ištekliai`,
-  `Sandėliai`); `Ataskaitos` = reporting/registers (future discrepancy register
-  lives here); `Sistema` = system administration (`Naudotojai`; later
-  `Nustatymai`). Groups render as dropdowns on desktop and inside the responsive
-  `Meniu` disclosure on narrow screens; the active child highlights its parent.
+  not add placeholder links for future business domains. Reserved *groups* are not
+  a substitute for reserved *routes*.
+- **Information architecture** (`widgets/app-shell/model/navigation.ts`): sidebar
+  sections group operational workflows (`Suvestinė`, `Priėmimas`), reference data
+  (`Žinynai`) and administration (`Ataskaitos`,
+  `Nustatymai`). `Žinynai`, `Ataskaitos` and `Nustatymai` are **section destinations**:
+  their existing children (`Partneriai`, `Ištekliai`, `Kategorijos`, `Tara`,
+  `Sandėliai`; `Neatitikimai`; `Įmonė`, `Naudotojai`) render as horizontal
+  route-based child navigation below the page heading, never duplicated in the
+  sidebar.
+  Feature pages render the shared `<SectionTabs />` from `shared/ui` after their
+  heading; the shell resolves the active destination from the pathname. See
+  `docs/frontend-architecture.md`.
 - Menu visibility (e.g. `Naudotojai` for ADMIN) is a UI convenience only;
   server-side authorization remains authoritative and must never be weakened.
 
@@ -313,7 +346,7 @@ migration history** — add a new migration instead.
 - Run the canonical check before claiming completion:
 
   ```bash
-  pnpm verify
+  npm run verify
   ```
 
 - If a check cannot run (missing service, offline, etc.), state exactly why.

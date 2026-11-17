@@ -66,7 +66,7 @@ questions are kept separate.
 
 - `/aitvaras` is now a pnpm workspace: TypeScript, Node >= 22, Next.js App
   Router web, NestJS/Fastify API, PostgreSQL + Prisma (empty schema), Zod
-  contracts, Vitest, and a `pnpm verify` command.
+  contracts, Vitest, and a `npm run verify` command.
 - The API exposes `GET /health` returning `{ "status": "ok",
   "service": "aitvaras-api" }`.
 - Local PostgreSQL is provided via `docker-compose.yml` (local development

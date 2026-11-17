@@ -129,7 +129,13 @@ username; role management stays ADMIN-only via `/users`.
 | Correct a package (packaging/gross/location) | `PATCH /batches/:id/bags/:bagId` | `ADMIN` or `WAREHOUSE_WORKER` |
 | Void a unit (audited, never deleted) | `POST /batches/:id/bags/:bagId/void` | `ADMIN` or `WAREHOUSE_WORKER` |
 | Look up a bag by barcode | `GET /bags/by-barcode/:barcode` | authenticated |
-| Reconcile a batch (formal confirmation) | `POST /batches/:id/reconcile` | `ADMIN` |
+| List a PIECE batch's items | `GET /batches/:id/items` | authenticated |
+| Add a PIECE item line | `POST /batches/:id/items` | `ADMIN` or `WAREHOUSE_WORKER` |
+| Correct a PIECE item (quantity/location) | `PATCH /batches/:id/items/:itemId` | `ADMIN` or `WAREHOUSE_WORKER` |
+| Void a PIECE item (audited, never deleted) | `POST /batches/:id/items/:itemId/void` | `ADMIN` or `WAREHOUSE_WORKER` |
+| Reconcile a WEIGHT batch (formal confirmation) | `POST /batches/:id/reconcile` | `ADMIN` |
+| Confirm a PIECE batch | `POST /batches/:id/confirm-piece` | `ADMIN` |
+| Quick-create a product from receiving (name + category) | `POST /resources/receiving-quick-create` | `ADMIN` or `WAREHOUSE_WORKER` |
 | List receiving discrepancies (register) | `GET /receiving-discrepancies` | authenticated |
 | Discrepancy details (origin + balance + settlements) | `GET /receiving-discrepancies/:id` | authenticated |
 | Record a discrepancy settlement | `POST /receiving-discrepancies/:id/settlements` | `ADMIN` |
@@ -156,7 +162,9 @@ username; role management stays ADMIN-only via `/users`.
   confirmed as required. Partner/resource/resource-category viewing and
   modification is `ADMIN`-only on write and authenticated on read (the same
   applies to packaging types / `Tara`), using the same role
-  guard. Goods receipts (`Pajamavimas`) are listable/readable/creatable by any
+  guard. The one worker-writable resource path is the narrow receiving
+  quick-create (`POST /resources/receiving-quick-create`, name + category only);
+  it does **not** grant general resource administration. Goods receipts (`Pajamavimas`) are listable/readable/creatable by any
   authenticated user — it is expected to become an operational warehouse
   workflow, so creation is deliberately not `ADMIN`-restricted. Delivery/batch/
   package **reads** are authenticated; **starting a delivery**, **starting/
@@ -167,11 +175,11 @@ username; role management stays ADMIN-only via `/users`.
   `ADMIN`-only — all reusing the same role guard, no new permission framework. The
   separation reflects the business split: warehouse workers record physical
   truth, `ADMIN` records documentary truth. The warehouse worker's **navigation**
-  is role-scoped: it exposes the physical receiving action (`Registruoti
-  sandėlyje`) and hides the administrative `Gavimai` queue and the `Ataskaitos`
+  is role-scoped: it exposes the physical receiving destination (`Priėmimas`)
+  and hides the administrative `Ataskaitos`
   reporting group (`Neatitikimai`) — a UI convenience only; the server endpoints
-  and their requirements are unchanged. `Gavimai`
-  (`/receipts`) is the ADMIN received-batch queue + formal reconciliation; the
+  and their requirements are unchanged. `Priėmimas`
+  (`/receipts`) is the received-batch list + formal reconciliation; the
   former manual receipt-creation UI was removed. Warehouse
   master data (warehouses/locations) is listable/readable by authenticated
   users and modifiable by `ADMIN` only.

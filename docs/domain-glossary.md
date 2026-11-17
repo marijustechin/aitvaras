@@ -50,33 +50,35 @@ provenance. **Status: implemented** (`docs/resources.md`); the surrounding
 inventory/production principles are confirmed future direction, not implemented —
 see [scope.md](scope.md).
 
-## Gavimai (received batches)
+## Priėmimas (received batches)
 
-The ADMIN administrative queue of physical receiving records created through
-`Registruoti sandėlyje`. It is a review/history and work-queue view (filter by
+The received-batch list of physical receiving records created through the
+`Priėmimas` workflow. It is a review/history and work-queue view (filter by
 status / supplier / resource / warehouse / arrival date / batch code; default
 `Reikia patvirtinti` = the not-yet-confirmed `PENDING` batches) whose rows open the batch's
-formal **reconciliation**, with the human-facing `Gavimas` code shown as the
+formal **reconciliation**, with the human-facing `Priėmimas` code shown as the
 grouping reference. The default pending queue is **not date-bounded** (the
 `Priėmimo data` filters are empty by default) so old pending items are never
-silently hidden. `Gavimai` replaced the former top-level `Pajamavimas` label;
-it is **not** a place to create receiving records (that is the warehouse worker's
-task).
+silently hidden. `Priėmimas` replaced the former top-level `Pajamavimas` label;
+it is **not** a place to create receiving records (that is the warehouse
+receiving workflow). The internal model names `IncomingDelivery`, `GAVIMAI_*`
+and the delivery code prefix `G` are retained.
 
 **Status: implemented** (`docs/batches.md`).
 
-## Gavimas (incoming delivery)
+## Priėmimas (incoming delivery)
 
 One physical incoming **arrival**: the goods of **one** supplier on **one**
 arrival date, registered by a warehouse worker. It is the **user-facing receiving
 unit** (container) and carries the **main human-facing receipt identifier**, the
 code `G<YY><MM>-<NN>` (e.g. `G2609-01`, month-sequenced, unique, encodes no
-business data). One `Gavimas` may
+business data). One `Priėmimas` may
 contain **several resources**, and different resources from the same delivery may
 go to **different warehouses** (the warehouse belongs to the batch, not the
-delivery). A `Gavimas` is **not** the formal `Pajamavimas` and is **not** stock.
+delivery). A `Priėmimas` is **not** the formal `Pajamavimas` and is **not** stock.
 The **vehicle/truck is outside system scope** and is not modelled. Denominations:
-`Gavimas`, `Gavimai`.
+`Priėmimas` (user-facing); `IncomingDelivery`/`Gavimas` remain internal model
+terms.
 
 **Status: implemented** (`docs/batches.md`).
 
@@ -92,22 +94,27 @@ saving does not create stock. Denominations: `Pajamavimas`, `Pajamavimai`.
 **Status: internal formal-document model** (`docs/receipts.md`). The manual
 creation UI was removed: the `GoodsReceipt`/`GoodsReceiptLine` records are
 resolved or created **server-side** by batch reconciliation, and the business
-label `Pajamavimas` is superseded in the UI by `Gavimai`.
+label `Pajamavimas` is superseded in the UI by `Priėmimas`.
 
 ## Partija (batch / lot)
 
-An **internal** grouping inside one `Gavimas`: exactly **one** resource
-(`Išteklius`) into **one** warehouse (`Sandėlis`), registered package by package
-and initially `PENDING` (Laukiama patvirtinimo). A delivery may contain several
-batches; the same resource into different warehouses is different batches. A batch
-has a compact, system-generated `Kodas` (`P<NN>`, e.g. `P01`) that is **local to
-its delivery** (reset per delivery, max `P99`) and **secondary** to the
-human-facing delivery code. It is created independently of
-the `Pajamavimas` and later **reconciled** with a formal receipt line **without
-duplicating quantities**, optionally storing a documentary piece count. A batch is
-**not** stock.
+An **internal** grouping inside one `Priėmimas`, with a **receiving mode**
+(`BatchReceivingMode`): **`WEIGHT`** (`Svorinė`) — exactly **one** resource
+(`Išteklius`) into **one** warehouse (`Sandėlis`), registered package by package;
+**`PIECE`** (`Vienetinė`) — **several product/resource item lines** (integer
+quantities) into one warehouse, with **no** batch-level resource. Initially
+`PENDING` (Laukiama patvirtinimo). A delivery may contain several batches; the
+same resource into different warehouses is different batches. A batch has a
+compact, system-generated `Kodas` (`P<NN>`, e.g. `P01`) that is **local to its
+delivery** (reset per delivery, max `P99`) and **secondary** to the human-facing
+delivery code. A `WEIGHT` batch is created independently of the `Pajamavimas` and
+later **reconciled** with a formal receipt line **without duplicating
+quantities**, optionally storing a documentary piece count. A batch is **not**
+stock.
 
-**Status: implemented** (`docs/batches.md`).
+**Status: implemented** (`docs/batches.md`). The `PIECE` mode — its item lines
+(`BatchItem`), quantity model, correction/void and confirmation — is documented in
+[piece-batches.md](piece-batches.md).
 
 ## Pakuotė (package / handling unit)
 
@@ -161,19 +168,19 @@ voided (`Anuliuota`) package keeps its barcode and history but is excluded from 
 batch's measured weight and active count; each effective change is appended to an
 auditable **correction trail** (`Pataisymų istorija`: kind, package barcode,
 previous/new value, reason, who, when). A documentary mismatch is recorded
-separately in `Gavimo neatitikimas` and does not keep the batch open.
+separately in `Priėmimo neatitikimas` and does not keep the batch open.
 
 **Status: implemented** (`docs/batches.md`).
 
-## Registruoti sandėlyje (physical warehouse receiving)
+## Priėmimas (physical warehouse receiving)
 
-The warehouse worker's operational action: the **physical** receiving step —
+The warehouse worker's operational workflow: the **physical** receiving step —
 starting a `Partija`, registering individual `Pakuotės` with measured weights and
 printing package labels. It is deliberately **not** the formal `Pajamavimas`
 documentary flow: documentary weight, acquisition value, document number/date and
-reconciliation are administrative and belong to `ADMIN`. Use the term
-`Registruoti sandėlyje`; do not use `Perkelti į gamybą` (production transfer is
-out of scope).
+reconciliation are administrative and belong to `ADMIN`. Use the terms
+`Priėmimas` and `Naujas priėmimas`; do not use `Perkelti į gamybą` (production
+transfer is out of scope).
 
 **Status: implemented** (`docs/batches.md`).
 
@@ -196,10 +203,12 @@ documentary only.
 
 ## Gavimo neatitikimas (receiving discrepancy)
 
-A long-lived record created when a `Partija` is **confirmed** with a non-zero
-`measuredWeight − documentWeight`. Fields: batch (unique), supplier, measured /
-document / difference weights (signed), `status` (`OPEN` | `PARTIALLY_SETTLED` |
-`SETTLED`), creator, `createdAt`, `settledAt?`. The signed difference is immutable;
+A long-lived record created when a `Partija` is **confirmed** with a mismatch. Has
+a kind: **WEIGHT** (documentary vs measured net weight, one per batch) or
+**PIECE** (documentary vs actual counted pieces per product, zero-to-many per
+batch). Fields: batch, supplier, the signed weight fields (WEIGHT) or
+`actualPieces`/`documentPieces`/`differencePieces` (PIECE), `status` (`OPEN` |
+`PARTIALLY_SETTLED` | `SETTLED`), creator, `createdAt`, `settledAt?`. The signed difference is immutable;
 negative is a `Trūkumas` (shortage), positive a `Perteklius` (overage). It is
 **separate** from the confirmation lifecycle: the batch is already `CONFIRMED`, the
 physical stock stays the measured net weight, and the discrepancy may stay open for

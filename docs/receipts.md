@@ -1,8 +1,8 @@
 # Goods Receipts (Pajamavimas)
 
 > Status: **internal formal-document model** — task O-058, reshaped by ATV-038.
-> The manual GoodsReceipt **creation UI was removed**: the ADMIN `Gavimai`
-> (`/receipts`) area is now the received-batch queue, and the formal
+> The manual GoodsReceipt **creation UI was removed**: the `Priėmimas`
+> (`/receipts`) area is now the received-batch list, and the formal
 > `GoodsReceipt`/`GoodsReceiptLine` records are created and linked **server-side**
 > by batch reconciliation. See [batches.md](batches.md).
 
@@ -10,9 +10,9 @@
 
 A **Pajamavimas** (`GoodsReceipt`) is the **formal/documentary record of resources
 received from a supplier**. Physical incoming batches are created through the
-warehouse-worker `Registruoti sandėlyje` flow; the `Pajamavimas` record is the
+warehouse-worker `Priėmimas` flow; the `Pajamavimas` record is the
 internal document anchor that reconciliation resolves or creates. The old
-business label `Pajamavimas` is superseded in the UI by `Gavimai`.
+business label `Pajamavimas` is superseded in the UI by `Priėmimas`.
 
 It is **not** currently:
 
@@ -204,7 +204,7 @@ Errors are clear and do not leak Prisma internals.
 - List is newest-first. No filters/search/pagination.
 - **UI status (ATV-038):** the manual create-receipt form and the receipt
   list/detail UI were removed from the primary admin workflow. Navigation item
-  `Gavimai` (`/receipts`) opens the **received-batch queue** (see
+  `Priėmimas` (`/receipts`) opens the **received-batch list** (see
   [batches.md](batches.md)), not a receipt form. `GoodsReceipt` records are now
   produced internally by reconciliation; the `/receipts` API endpoints remain as
   the persistence layer.

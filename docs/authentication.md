@@ -201,7 +201,7 @@ only toggles `type="password"` ↔ `type="text"` and never submits the form.
 ### Local development seed (weak, guarded)
 
 ```bash
-pnpm seed:dev      # creates/ensures localdev / localdev (ADMIN, active)
+npm run seed:dev      # creates/ensures localdev / localdev (ADMIN, active)
 ```
 
 - Development only: refuses unless `NODE_ENV=development` and `DATABASE_URL` is
@@ -217,7 +217,7 @@ BOOTSTRAP_ADMIN_FIRST_NAME=<first name>
 BOOTSTRAP_ADMIN_LAST_NAME=<last name>
 BOOTSTRAP_ADMIN_PASSWORD=<strong password, >= 12 chars>
 
-pnpm bootstrap:admin
+npm run bootstrap:admin
 ```
 
 Requires all four variables, is idempotent, and never uses `localdev` as a

@@ -1,8 +1,11 @@
 # Aitvaras Architecture
 
-> Status: foundation implemented for the **only confirmed scope — identity and
-> access** (`scope.md`). Everything else is discovery. Candidate modules below
-> are *not* approved. Unverified choices are marked as open questions.
+> Status: the confirmed scope in `docs/scope.md` is implemented: identity/access,
+> partners, resources/categories, packaging/tare, warehouses, goods receipts,
+> physical receiving (WEIGHT and PIECE batches, packages, reconciliation and
+> discrepancies), shared company settings and a read-only dashboard stock
+> summary. Everything else is discovery. Candidate modules below are *not*
+> approved. Unverified choices are marked as open questions.
 
 ## Current implemented structure (confirmed scope)
 
@@ -19,6 +22,8 @@ apps/api/src/
 │   ├── batches/                receiving: deliveries + batches + bags (/deliveries, /batches, /bags)
 │   ├── receiving-discrepancies/ discrepancy register + settlement (/receiving-discrepancies)
 │   ├── warehouses/             warehouses + locations (/warehouses)
+│   ├── stock/                  read-only dashboard summary (/stock/summary)
+│   ├── company-settings/       shared operator company details (/settings/company)
 │   ├── access/                 role catalogue + access domain primitives
 │   └── health/                 /health (public)
 ├── infrastructure/             infrastructure adapters
@@ -27,11 +32,11 @@ apps/api/src/
 │   ├── decorators/             @Public, @Roles, @CurrentUser
 │   ├── guards/                 JwtAuthGuard, RolesGuard, AuthenticatedUser
 │   └── validation/             ZodValidationPipe
-├── scripts/                    bootstrap-admin.ts
+├── scripts/                    bootstrap-admin.ts, seed-dev.ts
 ├── app.module.ts               composes modules; registers global guards
 └── main.ts
 
-packages/contracts/src/  roles.ts, auth.ts, users.ts, partners.ts, resources.ts, resource-categories.ts, packaging-types.ts, warehouses.ts, receipts.ts, batches.ts, incoming-deliveries.ts, receiving-discrepancies.ts, health.ts
+packages/contracts/src/  roles.ts, auth.ts, users.ts, countries.ts, partners.ts, resources.ts, resource-categories.ts, packaging-types.ts, warehouses.ts, receipts.ts, batches.ts, stock.ts, incoming-deliveries.ts, receiving-discrepancies.ts, company-settings.ts, health.ts
 packages/database/       Prisma 7, generated client + adapter (see ADR-008)
 ```
 
@@ -49,15 +54,20 @@ packages/database/       Prisma 7, generated client + adapter (see ADR-008)
   (`PackagingType`), goods receipts (`GoodsReceipt` with optional
   `documentDate`/`documentNumber`, `GoodsReceiptLine`, `MeasurementUnitKey`),
   warehouses (`Warehouse`, `WarehouseLocation`) and receiving
-  (`IncomingDelivery`, `Batch`/`BatchStatus`, `Bag`, `BagCorrection`,
-  `ReceivingDiscrepancy`, `DiscrepancySettlement`/`DiscrepancySettlementType`;
-  `Batch.receiptLineId` links a reconciled batch to its `GoodsReceiptLine`). No
-  other tables exist.
+  (`IncomingDelivery`, `Batch`/`BatchStatus`/`BatchReceivingMode`, `Bag`,
+  `BagCorrection`, `BatchItem`/`BatchItemStatus`, `PieceReconciliationLine`,
+  `ReceivingDiscrepancy`/`ReceivingDiscrepancyKind`,
+  `DiscrepancySettlement`/`DiscrepancySettlementType`; `Batch.receiptLineId` links
+  a reconciled batch to its `GoodsReceiptLine`; the singleton
+  `CompanySettings`). No stock-balance or movement tables exist; the dashboard
+  summary aggregates confirmed receiving rows.
 - `AppModule` composes `PrismaModule`, `AccessModule`, `AuthModule`,
   `UsersModule`, `PartnersModule`, `ResourceCategoriesModule`, `ResourcesModule`,
-  `PackagingTypesModule`, `ReceiptsModule`, `BatchesModule`,
-  `ReceivingDiscrepanciesModule`, `WarehousesModule`, `HealthModule` and registers
-  the global guards.
+  `PackagingTypesModule`, `ReceiptsModule`, `BatchesModule`, `StockModule`,
+  `ReceivingDiscrepanciesModule`, `WarehousesModule`, `CompanySettingsModule`,
+  `HealthModule` and registers the global guards. `StockModule` is a read-only
+  confirmed-stock aggregation; it adds no tables or movement model (see
+  `stock-summary.md`).
 - See `authentication.md`, `authorization.md` and `scope.md`.
 
 ## API module conventions (NestJS)
@@ -98,26 +108,22 @@ concerns; the `access` module owns the role catalogue.
 - Approved brand assets live in `apps/web/public/brand/`; see
   [branding.md](branding.md) for the variant usage convention.
 - Authenticated pages use a shared **application shell**
-  (`widgets/app-shell/`: sticky top header + role-aware navigation + user menu +
-  content). Navigation contains only implemented, confirmed functionality. The top
-  bar groups administration under `Žinynai` (reference data), `Ataskaitos`
-  (reports/registers, reserved) and `Sistema` (system administration), while the
-  operational workflows (`Pradžia`, `Registruoti sandėlyje`, `Gavimai`) stay
-  top-level (`docs/frontend-architecture.md`).
+  (`widgets/app-shell/`: dark persistent sidebar on desktop, collapsible drawer on
+  narrow screens, compact top bar with breadcrumb + user menu, and content).
+  Navigation contains only implemented, confirmed functionality. Sidebar sections
+  group the operational workflows (`Suvestinė`, `Priėmimas`),
+  reference data (`Žinynai`) and administration (`Ataskaitos`, `Nustatymai`).
+  Section destinations render their children as horizontal route-based child
+  navigation below the page heading (`docs/frontend-architecture.md`).
   Self-service profile lives at `/profile`; the implemented partner module lives
   at `/partners` (`docs/partners.md`); resources and packaging types live under
   `/resources` (`docs/resources.md`).
 - The web frontend follows **FSD-lite** (`app`, `widgets`, `features`,
   `entities`, `shared`); see [frontend-architecture.md](frontend-architecture.md).
-- The database has eighteen migrations: `initial_identity_access`,
-  `business_partners`, `resources_and_packing_forms`, `goods_receipts`,
-  `warehouse_placement`, `optional_receipt_location`, `add_user_token_version`,
-  `managed_resource_categories`, `receiving_batches_and_bags`,
-  `batch_reconciliation`, `handling_unit_corrections`, `handling_unit_quantity`,
-  `incoming_deliveries`, `packaging_types`, `receiving_discrepancies`,
-  `batch_delivery_local_code`, `drop_packing_forms` and
-  `discrepancy_settlements`. Applied migrations become immutable after the first
-  shared/production deployment (ADR-010).
+- The database has **22 applied migrations** (see
+  `packages/database/prisma/migrations/`; latest: `company_settings`). Applied
+  migrations become immutable after the first shared/production deployment
+  (ADR-010); add a new migration instead of editing history.
 
 ## Purpose
 
@@ -199,13 +205,14 @@ empty layers in advance.
   never be used as the model for Aitvaras entities.
 - The schema contains the confirmed models only: identity/access (`User`,
   `Role`, `UserRole`), business partners (`BusinessPartner`, `PartnerRole`),
-  resources (`Resource`), packaging/tare master data (`PackagingType`), goods
-  receipts (`GoodsReceipt`, `GoodsReceiptLine`), warehouses (`Warehouse`,
-  `WarehouseLocation`) and physical receiving (`IncomingDelivery`, `Batch`, `Bag`,
-  `BagCorrection`, `ReceivingDiscrepancy`). No other business-domain tables were
-  created. Deliveries,
-  receipts and batches record the transaction and intended placement/identity only
-  — no stock tables exist.
+  resources/categories (`Resource`, `ResourceCategory`), packaging/tare master
+  data (`PackagingType`), goods receipts (`GoodsReceipt`, `GoodsReceiptLine`),
+  warehouses (`Warehouse`, `WarehouseLocation`), physical receiving
+  (`IncomingDelivery`, `Batch`, `BatchItem`, `Bag`, `BagCorrection`,
+  `PieceReconciliationLine`, `ReceivingDiscrepancy`, `DiscrepancySettlement`)
+  and the singleton `CompanySettings`. No stock-balance or movement tables exist;
+  deliveries, receipts and batches record the transaction and placement/identity
+  only, and the dashboard summary is a read-only projection.
 - Money, identifiers and domain vocabulary are Aitvaras decisions, not inherited
   from legacy conventions (e.g. legacy seeded numeric IDs or integer cents).
 
@@ -262,10 +269,12 @@ Rules:
 - `reporting` must not own data.
 - `barcode` is not an identity provider (see `identity-strategy.md`).
 - `partners`, `resources` (with administrator-managed categories),
-  `packaging-types`, `warehouses` and the first slice of `inventory`/`barcode`
-  (incoming batches + per-bag handling units) are now implemented
-  (`docs/partners.md`, `docs/resources.md`, `docs/batches.md`); the remaining rows
-  are unconfirmed.
+  `packaging-types`, `warehouses`, `receipts`, `batches` and the first slice of
+  `inventory`/`barcode` (incoming batches + handling units), plus the read-only
+  `stock` dashboard projection and `company-settings`, are now implemented
+  (`docs/partners.md`, `docs/resources.md`, `docs/batches.md`,
+  `docs/stock-summary.md`, `docs/company-settings.md`); the remaining rows are
+  unconfirmed.
 - Do not create these modules until a slice needs them.
 
 ## What is deliberately *not* here

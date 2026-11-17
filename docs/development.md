@@ -1,7 +1,9 @@
 # Development
 
 How to set up and work in the Aitvaras workspace. Run all commands from the
-`/aitvaras` directory.
+`/aitvaras` directory. Script commands follow the project's **npm convention**
+(`npm run <script>`); dependency installation uses the pinned pnpm workspace
+manager.
 
 ## Prerequisites
 
@@ -55,9 +57,15 @@ updates) before they reach the API.
 
 Aitvaras owns its own PostgreSQL database. It currently contains the confirmed
 models: identity/access (`User`, `Role`, `UserRole`), business partners
-(`BusinessPartner`, `PartnerRole`), resources (`Resource`), administrator-managed
-resource categories (`ResourceCategory`) and packaging/tare master data
-(`PackagingType` / `Tara`).
+(`BusinessPartner`, `PartnerRole`), resources and administrator-managed categories
+(`Resource`, `ResourceCategory`), packaging/tare master data (`PackagingType`),
+warehouses and locations (`Warehouse`, `WarehouseLocation`), goods receipts
+(`GoodsReceipt`, `GoodsReceiptLine`), physical receiving (`IncomingDelivery`,
+`Batch`, `BatchItem`, `Bag`, `BagCorrection`, `PieceReconciliationLine`,
+`ReceivingDiscrepancy`, `DiscrepancySettlement`) and the singleton
+`CompanySettings`. There is no stock-balance or movement table; the dashboard
+stock summary is a read-only projection of confirmed receiving rows. The
+authoritative model list is `packages/database/prisma/schema.prisma`.
 
 ### Reference/master data
 
@@ -68,17 +76,20 @@ script. `packaging_types` starts with a single inactive `Nežinoma tara` fallbac
 development login.
 
 ```bash
-pnpm infra:up          # start local PostgreSQL (Docker, bound to 127.0.0.1)
-pnpm db:generate       # generate the Prisma client
-pnpm db:migrate        # create/apply a migration
-pnpm db:validate       # validate the Prisma schema
-pnpm infra:down        # stop local PostgreSQL
+npm run infra:up          # start local PostgreSQL (Docker, bound to 127.0.0.1)
+npm run db:generate       # generate the Prisma client
+npm run db:migrate        # create/apply a migration
+npm run db:validate       # validate the Prisma schema
+npm run infra:down        # stop local PostgreSQL
 ```
 
 - The Prisma schema lives at `packages/database/prisma/schema.prisma`; applied
   migrations live under `packages/database/prisma/migrations/`.
 - `DATABASE_URL` must point at the database described by `docker-compose.yml`
   for local development.
+- If `prisma migrate dev` reports checksum drift, do **not** reset. See
+  [migration-history.md](migration-history.md) for the documented, backup-first
+  remediation procedure.
 - `packages/database/prisma.config.ts` loads the workspace root `.env` (Prisma
   does not search up to the monorepo root by itself). If no `DATABASE_URL` is
   present it falls back to a local placeholder, so `db:validate`/`db:generate`
@@ -91,13 +102,13 @@ pnpm infra:down        # stop local PostgreSQL
 
 Integration tests run against a dedicated database `aitvaras_test` on the same
 local PostgreSQL server (configured by `TEST_DATABASE_URL`). They never read from
-or mutate the development database (`DATABASE_URL`), so `pnpm verify` is always
+or mutate the development database (`DATABASE_URL`), so `npm run verify` is always
 safe to run.
 
 ```bash
-pnpm db:test:create    # create aitvaras_test (idempotent; for existing volumes)
-pnpm db:test:migrate   # apply migrations to the test database
-pnpm db:test:reset     # reset the test database (DESTRUCTIVE; test DB only)
+npm run db:test:create    # create aitvaras_test (idempotent; for existing volumes)
+npm run db:test:migrate   # apply migrations to the test database
+npm run db:test:reset     # reset the test database (DESTRUCTIVE; test DB only)
 ```
 
 - `TEST_DATABASE_URL` is required for integration tests; if it is missing the
@@ -105,7 +116,7 @@ pnpm db:test:reset     # reset the test database (DESTRUCTIVE; test DB only)
 - A safety guard refuses destructive setup unless the target database name is
   exactly `aitvaras_test`.
 - On a fresh Docker volume, `docker/postgres/init/` creates `aitvaras_test`
-  automatically; for existing volumes run `pnpm db:test:create`.
+  automatically; for existing volumes run `npm run db:test:create`.
 - If the configured test database is unreachable, integration tests skip
   explicitly (misconfiguration still fails the run); unit tests never need a
   database.
@@ -117,7 +128,7 @@ pnpm db:test:reset     # reset the test database (DESTRUCTIVE; test DB only)
 For local development use the dedicated seed:
 
 ```bash
-pnpm seed:dev
+npm run seed:dev
 ```
 
 This creates/ensures the account `localdev` / `localdev` (ADMIN, active,
@@ -139,10 +150,10 @@ at startup. Create the first admin explicitly:
 1. In `.env`, set a strong `JWT_SECRET` (≥ 32 chars), plus
    `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_FIRST_NAME`,
    `BOOTSTRAP_ADMIN_LAST_NAME` and `BOOTSTRAP_ADMIN_PASSWORD` (≥ 12 chars).
-2. Run `pnpm bootstrap:admin` (idempotent).
+2. Run `npm run bootstrap:admin` (idempotent).
 
 `BOOTSTRAP_ADMIN_*` are **optional** and **not required** for normal local
-development — the local login is `localdev` / `localdev` via `pnpm seed:dev`.
+development — the local login is `localdev` / `localdev` via `npm run seed:dev`.
 They are **not default local credentials**, and the secure bootstrap fails
 without all four. `localdev` is never a fallback for missing bootstrap
 variables. See [authentication.md](authentication.md) and
@@ -152,47 +163,45 @@ variables. See [authentication.md](authentication.md) and
 
 ```bash
 pnpm install
-pnpm infra:up        # or: docker compose up -d
-pnpm db:migrate
-pnpm db:test:create  # ensure the isolated test database exists
-pnpm db:test:migrate
-pnpm seed:dev
-pnpm dev:api         # http://localhost:3010
-pnpm dev:web         # http://localhost:3011  (login: localdev / localdev)
+npm run infra:up        # or: docker compose up -d
+npm run db:migrate
+npm run db:test:create  # ensure the isolated test database exists
+npm run db:test:migrate
+npm run seed:dev
+npm run dev:api         # http://localhost:3010
+npm run dev:web         # http://localhost:3011  (login: localdev / localdev)
 ```
 
 ## Running the applications
 
 ```bash
-pnpm dev:api           # NestJS API  → http://localhost:3010/health
-pnpm dev:web           # Next.js web  → http://localhost:3011
+npm run dev:api           # NestJS API  → http://localhost:3010/health
+npm run dev:web           # Next.js web  → http://localhost:3011
 ```
 
 ## Verification
 
 ```bash
-pnpm verify
+npm run verify
 ```
 
 `verify` is the canonical local check and runs, in order:
 
-1. `pnpm lint` — ESLint across the workspace.
-2. `pnpm db:validate` — Prisma schema validation.
-3. `pnpm typecheck` — builds `contracts` + `database` (so their `dist` types
+1. `npm run lint` — ESLint across the workspace.
+2. `npm run db:validate` — Prisma schema validation.
+3. `npm run typecheck` — builds `contracts` + `database` (so their `dist` types
    exist) and type-checks every package/app.
-4. `pnpm test` — Vitest across packages/apps that define tests.
-5. `pnpm build` — builds libraries, then the API (`nest build`) and web
+4. `npm run test` — Vitest across packages/apps that define tests.
+5. `npm run build` — builds libraries, then the API (`nest build`) and web
    (`next build`).
 
 Individual commands:
 
 ```bash
-pnpm lint              # eslint .
-pnpm typecheck         # build libs, then type-check everything
-pnpm test              # vitest across the workspace
-pnpm build             # build everything
-pnpm --filter @aitvaras/api build
-pnpm --filter @aitvaras/web build
+npm run lint              # eslint .
+npm run typecheck         # build libs, then type-check everything
+npm run test              # vitest across the workspace
+npm run build             # build everything
 ```
 
 ### Notes and caveats
@@ -200,9 +209,9 @@ pnpm --filter @aitvaras/web build
 - `packages/contracts` and `packages/database` are compiled to `dist`; consumers
   resolve their types from there. That is why `typecheck` builds them first. If
   you type-check a single consuming package in isolation, build the libraries
-  first (`pnpm build:libs`).
+  first (`npm run build:libs`).
 - **A shared-package change needs a rebuild _and_ a dev-server restart.** A
-  running `pnpm dev:api` (`nest start --watch`) watches only `apps/api`, and a
+  running `npm run dev:api` (`nest start --watch`) watches only `apps/api`, and a
   long-running `next dev` can keep serving a stale bundle; neither reliably
   picks up a rebuilt workspace `dist`. After changing `@aitvaras/contracts` /
   `@aitvaras/database` (or a shared policy such as `PasswordSchema`), rebuild the
@@ -210,7 +219,7 @@ pnpm --filter @aitvaras/web build
   enforcing the old contract (a stale API once kept rejecting a 6-character
   password with the previous 8-character minimum).
 - `prisma generate` does not require a running database.
-- `pnpm db:migrate` **does** require local PostgreSQL to be running.
+- `npm run db:migrate` **does** require local PostgreSQL to be running.
 - **Prisma ORM 7** is used (ADR-008). The new `prisma-client` generator emits
   plain TypeScript into `packages/database/src/generated/prisma` (git-ignored),
   which the database package compiles; `migrate dev` no longer generates the
@@ -220,7 +229,7 @@ pnpm --filter @aitvaras/web build
   pattern: a nullable transitional migration, then a `SET NOT NULL` migration.
   Existing rows must be backfilled with real names between the two. The local
   development database is disposable, so its bootstrap/test users are recreated
-  (`pnpm bootstrap:admin` or `pnpm seed:dev`) rather than given invented names.
+  (`npm run bootstrap:admin` or `npm run seed:dev`) rather than given invented names.
 - **Migration history was consolidated once, pre-release.** The iterative
   identity/access migrations were replaced by a single
   `initial_identity_access` migration before any shared/production deployment

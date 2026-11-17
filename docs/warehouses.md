@@ -43,7 +43,7 @@ Supporting master data, kept restrained:
   ADMIN-only and the server enforces it.
 
 `Sandėliai` is a primary authenticated navigation item
-(`Pradžia · Partneriai · Ištekliai · Sandėliai · Pajamavimas · Naudotojai*`),
+(`Suvestinė · Partneriai · Ištekliai · Sandėliai · Pajamavimas · Naudotojai*`),
 which keeps the route discoverable.
 
 ## Authorization

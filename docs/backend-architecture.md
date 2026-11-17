@@ -168,20 +168,21 @@ When a module becomes genuinely complex, expand **inside that module**:
 > Complexity should be introduced locally when the domain requires it, not
 > globally in advance.
 
-Illustrative (not implemented, not approved — no `receipts` module exists):
+Illustrative future growth inside a **complex** module (not a prescription; the
+current modules stay flat until their domain requires more structure):
 
 ```text
-modules/receipts/
-├── receipts.controller.ts
-├── receipts.module.ts
+modules/<feature>/
+├── <feature>.controller.ts
+├── <feature>.module.ts
 ├── application/
-│   ├── create-receipt.ts
-│   ├── confirm-receipt.ts
-│   └── cancel-receipt.ts
+│   ├── create-<feature>.ts
+│   ├── confirm-<feature>.ts
+│   └── cancel-<feature>.ts
 ├── domain/
-│   ├── receipt-rules.ts
-│   └── receipt-state.ts
-└── receipt.mapper.ts
+│   ├── <feature>-rules.ts
+│   └── <feature>-state.ts
+└── <feature>.mapper.ts
 ```
 
 ## Prisma / repository policy
@@ -229,9 +230,9 @@ Do not blur these responsibilities unnecessarily.
 
 ## Future workflow modules
 
-Future workflows such as goods receipt, stock movement, production, order
-preparation and sales must be designed as **business modules/workflows from
-confirmed requirements**. Do not force them into existing `resources` or
+Future workflows such as stock movements, production, order preparation and
+sales must be designed as **business modules/workflows from confirmed
+requirements**. Do not force them into existing `resources` or
 `partners` modules merely because they reference those entities. No such module
 is implemented or approved.
 

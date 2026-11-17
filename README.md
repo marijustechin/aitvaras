@@ -10,21 +10,27 @@ from legacy code.
 > (resources) with administrator-managed categories and packaging/tare master
 > data (`Tara` / `PackagingType`), **Sandėliai** (warehouses + locations), the
 > first minimal **Pajamavimas** (goods receipt) workflow with physical placement,
-> and physical receiving: **Gavimai** (incoming deliveries containing several
+> and physical receiving: **Priėmimas** (incoming deliveries containing several
 > resource **batches**, each into one warehouse, with weight-based handling
 > packages, managed **Tara** packaging/tare and barcodes) that are formally
 > reconciled with a **Pajamavimas** line (documentary weight + optional piece
-> count + initial acquisition value), plus the **`Neatitikimai`** discrepancy
-> register with its append-only weight/money settlement ledger. No
-> other business functionality (stock, movements,
-> production, orders, sales, accounting, integration) is approved or implemented.
-> See [docs/scope.md](docs/scope.md).
+> count + initial acquisition value), plus **piece-based** (`Vienetinė`) batches
+> (several product item lines with integer quantities, no packages/weight), the
+> **`Neatitikimai`** discrepancy register with its append-only weight/money
+> settlement ledger, shared operator company details (`Nustatymai` → `Įmonė`)
+> and a **read-only dashboard stock summary derived from confirmed receipts**.
+> The summary is a projection, not a stock-balance or movement ledger. No
+> other business functionality (purchasing, production, orders, sales,
+> accounting, integration) is approved or implemented. See
+> [docs/scope.md](docs/scope.md).
 
-After login, Aitvaras runs as an application: a **sticky top bar** with
-role-aware navigation (`Pradžia`, `Partneriai`, `Ištekliai`, `Sandėliai`,
-`Pajamavimas`, plus `Naudotojai` for admins), a current-user menu with **Mano
-profilis** (self-service profile and password change) and a footer. Navigation
-contains only confirmed, implemented functionality.
+After login, Aitvaras runs as an application: a **dark left sidebar** with
+role-aware navigation — `Suvestinė`, `Priėmimas`, `Žinynai` → `Partneriai`,
+`Ištekliai`, `Kategorijos`, `Tara`, `Sandėliai`, and `Administravimas` →
+`Ataskaitos` (`Neatitikimai`) / `Nustatymai` (`Įmonė`, `Naudotojai`) — a compact
+top bar with breadcrumb, a current-user menu with **Mano profilis**
+(self-service profile and password change) and a footer. Navigation contains only
+confirmed, implemented functionality.
 
 ## What Aitvaras is (and is not)
 
@@ -43,7 +49,7 @@ contains only confirmed, implemented functionality.
 |-------|--------|
 | Language | TypeScript 5.9 |
 | Runtime | Node.js >= 22 |
-| Package manager | pnpm (workspaces) |
+| Package manager | pnpm workspace (pinned; scripts are run with the npm convention `npm run <script>`) |
 | Web | Next.js (App Router), React, Tailwind CSS, shadcn/ui-compatible |
 | API | NestJS on the Fastify adapter |
 | Database | PostgreSQL + Prisma (**Aitvaras-owned schema**) |
@@ -57,13 +63,17 @@ contains only confirmed, implemented functionality.
 aitvaras/
 ├── apps/
 │   ├── api/                 NestJS + Fastify API
-│   │   └── src/{auth,users,partners,resources,packaging-types,access,prisma,common,health}
-│   └── web/                 Next.js App Router (login, shell, partners, resources, admin users)
+│   │   └── src/modules/     auth, users, partners, resources, resource-categories,
+│   │                        packaging-types, receipts, batches, warehouses,
+│   │                        receiving-discrepancies, stock, company-settings,
+│   │                        access, health
+│   └── web/                 Next.js App Router (FSD-lite: app, widgets, features,
+│                            entities, shared)
 ├── packages/
 │   ├── config/              shared tsconfig + ESLint base
 │   ├── contracts/           shared Zod contracts (@aitvaras/contracts)
 │   └── database/            Prisma / PostgreSQL (@aitvaras/database)
-├── docs/                    scope, architecture, auth, testing, discovery
+├── docs/                    scope, architecture, module docs, screenshots, audits
 ├── tasks/                   current/ and done/ task journal
 ├── docker-compose.yml       local PostgreSQL only
 ├── AGENTS.md                operating rules for coding agents
@@ -72,20 +82,22 @@ aitvaras/
 
 ## Local commands
 
-From this directory (`/aitvaras`):
+From this directory (`/aitvaras`). The project's **command convention is npm**:
+run scripts as `npm run <script>`. Dependency installation uses the pinned pnpm
+workspace manager (`pnpm install`); do not add a second lockfile or mix yarn.
 
 ```bash
-pnpm install               # install the workspace
-pnpm infra:up              # start local PostgreSQL (Docker)
+pnpm install               # install the workspace (pinned pnpm manager)
+npm run infra:up           # start local PostgreSQL (Docker)
 cp .env.example .env        # configure environment (Windows: copy)
-pnpm db:generate           # generate the Prisma client
-pnpm db:migrate            # create/apply migrations (development DB)
-pnpm db:test:create        # create the isolated test database (integration tests)
-pnpm db:test:migrate       # apply migrations to the test database
-pnpm seed:dev              # local dev login: localdev / localdev (guarded)
-pnpm dev:api               # API    → http://localhost:3010
-pnpm dev:web               # web    → http://localhost:3011
-pnpm verify                # lint + prisma validate + typecheck + test + build
+npm run db:generate        # generate the Prisma client
+npm run db:migrate         # create/apply migrations (development DB)
+npm run db:test:create     # create the isolated test database (integration tests)
+npm run db:test:migrate    # apply migrations to the test database
+npm run seed:dev           # local dev login: localdev / localdev (guarded)
+npm run dev:api            # API    → http://localhost:3010
+npm run dev:web            # web    → http://localhost:3011
+npm run verify             # lint + prisma validate + typecheck + test + build
 ```
 
 Local ports (defaults, configurable): **API `3010`** (`API_PORT`), **web
@@ -93,7 +105,7 @@ Local ports (defaults, configurable): **API `3010`** (`API_PORT`), **web
 (default `http://localhost:3010`).
 
 The UI is **Lithuanian only** (no i18n framework yet). For a real admin account
-(no weak credentials), use `pnpm bootstrap:admin` with
+(no weak credentials), use `npm run bootstrap:admin` with
 `BOOTSTRAP_ADMIN_*` env variables instead of `seed:dev`; those variables are
 optional and **not** default local credentials. In development the login screen
 shows a muted `localdev / localdev` hint (hidden in production).
@@ -108,8 +120,11 @@ Full setup details: [docs/development.md](docs/development.md).
 - [docs/resources.md](docs/resources.md) — resources and categories
 - [docs/receipts.md](docs/receipts.md) — goods receipts (Pajamavimas)
 - [docs/batches.md](docs/batches.md) — receiving: deliveries, batches and packages
+- [docs/piece-batches.md](docs/piece-batches.md) — piece (`Vienetinė`) batches and item lines
 - [docs/discrepancies.md](docs/discrepancies.md) — discrepancy register + settlement ledger
 - [docs/warehouses.md](docs/warehouses.md) — warehouses and locations
+- [docs/stock-summary.md](docs/stock-summary.md) — dashboard stock summary read model
+- [docs/company-settings.md](docs/company-settings.md) — shared operator company details
 - [docs/domain-glossary.md](docs/domain-glossary.md) — confirmed domain terminology
 - [docs/authentication.md](docs/authentication.md) — auth model and login flow
 - [docs/authorization.md](docs/authorization.md) — roles and route protection

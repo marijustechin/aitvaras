@@ -17,6 +17,15 @@ management**:
 - role-based authorization;
 - user administration (admin-only).
 
+### Operator company settings (`Nustatymai` → `Įmonė`)
+
+The confirmed installation-level setting is the warehouse operator's **own
+company details** (name, registration number, optional VAT number, country,
+address, email, telephone), stored once per installation and separate from the
+partner directory. ADMIN-only editing; shared across users, never browser-local.
+See [company-settings.md](company-settings.md). No VAT tariff or accounting
+behaviour is included.
+
 ### Business partners (Partneriai)
 
 The first confirmed business-domain module is **business partners**:
@@ -73,20 +82,23 @@ The confirmed supporting master data for physical placement:
 
 See [warehouses.md](warehouses.md).
 
-### Receiving: deliveries, batches and packages (Gavimai, partijos ir pakuotės)
+### Receiving: deliveries, batches and packages (Priėmimas, partijos ir pakuotės)
 
 The first slice of the confirmed inventory direction: **incoming arrival
 registration** with a delivery container, internal batches and individual physical
 packages:
 
-- a **Gavimas** (`IncomingDelivery`) is one physical arrival of one active
+- a **Priėmimas** (`IncomingDelivery`) is one physical arrival of one active
   `SUPPLIER` on one arrival date, with a system-generated, unique, human-facing
   code `GYYMM-NN` that is the **main human-facing receipt identifier**; it may
   contain several resources, and different resources may go to different
   warehouses (no vehicle is modelled);
-- a **Partija** (batch/lot) is the **internal** grouping of one resource into one
-  warehouse within a delivery, with a compact, **delivery-local** code
-  (`P01`..`P99`) and `PENDING` status;
+- a **Partija** (batch/lot) is the **internal** grouping within a delivery, with a
+  compact, **delivery-local** code (`P01`..`P99`) and `PENDING` status, and a
+  **receiving mode** — **`WEIGHT`** (`Svorinė`, one resource into one warehouse) or
+  **`PIECE`** (`Vienetinė`, several product/resource item lines with integer
+  quantities into one warehouse, no batch-level resource; the batch is the
+  cost/provenance pool and its purchase value is not allocated per line);
 - a **Pakuotė** (package/handling unit) is one physical package (bag, box, pallet,
   …) of a batch, received by **actual weight** — no KG/PCS measurement-unit
   selector — referencing one managed **`Tara`** (`PackagingType`) so that
@@ -114,7 +126,18 @@ packages:
   confirming) does not change any balance, and batch totals are derived from the
   package rows, never stored.
 
-See [batches.md](batches.md) and [discrepancies.md](discrepancies.md).
+See [batches.md](batches.md), [piece-batches.md](piece-batches.md) and
+[discrepancies.md](discrepancies.md).
+
+### Dashboard stock summary (read-only projection)
+
+The `Suvestinė` dashboard shows a **read-only stock summary derived from confirmed
+receiving batches**: active package net weight, active PIECE item quantity, and
+the remaining acquisition value added once per confirmed batch. It introduces
+**no stock-balance table, movement ledger, lot ledger or new valuation method**;
+it is a projection of the confirmed receiving data. Missing acquisition values
+are shown as incomplete rather than zero. See
+[stock-summary.md](stock-summary.md).
 Vehicles/transport, scan-driven warehouse movements, package split/merge,
 settlement reversal/correction, overage-specific return/write-off semantics,
 tolerance handling, production lineage and cost redistribution are **not**

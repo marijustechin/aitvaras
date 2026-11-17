@@ -77,8 +77,8 @@ features/
   home/                    role-aware home
 
 widgets/
-  app-shell/     AppShell, AppHeader, AppFooter, MainNavigation, UserMenu,
-                 navigation model + active-route detection
+  app-shell/     AppShell, AppHeader (mobile drawer + breadcrumb), AppSidebar,
+                 UserMenu, AppFooter, navigation model + active-route detection
 
 shared/
   api/           api-client.ts (ApiError, apiFetch)
@@ -125,12 +125,12 @@ One shared hierarchy lives in `shared/ui/button.ts` (`buttonClass` plus the
 `*_BUTTON_CLASS` constants). Do not invent one-off colours per page.
 
 - **primary** (`PRIMARY_BUTTON_CLASS`) — the main action of a page/form (solid
-  black): `Naujas gavimas`, `Pradėti registruoti`, `Išsaugoti ir spausdinti`,
-  `Patvirtinti gavimą`, `Sukurti`.
+  black): `Naujas priėmimas`, `Pradėti registruoti`, `Išsaugoti ir spausdinti`,
+  `Patvirtinti priėmimą`, `Sukurti`.
 - **secondary** (`SECONDARY_BUTTON_CLASS`, compact `SECONDARY_NAV_BUTTON_CLASS`) —
   navigation/context/helper actions: filled dark/medium neutral gray with white
   text, lighter than black but still clearly a button. Used for `Kategorijos`,
-  `Tara`, `← Ištekliai`, `← Gavimų sąrašas` and comparable actions.
+  `Tara`, `← Ištekliai`, `← Priėmimų sąrašas` and comparable actions.
 - **outline** (`OUTLINE_BUTTON_CLASS`) — compact neutral row actions
   (`Redaguoti`, `Taisyti`, `Anuliuoti`).
 - **destructive** (`DESTRUCTIVE_BUTTON_CLASS`) — irreversible/danger actions
@@ -140,26 +140,73 @@ Not every link becomes a filled button: apply the hierarchy where the element is
 an explicit action/navigation choice. Pointer cursor is enforced app-wide in
 `globals.css`.
 
-## Information architecture (top navigation)
+## Shared notifications, scroll-to-top and labels
+
+- **Notifications:** one `ToastProvider` is mounted in the root layout and is the
+  **single convention for every user-action notification**: required/invalid/
+  conflicting fields (including client validation that prevents a request),
+  save/create/update/void/confirm results, confirmations and API/network errors.
+  Colours are fixed by tone: yellow informational, green success, red
+  errors/warnings. Identical tone+message pairs are de-duplicated; errors stay
+  longer and are dismissible. Show one useful notification per attempt — a
+  concise summary naming the affected fields when several fail — and never toast
+  on every keystroke. Invalid fields keep their error border/`aria-invalid` and
+  the first invalid field receives focus; entered values survive a failed submit.
+  Inline action-error banners are removed. Permanent explanatory content,
+  load/not-found states and decision dialogs may stay inline. There are no
+  browser `alert`s. A browser print dialog opening is not reported as successful
+  physical printing.
+- **Scroll-to-top:** `ScrollToTop` is mounted once in `AppShell`. The control is a
+  white circular button with a black border and a black upward arrow only (no
+  visible text); `Į viršų` remains its accessible label and tooltip. It keeps a
+  visible keyboard focus ring and an adequate click target. It appears after
+  320px in the actual vertically scrollable container (or document), hides near
+  the top/short pages, recalculates on scroll, resize, route and content-height
+  changes, and honours `prefers-reduced-motion`.
+- **Tare labels:** selectors use `packagingTypeOptionLabel` →
+  `Pavadinimas (svoris kg)` with Lithuanian, minimum-one-decimal formatting
+  (e.g. `Dėžė (0,2 kg)`); option IDs and calculations are unchanged.
+- **Voided labels:** `canPrintLabel(status)` gates label actions. Voided bags are
+  rendered with a genuinely disabled `Etiketė` control; reprint handlers also
+  reject non-active units, so keyboard/mouse/direct state paths cannot print a
+  voided label.
+
+## Information architecture (sidebar + contextual child navigation)
 
 Authenticated navigation is defined in
-`widgets/app-shell/model/navigation.ts` (`NAV_ENTRIES`) and rendered by
-`MainNavigation` — a compact desktop bar with grouped dropdowns and a responsive
-`Meniu` disclosure on narrow screens.
+`widgets/app-shell/model/navigation.ts` (`NAV_SECTIONS`) and rendered by
+`AppSidebar` / `AppHeader`.
 
-- **Operational workflows stay top-level**: `Pradžia`, `Registruoti sandėlyje`
-  and `Gavimai` are the primary daily flows and are not buried under parents.
-- **`Žinynai`** — master/reference data: `Partneriai`, `Ištekliai`, `Sandėliai`.
-- **`Ataskaitos`** — reporting/registers: currently the ADMIN discrepancy register
+- **Desktop** uses a persistent dark left sidebar; narrow screens replace it with
+  a modal drawer opened from the top bar (`Escape`, backdrop click and choosing a
+  destination close it; focus is trapped and returned to the trigger).
+- **Operacijos** — daily operational flows: `Suvestinė` and `Priėmimas` are plain
+  destinations. `Priėmimas` covers the received-batch list (`/receipts`) and the
+  new-receipt workflow (`/receiving`, `/receiving/new`, delivery/batch detail).
+- **Duomenys / Žinynai** — one section destination whose existing reference-data
+  pages render as horizontal child navigation below the heading:
+  `Partneriai`, `Ištekliai`, `Kategorijos`, `Tara`, `Sandėliai`.
+- **Administravimas / Ataskaitos** — the ADMIN discrepancy register
   `Neatitikimai` (`/reports/discrepancies`, `/reports/discrepancies/[id]`); hidden
   from `WAREHOUSE_WORKER`.
-- **`Sistema`** — system administration: `Naudotojai` (later `Nustatymai` and
-  other system-admin pages).
+- **Administravimas / Nustatymai** — installation settings as horizontal children:
+  `Įmonė` (`/settings/company`, the operator's own company details, ADMIN-only
+  editing) and `Naudotojai` (`/admin/users`, existing user administration). The
+  company record is shared, not per-user or browser-local; see
+  `docs/company-settings.md`.
 
-Groups are role-filtered; a populated group whose children are all out of scope is
-hidden, while a deliberately reserved empty group is still shown. The active child
-highlights its parent. Menu visibility is a UI convenience only — server
-authorization remains authoritative (`docs/authorization.md`).
+Child navigation is **route-based**: the active child is the most specific child
+href matching the pathname, so direct links, refreshes and browser
+back/forward navigation restore the correct sidebar destination and tab.
+`AppShell` computes the active destination and provides it through
+`SectionTabsProvider` (`shared/ui/section-tabs.tsx`); feature pages render the
+presentational `<SectionTabs />` after their heading. Pages outside a section
+render nothing, and the same children are not repeated in the sidebar.
+
+Destinations are role-filtered; a destination whose declared children are all
+out of scope is hidden, and empty sections are dropped. Menu visibility is a UI
+convenience only — server authorization remains authoritative
+(`docs/authorization.md`).
 
 ## Tests
 

@@ -405,36 +405,154 @@ Status legend: **DONE** · **CURRENT** · **NEXT** · **LATER / DISCOVERY ONLY**
   `discrepancies.md`, `batches.md`, `scope.md`, `domain-glossary.md`,
   `architecture.md`, `authorization.md`, `backend-architecture.md`,
   `frontend-architecture.md`, `AGENTS.md`.
+- **Piece-based receiving batches (ATV-051)** — a vertical slice so a real
+  PIECE delivery can be entered. `BatchReceivingMode` (`WEIGHT`/`PIECE`) on Batch;
+  `Batch.resourceId` is now nullable (PIECE batches own no batch-level resource);
+  new `BatchItem` (`resourceId`, `warehouseLocationId`, positive-integer
+  `quantity`, `ACTIVE`/`VOIDED` with void metadata) via migration
+  `piece_batches`. `POST /deliveries/:id/batches` accepts the mode (WEIGHT keeps
+  the existing flow; PIECE takes warehouse only); item add/correct/void endpoints;
+  `POST /batches/:id/confirm-piece` (no weight/discrepancy; acquisition + document
+  metadata on the batch); narrow `POST /resources/receiving-quick-create` for
+  inline product creation. Mode-aware receiving UI (`Partijos tipas` `Svorinė`/
+  `Vienetinė`, piece item table + `Iš viso: N vnt.`), Gavimai/batch-detail display.
+  Server enforces mode invariants. Docs: `piece-batches.md`, `batches.md`,
+  `scope.md`, `domain-glossary.md`, `architecture.md`, `authorization.md`,
+  `AGENTS.md`, `README.md`.
+- **PIECE resume + barcode-addressable groups (ATV-052)** — correction to the
+  unit piece slice after the first manual test. A PENDING PIECE batch is
+  **resumable**: it has its own route
+  `/receiving/[deliveryId]/batches/[batchId]`; `Gavimo turinys` rows link to it;
+  no new P01/P02 is allocated on leave/re-entry. A new code is created **only** by
+  the explicit `Nauja partija` action (removed the overloaded `Kitas išteklius`
+  from the piece/weight working screen). Each PIECE group now carries a
+  **globally-unique opaque barcode** (`BatchItem.barcode`); `Išsaugoti` /
+  `Išsaugoti ir spausdinti` + `Spausdinti` reprint (never creates another
+  group/barcode/batch) with a compact label (Gavimas/Partija/Prekė/Kiekis/
+  Sandėlis/Vieta/barcode). Group list shows `Barkodas` + `Etiketė`. Same product
+  entered again → a separate group/barcode (no silent merge). Confirmation
+  preserves barcodes and freezes groups. Docs: `piece-batches.md`.
+- **Refresh delivery summary after receiving mutations (ATV-053)** — narrow
+  state-sync fix. On the batch receiving screen the parent `Gavimo turinys`
+  summary was stale until navigation because the PIECE handlers re-fetched only
+  the batch. They now use the shared `refreshBatchAndDelivery()` (fetches
+  `/batches/:id` + `/deliveries/:id`) and update both the batch and the delivery;
+  the server stays authoritative for counts/pieces/weight/status. WEIGHT
+  add/correct/void already used the same mechanism. Active batch/product/location/
+  route/label state preserved; no full reload or `window.location`. No schema
+  change.
+- **PIECE product-by-product reconciliation (ATV-054)** — PIECE confirmation now
+  reconciles documentary quantities **per product** instead of one batch total.
+  The confirmation table is `Prekė | Faktiškai | Sutampa | Dokumentuose |
+  Skirtumas`, with `Faktiškai užregistruota` (counted wording, no kg/susverta),
+  `Faktiškai` server-derived by aggregating active groups per resource, a
+  `Sutampa` checkbox shortcut, and signed `differencePieces = actual − document`.
+  New `PieceReconciliationLine` (unique batch+resource; `actualPieces` snapshot)
+  and a discrepancy `kind` (`WEIGHT`/`PIECE`) with per-product piece quantities.
+  PIECE confirmation creates zero/one/many PIECE discrepancies and an
+  acknowledgement dialog on any mismatch; WEIGHT discrepancy + settlement
+  unchanged and PIECE settlement is not implemented (register/detail show product
+  + `vnt.`, no weight settlement form). Migration `piece_reconciliation`. Docs:
+  `piece-batches.md`, `discrepancies.md`, `domain-glossary.md`, `architecture.md`.
+- **Sidebar layout + contextual child navigation (ATV-055)** — the horizontal top
+  navigation is replaced by a persistent dark left sidebar on desktop and a
+  modal drawer below `lg`; the top bar keeps a breadcrumb and the user menu.
+  `Žinynai`, `Ataskaitos` and `Sistema` are section destinations whose existing
+  children render as route-based horizontal tabs below the page heading
+  (`SectionTabs`), so the same navigation is not duplicated. Direct links,
+  refresh, back/forward, `Escape`, focus trapping and page-level overflow were
+  verified. No route/permission/business change. Screenshots in
+  `docs/screenshots/atv-055/`; record in
+  `tasks/done/ATV-055-sidebar-layout-and-contextual-navigation.md`.
+- **Dashboard label + partner identification (ATV-056)** — `Pradžia` renamed to
+  `Suvestinė` (route `/` unchanged). Company partners now require name, an ISO
+  alpha-2 `country` selected from a complete searchable Lithuanian country list,
+  and a string registration number (`companyCode`; leading zeros preserved, no
+  Lithuania-only format). `(country, companyCode)` is unique via a database index;
+  duplicates return a Lithuanian field-level error and the same number in another
+  country is allowed. Existing data was inspected: 2 partners, both UK → `GB`,
+  both missing registration numbers (left NULL, not invented), no duplicates or
+  conflicts, linked operations preserved. Test records were cleaned up.
+  Screenshots in `docs/screenshots/atv-056/`; record in
+  `tasks/done/ATV-056-dashboard-label-and-partner-identification.md`.
+- **Receiving entry point, dates and migration repair (ATV-057)** — one
+  `Priėmimas` sidebar destination replaces `Gavimai` + `Registruoti sandėlyje`;
+  `Gautos partijos` keeps its heading and gains a primary `Naujas priėmimas`
+  button to `/receiving/new`. User-facing receipt terminology is now
+  `Priėmimas` (internal IDs/codes preserved). All dates use shared `yyyy-mm-dd`
+  formatting/input (manual, calendar, clearing, inclusive ranges; timestamps as
+  `yyyy-mm-dd HH:mm`) with no timezone day shift. Both WEIGHT and PIECE receiving
+  were completed end to end (labels, reopen, confirmation, stock), then test data
+  was removed. The `piece_batches` checksum drift was reconciled after a database
+  backup by aligning `_prisma_migrations` with the verified current file;
+  `npm run db:migrate` is in sync again. Details in
+  `docs/migration-history.md`; screenshots in `docs/screenshots/atv-057/`;
+  record in `tasks/done/ATV-057-receiving-entry-dates-and-migration-repair.md`.
+- **Dashboard stock summary cards (ATV-058)** — the dashboard's large action panel
+  is replaced by two read-only cards (`Atsargos kilogramais`, `Atsargos
+  vienetais`) showing confirmed-stock quantities and remaining acquisition value,
+  with a compact `Naujas priėmimas` action beside the heading. `GET /stock/summary`
+  aggregates active confirmed bags (`netWeight`) and PIECE items, adds each
+  batch's `acquisitionAmount` once (no per-bag/per-line duplication), excludes
+  unconfirmed/voided stock, and marks incomplete valuation instead of treating
+  missing cost as zero. Loading/error/empty states are explicit. Screenshots in
+  `docs/screenshots/atv-058/`; rules in `docs/stock-summary.md`; record in
+  `tasks/done/ATV-058-dashboard-stock-summary-cards.md`.
+- **Edit PENDING receiving batches (ATV-059)** — the batch detail page offers
+  `Redaguoti partiją` for pending batches and opens the existing registration
+  interface prefilled with saved data. Receipt supplier/date (shared scope),
+  batch resource/warehouse, bag/tare/gross/location and PIECE
+  resource/quantity/location can be corrected; units can be added or voided.
+  Save leaves the batch pending and returns to the same detail; confirmed sibling
+  batches block shared receipt edits. All content/registration mutations lock the
+  batch and reject post-confirmation edits with `409 BATCH_CONFIRMED`; no new
+  receipt/batch or barcode is created. List filters persist across the round trip.
+  Screenshots in `docs/screenshots/atv-059/`; record in
+  `tasks/done/ATV-059-edit-pending-receiving-batches.md`.
+- **Global notifications, scroll-to-top, Nustatymai and company details (ATV-060)** —
+  the top-right toaster is the single convention for **all** user-action feedback:
+  client validation, save/create/update/void/confirm results and API/network
+  failures. Inline action banners were migrated away; invalid fields keep
+  borders/`aria-invalid` and the first one is focused, entered values survive, and
+  multi-field failures produce one concise summary. Colours stay yellow
+  info/green success/red error. The scroll-to-top control is now a white circle
+  with a black border and black arrow only (`Į viršų` remains label/tooltip).
+  `Sistema` was renamed to **Nustatymai** with route-based children `Įmonė`
+  (`/settings/company`) and `Naudotojai` (`/admin/users`). Company details are a
+  shared singleton (`company_settings`) with ADMIN-only save, shared country
+  selector/validation and persistence across refresh. Voided label actions and
+  tare labels from the earlier ATV-060 slice remain. Screenshots in
+  `docs/screenshots/atv-060/`; record in
+  `tasks/done/ATV-060-notifications-scroll-and-receiving-controls.md`.
+- **Repository audit and cleanup (ATV-061)** — captured the uncommitted
+  ATV-051…060 baseline, replayed all 22 migrations into a disposable database,
+  confirmed 22/22 checksums and no schema drift, and recorded exact table counts.
+  Removed proven dead API/web helpers left by earlier refactors (duplicate batch
+  guards/mappers, obsolete receipt entity, password-reset dead state, superseded
+  form/state/style helpers) and fixed confirmed-batch UI protection so package/
+  item forms and correction/void actions are not offered after confirmation.
+  Corrected stale README/architecture/development/testing/backend/scope/migration
+  docs. Report: `docs/audits/ATV-061-audit-report.md`; record:
+  `tasks/done/ATV-061-repository-audit-and-cleanup.md`.
 
 ## CURRENT
 
-- **Uncommitted work:** receiving discrepancy register + settlement ledger
-  (ATV-050) on top of receiving queue + delivery routes + button hierarchy +
-  PackingForm removal (ATV-049) on top of top-navigation IA cleanup (ATV-048) on
-  top of compact delivery-local batch codes + receiving UI cleanup (ATV-047) on
-  top of
-  non-blocking discrepancy confirmation + register (ATV-046)
-  within receiving `Pakuotė` terminology + tare persistence
-  (ATV-045) within bag tare snapshot (ATV-044) within packaging / tare master
-  data (ATV-043) on top of the
-  delivery/multi-resource receiving slice (ATV-042) on
-  top of the previously uncommitted batch ↔ GoodsReceipt reconciliation (ATV-030),
-  warehouse-worker receiving UI (ATV-031), handling-unit quantities + required
-  location + labels (ATV-032), save→label surface (ATV-033), batch units list
-  (ATV-034), split save action + icons (ATV-035), pointer cursor convention
-  (ATV-036), ADMIN reconciliation boundary cleanup (ATV-037), `Gavimai` admin
-  queue (ATV-038), row interaction/status colours (ATV-039), detail
-  links/confirmation wording (ATV-040) and filter reset + physical unit
-  correction/void (ATV-041) — implemented and awaiting review/commit.
-- The partner/resource/receipt relationship beyond the recorded fields is not
-  designed. No further business scope is confirmed; stock balances, warehouse
-  movements, purchasing/accounting, production, orders and sales remain
-  unconfirmed.
+- **Uncommitted work awaiting human review/commit:** repository audit and cleanup
+  (ATV-061) on top of global notifications, scroll-to-top, company details and
+  `Nustatymai` navigation (ATV-060), editing PENDING receiving batches (ATV-059),
+  dashboard stock summary cards (ATV-058), receiving entry point + date
+  standardisation + migration repair (ATV-057), dashboard label + partner
+  identification (ATV-056), sidebar layout + contextual child navigation
+  (ATV-055), PIECE product-by-product reconciliation (ATV-054), delivery summary
+  refresh (ATV-053), PIECE resume + barcode-addressable groups (ATV-052) and
+  piece-based receiving batches (ATV-051), plus the earlier uncommitted receiving/
+  discrepancy work. No functional scope beyond confirmed requirements was added;
+  stock balances, movements, purchasing/accounting, production, orders and sales
+  remain unconfirmed.
 
 ## NEXT (only with a confirmed requirement)
 
-1. Verify, commit and push the ATV-020…ATV-026 (O-058…O-064) package — tracked
-   as workspace backlog **O-068**.
+1. Human review, then commit and push the accumulated **ATV-051…061** package.
 2. Any new functional scope — **none confirmed**. Requires a confirmed
    requirement and a new task; do not infer from `/sandelys`.
 
@@ -443,7 +561,8 @@ Status legend: **DONE** · **CURRENT** · **NEXT** · **LATER / DISCOVERY ONLY**
 The items below come from legacy discovery. They are **unconfirmed** and must
 not be promoted into current/next work:
 
-- inventory / stock lots, locations, catalog, units;
+- stock balances and warehouse movements (the dashboard summary is only a
+  read-only projection), inventory lots, catalog, units;
 - orders, order lines, dispatch/sales;
 - discrepancies/errors, barcode workflows, reporting;
 - Sandėlys integration/adapter, data migration, synchronisation;

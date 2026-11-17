@@ -12,8 +12,8 @@ not arbitrary coverage numbers.
 - A missing `TEST_DATABASE_URL` is a **hard error** (no fallback to the
   development database). A safety guard refuses destructive setup unless the
   target database name is exactly `aitvaras_test`.
-- Setup: `pnpm db:test:create` then `pnpm db:test:migrate` (created automatically
-  on a fresh Docker volume). `pnpm db:test:reset` resets the test database only.
+- Setup: `npm run db:test:create` then `npm run db:test:migrate` (created automatically
+  on a fresh Docker volume). `npm run db:test:reset` resets the test database only.
 - Tests may freely create, mutate and delete their own records in the test DB.
   They must **never** preserve development records as a workaround for missing
   isolation.
@@ -21,8 +21,9 @@ not arbitrary coverage numbers.
 ## Runner
 
 - **Vitest** is the default test runner.
-- Run everything with `pnpm test` (part of `pnpm verify`).
-- Run a single package with e.g. `pnpm --filter @aitvaras/api test`.
+- Run everything with `npm run test` (part of `npm run verify`).
+- Run a single package by running `npm test` from that package directory (for
+  example `cd apps/api`).
 - The API suite has a `globalSetup` that applies committed Prisma migrations
   when PostgreSQL is reachable.
 
@@ -33,8 +34,9 @@ not arbitrary coverage numbers.
 - Pure logic: domain rules, calculations, validation schemas, mappers, guards.
 - Fast, no I/O, no framework bootstrapping.
 - Location: next to the code as `*.test.ts`.
-- Examples: `apps/api/src/auth/password.test.ts`,
-  `src/auth/auth.service.test.ts`, `src/access/{jwt-auth,roles}.guard.test.ts`,
+- Examples: `apps/api/src/modules/auth/password.test.ts`,
+  `modules/auth/auth.service.test.ts`,
+  `common/guards/{jwt-auth,roles}.guard.test.ts`,
   `packages/contracts/src/health.test.ts`.
 
 ### Contract tests
@@ -58,7 +60,7 @@ not arbitrary coverage numbers.
   via cookie (and without/invalid/expired), logout cookie clearing, role
   protection, duplicate username, no hash exposure, and login lockout/recovery.
 - **They skip themselves (with a warning) when PostgreSQL is unreachable**, so
-  `pnpm verify` still passes without Docker. Run `pnpm infra:up` first to
+  `npm run verify` still passes without Docker. Run `npm run infra:up` first to
   exercise them.
 
 ### End-to-end / UI tests
