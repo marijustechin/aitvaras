@@ -1,28 +1,27 @@
 # Development
 
 How to set up and work in the Aitvaras workspace. Run all commands from the
-`/aitvaras` directory. Script commands follow the project's **npm convention**
-(`npm run <script>`); dependency installation uses the pinned pnpm workspace
-manager.
+`/aitvaras` directory. The project uses **npm workspaces** exclusively; pnpm and
+yarn are not required.
 
 ## Prerequisites
 
 - **Node.js >= 22.18** (Prisma ORM 7 requires it; the dev environment uses
   Node 24).
-- **pnpm** (the workspace pins `pnpm@11.26.0` via `packageManager`).
+- **npm >= 10** (the workspace pins `npm@12.2.2` via `packageManager`).
 - **Docker** with the Compose plugin, for local PostgreSQL.
-- On Windows, if PowerShell blocks the pnpm shim, use `pnpm.cmd` (or adjust the
+- On Windows, if PowerShell blocks the npm shim, use `npm.cmd` (or adjust the
   execution policy).
 
 ## Install
 
 ```bash
-pnpm install
+npm ci
 ```
 
-`pnpm-workspace.yaml` allows install scripts only for packages that need them
-(Prisma engines, esbuild, Tailwind's native module). Everything else is
-script-free by default.
+Or, when changing dependencies, `npm install`. Root `package.json` declares the
+workspaces and the `allowScripts` approvals required by Prisma/esbuild install
+scripts.
 
 ## Environment
 
@@ -162,7 +161,7 @@ variables. See [authentication.md](authentication.md) and
 ## Typical local startup
 
 ```bash
-pnpm install
+npm install
 npm run infra:up        # or: docker compose up -d
 npm run db:migrate
 npm run db:test:create  # ensure the isolated test database exists
@@ -225,6 +224,15 @@ npm run build             # build everything
   which the database package compiles; `migrate dev` no longer generates the
   client automatically, so `prisma generate` is run explicitly in the build
   scripts. The database URL is configured in `packages/database/prisma.config.ts`.
+- **npm workspaces** are the only supported workspace setup. The root
+  `package.json` declares `workspaces`, `packageManager: npm@12.2.2` and the
+  `allowScripts` approvals for the Prisma/esbuild install scripts. `npm ci` uses
+  the single root `package-lock.json`; there is no pnpm/yarn lockfile.
+- **TypeScript 6** is pinned workspace-wide because `@nestjs/schematics@12`
+  requires `typescript >= 6`. The shared base tsconfig keeps
+  `moduleResolution: node` with `ignoreDeprecations: "6.0"`; migrating to the
+  Node16/bundler resolution mode is separate follow-up work (TS 7 will require
+  it).
 - **Adding required person-name columns** follows a two-step production-safe
   pattern: a nullable transitional migration, then a `SET NOT NULL` migration.
   Existing rows must be backfilled with real names between the two. The local

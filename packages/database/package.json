@@ -29,8 +29,8 @@
     "pg": "8.23.0"
   },
   "devDependencies": {
-    "@aitvaras/config": "workspace:*",
+    "@aitvaras/config": "*",
     "prisma": "7.10.0",
-    "typescript": "5.9.3"
+    "typescript": "6.0.2"
   }
 }

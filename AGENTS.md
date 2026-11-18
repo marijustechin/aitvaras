@@ -73,10 +73,8 @@ concise and operational; put durable knowledge in `docs/`.
 
 ## Stack constraints
 
-- TypeScript, Node.js >= 22, **pnpm workspace** (pinned via `packageManager` and
-  `pnpm-lock.yaml`). The project's **command convention is npm**: user-facing
-  scripts are documented and run as `npm run <script>`. Do not add a second
-  lockfile or mix yarn.
+- TypeScript, Node.js >= 22, **npm workspaces** (pinned via `packageManager` and
+  `package-lock.json`). Use `npm`, not pnpm/yarn.
 - Web: Next.js App Router + Tailwind CSS, shadcn/ui-compatible structure.
 - API: NestJS with the Fastify adapter.
 - Database: PostgreSQL via Prisma. Aitvaras owns its schema.

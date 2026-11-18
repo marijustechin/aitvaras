@@ -26,7 +26,7 @@ export default async function globalSetup(): Promise<void> {
     return;
   }
 
-  execSync("pnpm --filter @aitvaras/database exec prisma migrate deploy", {
+  execSync("npm run db:test:migrate", {
     cwd: join(process.cwd(), "../.."),
     stdio: "inherit",
     env: { ...process.env, DATABASE_URL: url },

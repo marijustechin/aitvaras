@@ -47,9 +47,9 @@ confirmed, implemented functionality.
 
 | Layer | Choice |
 |-------|--------|
-| Language | TypeScript 5.9 |
+| Language | TypeScript 6.0 |
 | Runtime | Node.js >= 22 |
-| Package manager | pnpm workspace (pinned; scripts are run with the npm convention `npm run <script>`) |
+| Package manager | npm workspaces (`package-lock.json`) |
 | Web | Next.js (App Router), React, Tailwind CSS, shadcn/ui-compatible |
 | API | NestJS on the Fastify adapter |
 | Database | PostgreSQL + Prisma (**Aitvaras-owned schema**) |
@@ -82,12 +82,11 @@ aitvaras/
 
 ## Local commands
 
-From this directory (`/aitvaras`). The project's **command convention is npm**:
-run scripts as `npm run <script>`. Dependency installation uses the pinned pnpm
-workspace manager (`pnpm install`); do not add a second lockfile or mix yarn.
+From this directory (`/aitvaras`). The project uses **npm workspaces** and the
+npm command convention; do not add a second lockfile or mix yarn.
 
 ```bash
-pnpm install               # install the workspace (pinned pnpm manager)
+npm install                # install the workspace
 npm run infra:up           # start local PostgreSQL (Docker)
 cp .env.example .env        # configure environment (Windows: copy)
 npm run db:generate        # generate the Prisma client

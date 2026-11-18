@@ -2,35 +2,45 @@
   "name": "aitvaras",
   "version": "0.1.0",
   "private": true,
-  "description": "Aitvaras — the future Alfasis warehouse application (pnpm workspace).",
-  "packageManager": "pnpm@11.26.0",
+  "description": "Aitvaras — the future Alfasis warehouse application (npm workspace).",
+  "packageManager": "npm@12.2.2",
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=22.18.0",
+    "npm": ">=10"
   },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "build:libs": "pnpm --filter @aitvaras/contracts --filter @aitvaras/database build",
-    "build": "pnpm -r --if-present build",
+    "build:libs": "npm run build --workspace @aitvaras/contracts && npm run build --workspace @aitvaras/database",
+    "build": "npm run build:libs && npm run build --workspace @aitvaras/api && npm run build --workspace @aitvaras/web",
     "lint": "eslint .",
-    "typecheck": "pnpm build:libs && pnpm -r --if-present typecheck",
-    "test": "pnpm -r --if-present test",
-    "verify": "pnpm lint && pnpm db:validate && pnpm typecheck && pnpm test && pnpm build",
-    "dev:api": "pnpm --filter @aitvaras/api dev",
-    "dev:web": "pnpm --filter @aitvaras/web dev",
-    "db:validate": "pnpm --filter @aitvaras/database db:validate",
-    "db:generate": "pnpm --filter @aitvaras/database db:generate",
-    "db:migrate": "pnpm --filter @aitvaras/database db:migrate",
+    "typecheck": "npm run build:libs && npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "verify": "npm run lint && npm run db:validate && npm run typecheck && npm run test && npm run build",
+    "dev:api": "npm run dev --workspace @aitvaras/api",
+    "dev:web": "npm run dev --workspace @aitvaras/web",
+    "db:validate": "npm run db:validate --workspace @aitvaras/database",
+    "db:generate": "npm run db:generate --workspace @aitvaras/database",
+    "db:migrate": "npm run db:migrate --workspace @aitvaras/database",
     "db:test:create": "node packages/database/scripts/create-test-db.mjs",
     "db:test:migrate": "node packages/database/scripts/test-db-command.mjs deploy",
     "db:test:reset": "node packages/database/scripts/test-db-command.mjs reset",
-    "bootstrap:admin": "pnpm --filter @aitvaras/api bootstrap:admin",
-    "seed:dev": "pnpm --filter @aitvaras/api seed:dev",
+    "bootstrap:admin": "npm run bootstrap:admin --workspace @aitvaras/api",
+    "seed:dev": "npm run seed:dev --workspace @aitvaras/api",
     "infra:up": "docker compose up -d",
     "infra:down": "docker compose down"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "eslint": "10.10.0",
-    "typescript": "5.9.3",
+    "typescript": "6.0.2",
     "typescript-eslint": "8.70.0"
+  },
+  "allowScripts": {
+    "prisma@7.10.0": true,
+    "@prisma/engines@7.10.0": true,
+    "esbuild@0.28.2": true
   }
 }

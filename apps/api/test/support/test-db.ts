@@ -49,7 +49,7 @@ export function resolveTestDatabaseUrl(): string {
     throw new Error(
       "TEST_DATABASE_URL is not set. Integration tests must use a dedicated " +
         'test database (e.g. ".../aitvaras_test"), never the development ' +
-        "database. Create it with `pnpm db:test:create` and set " +
+        "database. Create it with `npm run db:test:create` and set " +
         "TEST_DATABASE_URL (see .env.example).",
     );
   }

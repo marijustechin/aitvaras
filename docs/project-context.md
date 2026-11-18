@@ -64,9 +64,9 @@ questions are kept separate.
 
 ### This bootstrap
 
-- `/aitvaras` is now a pnpm workspace: TypeScript, Node >= 22, Next.js App
-  Router web, NestJS/Fastify API, PostgreSQL + Prisma (empty schema), Zod
-  contracts, Vitest, and a `npm run verify` command.
+- `/aitvaras` is now an npm workspace: TypeScript, Node >= 22, Next.js App
+  Router web, NestJS/Fastify API, PostgreSQL + Prisma, Zod contracts, Vitest,
+  and a `npm run verify` command.
 - The API exposes `GET /health` returning `{ "status": "ok",
   "service": "aitvaras-api" }`.
 - Local PostgreSQL is provided via `docker-compose.yml` (local development
@@ -80,7 +80,7 @@ questions are kept separate.
   the legacy system (ADR-001 states the intent, but sequencing is open).
 - PostgreSQL + Prisma is an acceptable Aitvaras-owned persistence choice; it is
   a documented baseline decision, not a business requirement.
-- Node.js >= 22, pnpm and Next.js/NestJS are acceptable operational choices for
+- Node.js >= 22, npm and Next.js/NestJS are acceptable operational choices for
   the team operating this system.
 
 ## Unresolved questions

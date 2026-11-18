@@ -1,6 +1,6 @@
 // Create the dedicated test database on the existing local PostgreSQL server.
 //
-// Usage: `pnpm db:test:create` (idempotent).
+// Usage: `npm run db:test:create` (idempotent).
 // Safe by design: it never drops or alters the development database; it only
 // ensures a separately named test database exists.
 import { resolve } from "node:path";

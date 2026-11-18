@@ -1,6 +1,6 @@
 // Run Prisma migrate commands against the dedicated TEST database only.
 //
-// Usage: `pnpm db:test:migrate` (deploy) or `pnpm db:test:reset` (reset --force).
+// Usage: `npm run db:test:migrate` (deploy) or `npm run db:test:reset` (reset --force).
 // Refuses to run unless TEST_DATABASE_URL targets the expected test database.
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
@@ -52,7 +52,7 @@ const args =
   action === "reset" ? ["migrate", "reset", "--force"] : ["migrate", "deploy"];
 
 console.log(`[db:test] prisma ${args.join(" ")} -> ${TEST_DB}`);
-const result = spawnSync("pnpm", ["exec", "prisma", ...args], {
+const result = spawnSync("npm", ["exec", "--", "prisma", ...args], {
   cwd: packageDir,
   stdio: "inherit",
   shell: true,
