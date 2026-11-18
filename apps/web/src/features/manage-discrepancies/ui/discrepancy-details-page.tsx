@@ -364,24 +364,32 @@ export function DiscrepancyDetailsPage() {
                 />
               </label>
               {draft.type === "WEIGHT" ? (
-                <label className={`${labelClass} sm:col-span-4`}>
-                  <span className="font-medium">Susijusi partija</span>
-                  <select
-                    value={draft.sourceBatchId}
-                    onChange={(event) =>
-                      update({ sourceBatchId: event.target.value })
-                    }
-                    className={inputClass}
-                  >
-                    <option value="">— Nepasirinkta —</option>
-                    {sourceOptions.map((batch) => (
-                      <option key={batch.id} value={batch.id}>
-                        {batch.deliveryCode} / {batch.code} ·{" "}
-                        {batch.resourceName}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <>
+                  <label className={`${labelClass} sm:col-span-4`}>
+                    <span className="font-medium">
+                      Papildomai gautų prekių partija
+                    </span>
+                    <select
+                      value={draft.sourceBatchId}
+                      onChange={(event) =>
+                        update({ sourceBatchId: event.target.value })
+                      }
+                      className={inputClass}
+                    >
+                      <option value="">— Nepasirinkta —</option>
+                      {sourceOptions.map((batch) => (
+                        <option key={batch.id} value={batch.id}>
+                          {batch.deliveryCode} / {batch.code} ·{" "}
+                          {batch.resourceName}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="self-end text-xs text-muted-foreground sm:col-span-8">
+                    Pasirinkite partiją, su kuria tiekėjas pristatė trūkstamas
+                    prekes.
+                  </p>
+                </>
               ) : null}
               {draft.type === "MONEY" ? (
                 <>
@@ -489,7 +497,9 @@ export function DiscrepancyDetailsPage() {
                   <th className="whitespace-nowrap px-4 py-2 font-medium">
                     Suma
                   </th>
-                  <th className="px-4 py-2 font-medium">Susijusi partija</th>
+                  <th className="px-4 py-2 font-medium">
+                    Papildomai gautų prekių partija
+                  </th>
                   <th className="px-4 py-2 font-medium">Nuoroda</th>
                   <th className="px-4 py-2 font-medium">Pastaba</th>
                   <th className="px-4 py-2 font-medium">Registravo</th>

@@ -64,10 +64,14 @@ export class ReceivingDiscrepanciesService {
   }
 
   /**
-   * Record a settlement. Validated and applied transactionally: the discrepancy
-   * row is locked, the already-settled weight is re-derived server-side, and the
-   * new entry must not exceed the remaining magnitude (concurrent requests cannot
-   * over-settle). The signed difference and the physical inventory are untouched.
+   * Record a settlement against the opened discrepancy. The original batch is
+   * always resolved from that discrepancy; `sourceBatchId` is only an optional
+   * link to a **separate later confirmed batch of replacement goods**. It never
+   * creates or duplicates stock. Validated and applied transactionally: the
+   * discrepancy row is locked, the already-settled weight is re-derived
+   * server-side, and the new entry must not exceed the remaining magnitude
+   * (concurrent requests cannot over-settle). The signed difference and the
+   * physical inventory are untouched.
    */
   async createSettlement(
     discrepancyId: string,
@@ -95,6 +99,12 @@ export class ReceivingDiscrepanciesService {
       currency = input.currency;
     } else if (input.moneyAmount || input.currency) {
       throw invalid("Svorio padengimas neturi sumos ar valiutos.");
+    }
+    if (input.type === "MONEY" && input.sourceBatchId) {
+      throw invalid(
+        "Piniginis padengimas neturi papildomai gautų prekių partijos.",
+        "SOURCE_BATCH_NOT_ALLOWED_FOR_MONEY",
+      );
     }
 
     const created = await this.prisma.$transaction(async (tx) => {
@@ -138,6 +148,12 @@ export class ReceivingDiscrepanciesService {
       }
 
       if (input.sourceBatchId) {
+        if (input.sourceBatchId === discrepancy.batchId) {
+          throw invalid(
+            "Papildomai gautų prekių partija turi būti kita partija.",
+            "SOURCE_BATCH_SAME_AS_ORIGINAL",
+          );
+        }
         const source = await tx.batch.findUnique({
           where: { id: input.sourceBatchId },
           select: {
@@ -146,17 +162,20 @@ export class ReceivingDiscrepanciesService {
           },
         });
         if (!source) {
-          throw invalid("Susijusi partija nerasta.", "SOURCE_BATCH_NOT_FOUND");
+          throw invalid(
+            "Papildomai gautų prekių partija nerasta.",
+            "SOURCE_BATCH_NOT_FOUND",
+          );
         }
         if (source.status !== "CONFIRMED") {
           throw invalid(
-            "Susijusi partija turi būti patvirtinta.",
+            "Papildomai gautų prekių partija turi būti patvirtinta.",
             "SOURCE_BATCH_NOT_CONFIRMED",
           );
         }
         if (source.delivery.supplierId !== discrepancy.supplierId) {
           throw invalid(
-            "Susijusi partija priklauso kitam tiekėjui.",
+            "Papildomai gautų prekių partija priklauso kitam tiekėjui.",
             "SOURCE_BATCH_SUPPLIER_MISMATCH",
           );
         }
@@ -169,7 +188,10 @@ export class ReceivingDiscrepanciesService {
           coveredWeightKg,
           moneyAmount,
           currency,
-          sourceBatchId: input.sourceBatchId ?? null,
+          // A replacement-goods link is meaningful only for physical quantity
+          // settlement; the original batch is never substituted here.
+          sourceBatchId:
+            input.type === "WEIGHT" ? (input.sourceBatchId ?? null) : null,
           reference: input.reference ?? null,
           note: input.note ?? null,
           createdById: actorId,

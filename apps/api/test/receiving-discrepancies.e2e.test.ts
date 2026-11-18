@@ -373,10 +373,27 @@ describe.skipIf(!dbAvailable)("Receiving discrepancies (integration)", () => {
     expect(body.coveredWeightKg).toBe("20");
     expect(body.moneyAmount).toBe("45");
     expect(body.currency).toBe("EUR");
+    expect(body.sourceBatchId).toBeNull();
 
     const detail = await getDetail(id);
     expect(detail.status).toBe("SETTLED");
     expect(detail.remainingWeight).toBe("0");
+  });
+
+  it("rejects a replacement-goods batch on a money settlement", async () => {
+    const id = await seedDiscrepancy(supplierId, "980.000", "1000.000");
+    const replacement = await seedBatch(supplierId, "CONFIRMED");
+    const res = await postSettlement(id, {
+      type: "MONEY",
+      coveredWeightKg: "5",
+      moneyAmount: "10",
+      currency: "EUR",
+      sourceBatchId: replacement,
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.body as { code: string }).code).toBe(
+      "SOURCE_BATCH_NOT_ALLOWED_FOR_MONEY",
+    );
   });
 
   it("rejects money fields on a weight settlement", async () => {
@@ -391,9 +408,13 @@ describe.skipIf(!dbAvailable)("Receiving discrepancies (integration)", () => {
 
   it("validates an optional source batch (confirmed + same supplier)", async () => {
     const id = await seedDiscrepancy(supplierId, "980.000", "1000.000");
+    const original = await getDetail(id);
     const sameSupplier = await seedBatch(supplierId, "CONFIRMED");
     const otherSupplier = await seedBatch(otherSupplierId, "CONFIRMED");
     const pending = await seedBatch(supplierId, "PENDING");
+    const bagsBefore = await prisma.bag.count({
+      where: { batchId: { in: [original.batchId, sameSupplier] } },
+    });
 
     const linked = await postSettlement(id, {
       type: "WEIGHT",
@@ -402,6 +423,24 @@ describe.skipIf(!dbAvailable)("Receiving discrepancies (integration)", () => {
     });
     expect(linked.statusCode).toBe(201);
     expect((linked.body as DiscrepancySettlement).sourceBatchCode).toBeTruthy();
+
+    const withHistory = await getDetail(id);
+    expect(withHistory.settlements[0]?.sourceBatchId).toBe(sameSupplier);
+    expect(
+      await prisma.bag.count({
+        where: { batchId: { in: [original.batchId, sameSupplier] } },
+      }),
+    ).toBe(bagsBefore);
+
+    const sameAsOriginal = await postSettlement(id, {
+      type: "WEIGHT",
+      coveredWeightKg: "5",
+      sourceBatchId: original.batchId,
+    });
+    expect(sameAsOriginal.statusCode).toBe(400);
+    expect((sameAsOriginal.body as { code: string }).code).toBe(
+      "SOURCE_BATCH_SAME_AS_ORIGINAL",
+    );
 
     const badPending = await postSettlement(id, {
       type: "WEIGHT",

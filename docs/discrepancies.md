@@ -49,7 +49,7 @@ covered by pieces, money, replacement products, etc.; that is unconfirmed).
 | `type` | `WEIGHT` or `MONEY` |
 | `coveredWeightKg` | amount of the **original magnitude** this entry resolves; **always positive**, in kg, **never signed** |
 | `moneyAmount` / `currency` | for `MONEY` only |
-| `sourceBatchId` | optional `WEIGHT` link to the later confirmed batch that physically covers it |
+| `sourceBatchId` | optional `WEIGHT` link to a **separate, later confirmed batch of replacement goods**; never the original discrepancy batch |
 | `reference` / `note` | optional free text |
 | `createdBy` / `createdAt` | who/when |
 
@@ -62,9 +62,15 @@ covered and (for `MONEY`) how much money was received/credited.
 - requires `coveredWeightKg > 0`;
 - optional `sourceBatchId`, `reference`, `note`.
 
-If `sourceBatchId` is supplied it must exist, be `CONFIRMED`, and belong to the
-**same supplier** as the discrepancy (error codes `SOURCE_BATCH_NOT_FOUND`,
-`SOURCE_BATCH_NOT_CONFIRMED`, `SOURCE_BATCH_SUPPLIER_MISMATCH`).
+If `sourceBatchId` is supplied it must exist, be `CONFIRMED`, belong to the
+**same supplier** as the discrepancy, and be a **different batch** from the
+original discrepancy batch (error codes `SOURCE_BATCH_NOT_FOUND`,
+`SOURCE_BATCH_NOT_CONFIRMED`, `SOURCE_BATCH_SUPPLIER_MISMATCH`,
+`SOURCE_BATCH_SAME_AS_ORIGINAL`). This field means **replacement goods supplied
+by the supplier**, not the original receiving batch; the original batch is
+resolved from the discrepancy itself and is never required from the user.
+`MONEY` settlements reject `sourceBatchId`
+(`SOURCE_BATCH_NOT_ALLOWED_FOR_MONEY`).
 
 A `WEIGHT` settlement **does not add stock**. The additional physical stock
 already belongs to the later receiving batch; the settlement only records that
@@ -149,8 +155,11 @@ authorization remains authoritative.
   (`Pradinis neatitikimas` / `Padengta` / `Likutis`) and `Padengimų istorija`.
 - While not `SETTLED`, the detail offers the `Registruoti padengimą` form
   (`Būdas` `Svoriu`/`Pinigais`, `Padengiamas svoris, kg`, optional
-  `Susijusi partija` for `WEIGHT`, `Suma` + `Valiuta` for `MONEY`, optional
-  `Nuoroda`/`Pastaba`). When `SETTLED` the form is hidden and `Padengtas` is shown.
+  `Papildomai gautų prekių partija` only for `Svoriu`, `Suma` + `Valiuta` for
+  `Pinigais`, optional `Nuoroda`/`Pastaba`). The replacement-goods selector is
+  explained as “Pasirinkite partiją, su kuria tiekėjas pristatė trūkstamas
+  prekes.”; it is never the original batch and is not shown for money settlement.
+  When `SETTLED` the form is hidden and `Padengtas` is shown.
 
 ## Out of scope / not implemented
 

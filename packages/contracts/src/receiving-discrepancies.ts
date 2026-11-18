@@ -124,9 +124,10 @@ export type ReceivingDiscrepancy = z.infer<typeof ReceivingDiscrepancySchema>;
 /**
  * An append-only settlement entry. `coveredWeightKg` is always positive and in
  * kg: the amount of the original discrepancy magnitude this entry resolves. It is
- * **not** signed and is never derived from money. `WEIGHT` may link the later
- * confirmed batch that physically covers it; `MONEY` records a money/credit
- * amount (`moneyAmount` + `currency`) with no kg conversion.
+ * **not** signed and is never derived from money. `WEIGHT` may link a **separate,
+ * later confirmed batch of replacement goods**; `MONEY` records a money/credit
+ * amount (`moneyAmount` + `currency`) with no kg conversion and no replacement-
+ * goods link.
  */
 export const DiscrepancySettlementSchema = z.object({
   id: z.uuid(),
@@ -206,8 +207,10 @@ export type ReceivingDiscrepancyDetail = z.infer<
  * Request to record a settlement. `coveredWeightKg` is the amount of the original
  * discrepancy magnitude resolved (positive, kg). `MONEY` additionally requires
  * `moneyAmount > 0` and a `currency`; `WEIGHT` must not carry money fields. An
- * optional `sourceBatchId` (WEIGHT) must be a confirmed batch of the same
- * supplier. The server validates the remaining balance transactionally.
+ * optional `sourceBatchId` is only valid for `WEIGHT` and identifies a separate,
+ * later confirmed batch of replacement goods from the same supplier — never the
+ * original discrepancy batch. The server validates the remaining balance
+ * transactionally.
  */
 export const CreateDiscrepancySettlementRequestSchema = z
   .object({
