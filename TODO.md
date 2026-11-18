@@ -534,18 +534,48 @@ Status legend: **DONE** · **CURRENT** · **NEXT** · **LATER / DISCOVERY ONLY**
   Corrected stale README/architecture/development/testing/backend/scope/migration
   docs. Report: `docs/audits/ATV-061-audit-report.md`; record:
   `tasks/done/ATV-061-repository-audit-and-cleanup.md`.
+- **Clarify discrepancy settlement source batch (ATV-062)** — confirmed that
+  `sourceBatchId` means a separate later batch of replacement goods, not the
+  original discrepancy batch. The UI now labels it `Papildomai gautų prekių
+  partija`, explains it, shows it only for physical/weight settlement, and the
+  backend rejects the original batch and any money-settlement link. Partial
+  settlement, balance and over-settlement protection are unchanged.
+  Record: `tasks/done/ATV-062-clarify-discrepancy-settlement-source-batch.md`.
+- **Migrate fully to npm workspaces (ATV-063)** — root npm workspaces,
+  `packageManager: npm@12.2.2`, one `package-lock.json`, npm scripts,
+  workspace-local dependencies, `allowScripts` approvals, npm-based test-db
+  helper, and active docs updated. TypeScript upgraded 5.9.3 → 6.0.2 for
+  `@nestjs/schematics@12`; `moduleResolution: node` retains a documented
+  `ignoreDeprecations: "6.0"` follow-up. Record:
+  `tasks/done/ATV-063-migrate-to-npm-workspaces.md`.
+- **Correct logo variants and alignment (ATV-064)** — `BrandMark` explicitly
+  selects the dark horizontal artwork on light surfaces and the light artwork on
+  dark surfaces; login logo centred above `Prisijungti`, sidebar/drawer logo
+  centred with the white wrapper/border/shadow removed. Screenshots in
+  `docs/screenshots/atv-064/`; record:
+  `tasks/done/ATV-064-logo-variants-and-alignment.md`.
+- **Remove fake receiving data for real receiving (ATV-065)** — backed up the
+  `aitvaras` development database outside the repository, removed all
+  localdev-created fake deliveries/batches/packages/items/corrections/receipts/
+  discrepancies/settlements/piece lines in one asserting transaction, and
+  preserved partners, resources, categories, packaging, warehouses, locations,
+  company settings, users/roles, schema and migrations. Dashboard now shows zero
+  stock and the discrepancy register is empty. Record:
+  `tasks/done/ATV-065-remove-fake-receiving-data.md`.
 
 ## CURRENT
 
-- **No uncommitted work.** The ATV-051…061 package (receiving, stock summary,
-  navigation, notifications, company settings and the repository audit) is
-  committed and pushed on `main`. No functional scope beyond confirmed
-  requirements was added; stock balances, movements, purchasing/accounting,
-  production, orders and sales remain unconfirmed.
+- **Four uncommitted changes awaiting human review:** discrepancy settlement
+  clarification (ATV-062), full npm workspace migration (ATV-063), logo
+  variant/alignment correction (ATV-064) and fake-receiving cleanup/readiness
+  preparation (ATV-065). No functional scope beyond confirmed requirements was
+  added; stock balances, movements, purchasing/accounting, production, orders
+  and sales remain unconfirmed.
 
 ## NEXT (only with a confirmed requirement)
 
-1. Any new functional scope — **none confirmed**. Requires a confirmed
+1. Human review and commit of the four changes above.
+2. Any new functional scope — **none confirmed**. Requires a confirmed
    requirement and a new task; do not infer from `/sandelys`.
 
 ## LATER / DISCOVERY ONLY (not approved, do not build)
