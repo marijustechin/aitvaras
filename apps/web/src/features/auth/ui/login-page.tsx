@@ -40,7 +40,9 @@ export function LoginPage() {
   return (
     <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-6 px-6 py-12">
       <header className="space-y-3">
-        <BrandMark />
+        <div className="flex justify-center">
+          <BrandMark variant="dark" />
+        </div>
         <h1 className="text-2xl font-semibold tracking-tight">Prisijungti</h1>
       </header>
 

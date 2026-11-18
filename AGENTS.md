@@ -257,8 +257,9 @@ preserve option IDs/calculations.
 
 Use the approved Aitvaras assets from `apps/web/public/brand`. **Do not generate
 substitute logos or replace the brand assets without an explicit requirement.**
-Prefer the symbol for compact contexts, the horizontal logo for wide contexts,
-and the stacked logo only where vertical space makes it appropriate. Render logos
+Select the artwork by the surrounding background: `aitvaras-logo-horizontal-dark.webp`
+on light surfaces and `aitvaras-logo-horizontal-light.webp` on dark surfaces.
+Do not simulate variants with CSS filters, inversion or opacity. Render logos
 with `next/image` at sensible CSS sizes (not raw source dimensions); do not
 recolour the source assets. See `docs/branding.md`.
 

@@ -6,33 +6,37 @@ Approved Aitvaras logo assets live in `apps/web/public/brand/`:
 
 | File | Dimensions | Meaning |
 |---|---|---|
-| `aitvaras-logo-horizontal.webp` | 1108×218 | Icon + `AITVARAS` wordmark, horizontal |
+| `aitvaras-logo-horizontal-dark.webp` | 1108×218 | Dark artwork for **light** backgrounds (login) |
+| `aitvaras-logo-horizontal-light.webp` | 1108×218 | Light artwork for **dark** backgrounds (sidebar/drawer) |
 | `aitvaras-logo-symbol.webp` | 512×512 | Icon/symbol only |
 | `aitvaras-logo-stacked.webp` | 512×512 | Icon above wordmark, vertical |
 | `aitvaras-logo-favicon.webp` | 512×512 | Light-background favicon/app icon (see below) |
 
-All are transparent-background, monochrome (near-black/dark grey) and legible on
-the light UI. They must **not** be regenerated, recoloured, renamed or replaced
-without an explicit requirement.
+The horizontal assets are transparent-background variants of the same lock-up.
+Select the file by the surrounding surface; never simulate the other variant with
+CSS filters, inversion or opacity.
 
 ## Usage convention
 
 ```text
-aitvaras-logo-horizontal.webp
-→ wide contexts: login, authenticated shell header, admin page header (sm+)
+aitvaras-logo-horizontal-dark.webp
+→ light surfaces: login page
+
+aitvaras-logo-horizontal-light.webp
+→ dark surfaces: desktop sidebar and mobile drawer brand header
 
 aitvaras-logo-symbol.webp
-→ compact contexts: narrow/mobile viewports, favicon/app mark
+→ compact favicon/app-mark contexts only
 
 aitvaras-logo-stacked.webp
 → vertically spacious brand presentation only (not normal navigation)
 ```
 
-Do not use all three variants arbitrarily on the same page. The responsive
-`BrandMark` component (`apps/web/src/components/brand-mark.tsx`) renders the
-symbol on narrow viewports and the horizontal logo from the `sm` breakpoint up,
-so only one variant is visible (and announced) at a time. It is used on the
-login screen, the authenticated application header and the admin users page.
+The shared `BrandMark` component (`apps/web/src/shared/ui/brand-mark.tsx`) takes an
+explicit `variant="dark" | "light"`; callers select it from the actual background.
+The login logo is centred above `Prisijungti`; the sidebar/drawer logo is centred
+inside the brand header with no white card, border, shadow or rounded background.
+Links keep their accessible name `Aitvaras` (sidebar: `Aitvaras — pradžia`).
 
 Rendering uses `next/image` with explicit intrinsic `width`/`height` and CSS
 `h-* w-auto`, preserving aspect ratio and avoiding layout shift; the logo is not
@@ -74,6 +78,6 @@ are not recoloured.
 
 ## Related
 
-- `apps/web/src/components/brand-mark.tsx`
+- `apps/web/src/shared/ui/brand-mark.tsx`
 - `docs/architecture.md` (UI language, style and migrations)
 - `AGENTS.md` (brand-assets rule)

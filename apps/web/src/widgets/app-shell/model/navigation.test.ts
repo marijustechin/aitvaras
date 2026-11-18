@@ -266,7 +266,7 @@ describe("shell source — sidebar, child navigation and drawer", () => {
 
   it("renders role-filtered destinations in a dark sidebar with active state", () => {
     const source = read("../ui/app-sidebar.tsx");
-    expect(source).toContain('aria-label="Pagrindinė navigacija"');
+    expect(source).toMatch(/aria-label=['"]Pagrindinė navigacija['"]/);
     expect(source).toContain("aria-current");
     expect(source).toContain("bg-zinc-950");
     expect(source).toContain("sections.map");

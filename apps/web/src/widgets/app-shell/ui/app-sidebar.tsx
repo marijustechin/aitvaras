@@ -1,29 +1,29 @@
-"use client";
+'use client';
 
-import Link from "next/link";
-import { ROLE_LABELS } from "@aitvaras/contracts";
-import { useAuth } from "@/features/auth";
-import { BrandMark } from "@/shared/ui";
-import { cn } from "@/shared/lib/utils";
+import Link from 'next/link';
+import { ROLE_LABELS } from '@aitvaras/contracts';
+import { useAuth } from '@/features/auth';
+import { BrandMark } from '@/shared/ui';
+import { cn } from '@/shared/lib/utils';
 import {
   isDestinationActive,
   type VisibleNavSection,
-} from "../model/navigation";
-import { NavIcon } from "./nav-icons";
+} from '../model/navigation';
+import { NavIcon } from './nav-icons';
 
 function CloseIcon() {
   return (
     <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="h-5 w-5"
+      aria-hidden='true'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='1.75'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+      className='h-5 w-5'
     >
-      <path d="M6 6l12 12M18 6 6 18" />
+      <path d='M6 6l12 12M18 6 6 18' />
     </svg>
   );
 }
@@ -38,36 +38,36 @@ export function SidebarContent({
   pathname,
   onNavigate,
   onClose,
-}: {
+}: Readonly<{
   sections: readonly VisibleNavSection[];
   pathname: string;
   /** Called after a destination is chosen (closes the mobile drawer). */
   onNavigate?: () => void;
   /** When provided, a close control is shown in the header. */
   onClose?: () => void;
-}) {
+}>) {
   const { user } = useAuth();
   const roleSummary = user
-    ? user.roles.map((role) => ROLE_LABELS[role]).join(" · ")
-    : "";
+    ? user.roles.map((role) => ROLE_LABELS[role]).join(' · ')
+    : '';
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex h-16 shrink-0 items-center gap-2 border-b border-white/10 px-4">
+    <div className='flex h-full flex-col'>
+      <div className='relative flex h-16 shrink-0 items-center justify-center border-b border-white/10 px-12'>
         <Link
-          href="/"
+          href='/'
           onClick={onNavigate}
-          aria-label="Aitvaras — pradžia"
-          className="inline-flex rounded-md bg-white px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+          aria-label='Aitvaras — pradžia'
+          className='inline-flex items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70'
         >
-          <BrandMark variant="horizontal" />
+          <BrandMark variant='light' />
         </Link>
         {onClose ? (
           <button
-            type="button"
+            type='button'
             onClick={onClose}
-            aria-label="Uždaryti meniu"
-            className="ml-auto inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-300 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+            aria-label='Uždaryti meniu'
+            className='absolute top-1/2 right-3 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-md text-zinc-300 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70'
           >
             <CloseIcon />
           </button>
@@ -75,15 +75,15 @@ export function SidebarContent({
       </div>
 
       <nav
-        aria-label="Pagrindinė navigacija"
-        className="flex-1 overflow-y-auto px-3 py-4"
+        aria-label='Pagrindinė navigacija'
+        className='flex-1 overflow-y-auto px-3 py-4'
       >
         {sections.map((section) => (
-          <div key={section.id} className="mb-5 last:mb-0">
-            <p className="mb-1.5 px-3 text-[10px] font-semibold tracking-[0.16em] text-zinc-500 uppercase">
+          <div key={section.id} className='mb-5 last:mb-0'>
+            <p className='mb-1.5 px-3 text-[10px] font-semibold tracking-[0.16em] text-zinc-500 uppercase'>
               {section.label}
             </p>
-            <ul className="grid gap-0.5">
+            <ul className='grid gap-0.5'>
               {section.items.map((destination) => {
                 const active = isDestinationActive(destination, pathname);
                 return (
@@ -91,22 +91,22 @@ export function SidebarContent({
                     <Link
                       href={destination.href}
                       onClick={onNavigate}
-                      aria-current={active ? "page" : undefined}
+                      aria-current={active ? 'page' : undefined}
                       className={cn(
-                        "relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70",
+                        'relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70',
                         active
-                          ? "bg-white/10 font-medium text-white"
-                          : "text-zinc-400 hover:bg-white/5 hover:text-white",
+                          ? 'bg-white/10 font-medium text-white'
+                          : 'text-zinc-400 hover:bg-white/5 hover:text-white',
                       )}
                     >
                       {active ? (
                         <span
-                          aria-hidden="true"
-                          className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-white"
+                          aria-hidden='true'
+                          className='absolute inset-y-2 left-0 w-0.5 rounded-full bg-white'
                         />
                       ) : null}
                       <NavIcon icon={destination.icon} />
-                      <span className="truncate">{destination.label}</span>
+                      <span className='truncate'>{destination.label}</span>
                     </Link>
                   </li>
                 );
@@ -117,15 +117,15 @@ export function SidebarContent({
       </nav>
 
       {user ? (
-        <div className="mt-auto shrink-0 border-t border-white/10 px-4 py-4">
-          <p className="text-[10px] font-semibold tracking-[0.16em] text-zinc-500 uppercase">
+        <div className='mt-auto shrink-0 border-t border-white/10 px-4 py-4'>
+          <p className='text-[10px] font-semibold tracking-[0.16em] text-zinc-500 uppercase'>
             Prisijungęs
           </p>
-          <p className="mt-1 truncate text-sm font-medium text-white">
+          <p className='mt-1 truncate text-sm font-medium text-white'>
             {user.firstName} {user.lastName}
           </p>
           {roleSummary ? (
-            <p className="truncate text-xs text-zinc-400">{roleSummary}</p>
+            <p className='truncate text-xs text-zinc-400'>{roleSummary}</p>
           ) : null}
         </div>
       ) : null}
@@ -142,7 +142,7 @@ export function DesktopSidebar({
   pathname: string;
 }) {
   return (
-    <aside className="sticky top-0 hidden h-screen w-64 shrink-0 bg-zinc-950 lg:block">
+    <aside className='sticky top-0 hidden h-screen w-64 shrink-0 bg-zinc-950 lg:block'>
       <SidebarContent sections={sections} pathname={pathname} />
     </aside>
   );
