@@ -565,16 +565,15 @@ Status legend: **DONE** · **CURRENT** · **NEXT** · **LATER / DISCOVERY ONLY**
 
 ## CURRENT
 
-- **Four uncommitted changes awaiting human review:** discrepancy settlement
-  clarification (ATV-062), full npm workspace migration (ATV-063), logo
-  variant/alignment correction (ATV-064) and fake-receiving cleanup/readiness
-  preparation (ATV-065). No functional scope beyond confirmed requirements was
-  added; stock balances, movements, purchasing/accounting, production, orders
-  and sales remain unconfirmed.
+- **No uncommitted work.** ATV-062…065 (settlement clarification, npm workspace
+  migration, logo correction, fake-receiving cleanup) are committed and pushed
+  to `main`. No functional scope beyond confirmed requirements was added; stock
+  balances, movements, purchasing/accounting, production, orders and sales remain
+  unconfirmed.
 
 ## NEXT (only with a confirmed requirement)
 
-1. Human review and commit of the four changes above.
+1. Human review of the pushed ATV-062…065 delivery.
 2. Any new functional scope — **none confirmed**. Requires a confirmed
    requirement and a new task; do not infer from `/sandelys`.
 

@@ -1,6 +1,6 @@
 # ATV-065 — Remove fake receiving data and prepare for real receiving
 
-- **Status:** READY_FOR_HUMAN_REVIEW (uncommitted)
+- **Status:** Committed and pushed to `main`
 - **Date:** 2026-11-18
 - **Scope:** working-development database operational receiving data; master data,
   schema and migration history preserved

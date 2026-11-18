@@ -1,6 +1,6 @@
 # ATV-062 — Clarify discrepancy settlement source batch
 
-- **Status:** READY_FOR_HUMAN_REVIEW (uncommitted)
+- **Status:** Committed and pushed to `main`
 - **Scope:** discrepancy settlement semantics, UI wording, validation and tests
 - **Related:** `docs/discrepancies.md`; ATV-050 settlement ledger
 

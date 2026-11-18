@@ -1,6 +1,6 @@
 # ATV-064 — Correct logo variants, background and alignment
 
-- **Status:** READY_FOR_HUMAN_REVIEW (uncommitted)
+- **Status:** Committed and pushed to `main`
 - **Scope:** shared brand component, login placement, sidebar/drawer brand header
 - **Related:** `docs/branding.md`, `AGENTS.md` brand rule
 

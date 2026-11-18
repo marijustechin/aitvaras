@@ -1,6 +1,6 @@
 # ATV-063 — Migrate the workspace fully to npm
 
-- **Status:** READY_FOR_HUMAN_REVIEW (uncommitted)
+- **Status:** Committed and pushed to `main`
 - **Scope:** npm workspace configuration, lockfile, scripts, tooling, active docs
 - **Related:** ATV-061 audit; `docs/development.md`
 
