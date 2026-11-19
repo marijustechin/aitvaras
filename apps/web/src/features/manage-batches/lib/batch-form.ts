@@ -39,6 +39,22 @@ export interface DraftBag {
 const DECIMAL = /^\d+(\.\d+)?$/;
 const INTEGER = /^\d+$/;
 
+/** Documentary weight must be a positive decimal (`0` is not valid). */
+export function isDocumentaryWeightValid(value: string): boolean {
+  const weight = value.trim();
+  return DECIMAL.test(weight) && Number(weight) > 0;
+}
+
+/** Acquisition amount must be a non-negative decimal (`0` is valid). */
+export function isAcquisitionAmountValid(value: string): boolean {
+  return DECIMAL.test(value.trim());
+}
+
+/** Documentary piece count must be a non-negative whole number (`0` is valid). */
+export function isPieceCountValid(value: string): boolean {
+  return INTEGER.test(value.trim());
+}
+
 /**
  * Convert a date-only `yyyy-mm-dd` value to an ISO datetime at local start of
  * day, or null when the value is not a valid date.
@@ -219,76 +235,82 @@ export function toVoidItemPayload(reason: string): { reason?: string } {
   return trimmed === "" ? {} : { reason: trimmed };
 }
 
-/** One product row in the PIECE confirmation table. */
-export interface PieceConfirmationProductDraft {
-  /** `Sutampa`: when true the document quantity equals the actual quantity. */
-  matches: boolean;
-  /** Documentary quantity as entered (used only when `matches` is false). */
-  documentPieces: string;
-}
+/** How a PIECE document provides its documentary quantity. */
+export type PieceDocumentaryMode = "ITEMISED" | "TOTAL";
 
-/** A PIECE batch confirmation draft: batch-level fields + per-product rows. */
-export interface DraftPieceConfirmation {
-  acquisitionAmount: string;
-  documentDate: string;
-  documentNumber: string;
-  products: Record<string, PieceConfirmationProductDraft>;
-}
-
-/** A product row for the confirmation table (server-derived actual pieces). */
+/** A product row for PIECE reconciliation (server-derived actual pieces). */
 export interface PieceConfirmationRow {
   resourceId: string;
   resourceName: string;
   actualPieces: number;
 }
 
+/** A PIECE batch confirmation draft (itemised or single total). */
+export interface DraftPieceConfirmation {
+  mode: PieceDocumentaryMode;
+  /** Single total, used when `mode === "TOTAL"`. */
+  documentPieces: string;
+  /** Per-resource documentary input, used when `mode === "ITEMISED"`. */
+  products: Record<string, string>;
+  acquisitionAmount: string;
+  documentDate: string;
+  documentNumber: string;
+}
+
+/** Default mode: multi-product documents are itemised; single-product ones total. */
+export function defaultPieceDocumentaryMode(
+  rows: readonly PieceConfirmationRow[],
+): PieceDocumentaryMode {
+  return rows.length > 1 ? "ITEMISED" : "TOTAL";
+}
+
 /** A blank PIECE confirmation draft. */
-export function createDraftPieceConfirmation(): DraftPieceConfirmation {
+export function createDraftPieceConfirmation(
+  mode: PieceDocumentaryMode = "TOTAL",
+): DraftPieceConfirmation {
   return {
+    mode,
+    documentPieces: "",
+    products: {},
     acquisitionAmount: "",
     documentDate: "",
     documentNumber: "",
-    products: {},
   };
 }
 
-/** Default product rows: `Sutampa` checked, document = actual. */
-export function pieceConfirmationRows(
-  rows: readonly PieceConfirmationRow[],
-): Record<string, PieceConfirmationProductDraft> {
-  const products: Record<string, PieceConfirmationProductDraft> = {};
-  for (const row of rows) {
-    products[row.resourceId] = {
-      matches: true,
-      documentPieces: String(row.actualPieces),
-    };
-  }
-  return products;
-}
-
-/** The documentary pieces for a row (actual when `Sutampa`), or null if invalid. */
-export function pieceRowDocumentPieces(
+/** A row's entered documentary value (empty when not entered yet). */
+export function pieceRowDraftValue(
   draft: DraftPieceConfirmation,
   row: PieceConfirmationRow,
-): number | null {
-  const product = draft.products[row.resourceId];
-  if (!product || product.matches) {
-    return row.actualPieces;
-  }
-  const value = product.documentPieces.trim();
-  if (!INTEGER.test(value)) {
-    return null;
-  }
-  return Number(value);
+): string {
+  return draft.products[row.resourceId] ?? "";
 }
 
-/** The signed difference `actual − document` for a row. */
+/** Signed `actual − documentary` pieces for a row, or null when not entered. */
 export function pieceRowDifference(
   draft: DraftPieceConfirmation,
   row: PieceConfirmationRow,
-): number {
-  const document = pieceRowDocumentPieces(draft, row);
-  return row.actualPieces - (document ?? row.actualPieces);
+): number | null {
+  const value = pieceRowDraftValue(draft, row).trim();
+  if (!isPieceCountValid(value)) {
+    return null;
+  }
+  return row.actualPieces - Number(value);
+}
+
+/**
+ * Signed total `actual − documentary` pieces for the single-total mode, or null
+ * while the field is empty/invalid.
+ */
+export function pieceConfirmationDifference(
+  actualPieces: number,
+  draft: DraftPieceConfirmation,
+): number | null {
+  const value = draft.documentPieces.trim();
+  if (!isPieceCountValid(value)) {
+    return null;
+  }
+  return actualPieces - Number(value);
 }
 
 /** Client-side validation message, or null when confirmation is submittable. */
@@ -296,7 +318,20 @@ export function pieceConfirmationFormError(
   draft: DraftPieceConfirmation,
   rows: readonly PieceConfirmationRow[],
 ): string | null {
-  if (!DECIMAL.test(draft.acquisitionAmount.trim())) {
+  if (draft.mode === "ITEMISED") {
+    for (const row of rows) {
+      const value = pieceRowDraftValue(draft, row).trim();
+      if (!isPieceCountValid(value)) {
+        return `Įveskite ${row.resourceName} dokumentinį kiekį (sveikasis skaičius).`;
+      }
+    }
+  } else {
+    const pieces = draft.documentPieces.trim();
+    if (!isPieceCountValid(pieces)) {
+      return "Įveskite dokumentinį kiekį (sveikasis skaičius).";
+    }
+  }
+  if (!isAcquisitionAmountValid(draft.acquisitionAmount)) {
     return "Įveskite įsigijimo vertę (gali būti 0).";
   }
   if (
@@ -304,11 +339,6 @@ export function pieceConfirmationFormError(
     arrivalDateToIso(draft.documentDate) === null
   ) {
     return "Įveskite teisingą dokumento datą.";
-  }
-  for (const row of rows) {
-    if (pieceRowDocumentPieces(draft, row) === null) {
-      return `Įveskite ${row.resourceName} dokumentinį kiekį (sveikasis skaičius).`;
-    }
   }
   return null;
 }
@@ -321,11 +351,15 @@ export function toConfirmPiecePayload(
 ): ConfirmPieceBatchRequest {
   const payload: ConfirmPieceBatchRequest = {
     acquisitionAmount: draft.acquisitionAmount.trim(),
-    products: rows.map((row) => ({
-      resourceId: row.resourceId,
-      documentPieces: pieceRowDocumentPieces(draft, row) ?? row.actualPieces,
-    })),
   };
+  if (draft.mode === "ITEMISED") {
+    payload.products = rows.map((row) => ({
+      resourceId: row.resourceId,
+      documentPieces: Number(pieceRowDraftValue(draft, row).trim()),
+    }));
+  } else {
+    payload.documentPieces = Number(draft.documentPieces.trim());
+  }
   if (acknowledgeDiscrepancies) {
     payload.acknowledgeDiscrepancies = true;
   }
@@ -481,8 +515,6 @@ export function toVoidBagPayload(reason: string): { reason?: string } {
 export interface DraftReconciliation {
   documentWeight: string;
   acquisitionAmount: string;
-  /** Optional documentary piece count (a positive whole number, or ""). */
-  documentPieces: string;
   /** Optional document date, `yyyy-mm-dd` from a date input. */
   documentDate: string;
   /** Optional document number. */
@@ -494,7 +526,6 @@ export function createDraftReconciliation(): DraftReconciliation {
   return {
     documentWeight: "",
     acquisitionAmount: "",
-    documentPieces: "",
     documentDate: "",
     documentNumber: "",
   };
@@ -505,15 +536,11 @@ export function reconciliationFormError(
   draft: DraftReconciliation,
 ): string | null {
   const weight = draft.documentWeight.trim();
-  if (!DECIMAL.test(weight) || Number(weight) <= 0) {
+  if (!isDocumentaryWeightValid(weight)) {
     return "Įveskite dokumentinį svorį, didesnį už nulį.";
   }
-  if (!DECIMAL.test(draft.acquisitionAmount.trim())) {
+  if (!isAcquisitionAmountValid(draft.acquisitionAmount)) {
     return "Įveskite įsigijimo vertę (gali būti 0).";
-  }
-  const pieces = draft.documentPieces.trim();
-  if (pieces !== "" && (!INTEGER.test(pieces) || Number(pieces) <= 0)) {
-    return "Vienetų skaičius turi būti teigiamas sveikasis skaičius.";
   }
   if (
     draft.documentDate.trim() !== "" &&
@@ -527,7 +554,6 @@ export function reconciliationFormError(
 /**
  * Convert a reconciliation draft into the request payload. The measured weight is
  * deliberately never included — the server derives it from the packages.
- * `documentPieces` is optional documentary information.
  */
 export function toReconcilePayload(
   draft: DraftReconciliation,
@@ -536,10 +562,6 @@ export function toReconcilePayload(
     documentWeight: draft.documentWeight.trim(),
     acquisitionAmount: draft.acquisitionAmount.trim(),
   };
-  const pieces = draft.documentPieces.trim();
-  if (pieces !== "") {
-    payload.documentPieces = Number(pieces);
-  }
   const documentDate = arrivalDateToIso(draft.documentDate);
   if (documentDate) {
     payload.documentDate = documentDate;

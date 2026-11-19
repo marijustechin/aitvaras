@@ -42,11 +42,12 @@ confirms it. It has its own compact, **delivery-local** `code` (`P01`..`P99`)
 that is secondary to the human-facing delivery code and is not printed on labels.
 
 Warehouse workers record the **physical truth** (individual packages and their
-measured weights); the formal/documentary **confirmation** records the accepted
-documentary weight, acquisition value, an optional **piece count** and the link
-to the formal document. The formal GoodsReceipt is reconciled with the batch
-**without duplicating quantities**: the packages are the physical quantity source,
-the receipt is the documentary/financial record, and the two are joined by
+measured weights); the formal/documentary **confirmation** records the
+type-specific documentary quantity (weight in kg for WEIGHT, aggregate pieces in
+`vnt.` for PIECE), the acquisition value and the link to the formal document. The
+formal GoodsReceipt is reconciled with the batch **without duplicating
+quantities**: the packages/item lines are the physical quantity source, the
+receipt is the documentary/financial record, and the two are joined by
 `Batch.receiptLineId` (see "Reconciliation").
 
 A delivery/batch is **not** stock: creating them, a package or a reconciliation
@@ -86,13 +87,14 @@ worker may still change it. With no previous package, no location is preselected
 
 ## Documentary piece count
 
-Reconciliation may store an optional **documentary piece count**
-(`Batch.documentPieces`, a positive integer or `null`). It is **additional
-business/documentary information** entered by the ADMIN (e.g. `document pieces:
-500` alongside `document weight: 188.000 kg` and a measured `186.400 kg`). It is
-**not** a physical receiving unit, it does **not** replace the document weight, it
-does **not** replace the measured physical weight, and it does **not** drive any
-package or batch total. There is no per-package piece allocation.
+`Batch.documentPieces` is the **type-specific documentary piece count**. For a
+**PIECE** batch it is the required aggregate count compared with the actual sum of
+active item lines (e.g. actual 18, documented 20 → `−2 vnt.`); it drives the PIECE
+comparison and the optional PIECE discrepancy. For a **WEIGHT** batch it remains
+an optional documentary field accepted by the API for compatibility, but it is
+**not** a physical receiving unit, does **not** replace the document weight, and
+is no longer rendered or submitted by the UI. There is no per-package or
+per-product piece allocation.
 
 ## Domain model
 
@@ -104,20 +106,45 @@ IncomingDelivery (Priėmimas)
 ├── arrivalDate         (physical arrival; independent of createdAt)
 ├── createdById
 ├── createdAt / updatedAt
+├── expense?            (one shared IncomingDeliveryExpense, see below)
 └── batches[]
     (no warehouse here — a delivery spans warehouses; no vehicle)
+
+IncomingDeliveryExpense (Priėmimo išlaidos)
+├── id
+├── deliveryId          (unique — exactly one expense record per Priėmimas)
+├── transportAmount     Decimal(14,2), non-negative EUR
+├── customsAmount       Decimal(14,2), non-negative EUR (stored separately)
+├── allocationMethod    BY_VALUE | EQUAL
+├── createdAt / updatedAt
+
+DeliveryExpenseApplication (append-only allocation history)
+├── id
+├── deliveryId
+├── transportAmount / customsAmount / allocationMethod
+├── appliedById / appliedAt
+└── entries[]            (one per batch: previous/new transport and customs)
+
+DeliveryExpenseApplicationEntry
+├── id
+├── applicationId
+├── batchId
+├── previousTransportAmount / newTransportAmount
+├── previousCustomsAmount / newCustomsAmount
 
 Batch (internal grouping)
 ├── id
 ├── code                (delivery-local, unique per delivery; P01..P99)
 ├── deliveryId          (owning Priėmimas)
-├── resourceId          (Išteklius)
+├── resourceId          (Išteklius; null for PIECE)
 ├── warehouseId         (Sandėlis — the batch's warehouse)
 ├── status              PENDING | CONFIRMED  (default PENDING)
 ├── receiptLineId       (nullable, unique — formal GoodsReceipt line link)
 ├── documentWeight      Decimal(14,3)? — accepted documentary weight
-├── documentPieces      Int? — optional documentary piece count (positive)
+├── documentPieces      Int? — documentary piece count (aggregate for PIECE)
 ├── acquisitionAmount   Decimal(14,2)? — accepted acquisition value (EUR)
+├── allocatedTransportAmount Decimal(14,2)? — current applied share
+├── allocatedCustomsAmount   Decimal(14,2)? — current applied share
 ├── confirmedAt         (set only on a clean CONFIRMED result)
 ├── createdById
 ├── createdAt / updatedAt
@@ -164,8 +191,9 @@ Derived values shown in the API/UI (never stored, never client-supplied):
 - `totalNetWeight` — sum of **active** package **net** weights (the **measured**
   quantity), serialised as a **decimal string**; voided packages are excluded;
   gross and tare are preserved per package for traceability;
-- `difference` — `documentWeight − totalNetWeight` for a reconciled batch (same
-  precision; a signed decimal string), or `null` before reconciliation;
+- `difference` — `totalNetWeight − documentWeight` for a reconciled batch (same
+  precision; a signed decimal string), or `null` before reconciliation (positive
+  = physically received **more** than documented);
 - `suggestedLocationId` — the location of the most recent package (batch detail
   only), used to preselect the next package's location.
 
@@ -219,12 +247,16 @@ or `GoodsReceiptLine`. It creates **no** packages and no stock.
   mismatch still confirms, but the client must explicitly send
   `acknowledgeDiscrepancy: true` (`DISCREPANCY_NOT_ACKNOWLEDGED` otherwise); the
   document weight is **not** required to be edited to match the physical weight.
-- **Two separate quantities:** the **measured** weight is always the server-derived
-  `SUM(bags.netWeight)` over the batch's active packages; the **documentary**
-  weight (`documentWeight`) is entered at reconciliation. They are never merged,
-  and the signed `difference = measuredWeight − documentWeight` (positive =
-  physically received **more** than documented) is shown as-is (no tolerance).
-  `documentPieces` is optional and independent.
+- **Two separate quantities:** the **measured** quantity is always server-derived:
+  WEIGHT uses `SUM(bags.netWeight)` over the batch's active packages; PIECE uses
+  `SUM(BatchItem.quantity)` over the batch's active item lines. The
+  **documentary** value is entered at confirmation and depends on the batch type:
+  WEIGHT enters `documentWeight` (kg); PIECE enters one aggregate
+  `documentPieces` (`vnt.`). They are never merged, and the signed
+  `difference = measured − documented` (positive = physically received **more**
+  than documented) is shown as-is (no tolerance). A WEIGHT batch may additionally
+  carry an optional documentary piece count through the API for compatibility, but
+  the UI no longer renders or submits it.
 - **Acquisition value:** `acquisitionAmount` (EUR) is stored on the batch as its
   **initial acquisition value**.
 - **Relationship:** `GoodsReceipt → GoodsReceiptLine → Batch → Bags`.
@@ -260,6 +292,87 @@ or `GoodsReceiptLine`. It creates **no** packages and no stock.
 | `BATCH_ALREADY_CONFIRMED` | 409 | batch is already `CONFIRMED` |
 | `DISCREPANCY_NOT_ACKNOWLEDGED` | 400 | mismatch not explicitly acknowledged |
 | `RECEIPT_CREATE_FAILED` | 409 | internal receipt creation failed (unexpected) |
+
+## Receipt-level transport and customs expenses (`Priėmimo išlaidos`)
+
+Transport and customs are entered **once per `Priėmimas`**, not per batch. The
+one `IncomingDeliveryExpense` row is shared by every `PXX` batch of the delivery,
+so opening it from `P01` or `P02` reaches the same saved record. The amounts are
+stored separately (`transportAmount`, `customsAmount`, both EUR, non-negative,
+at most two decimals) and are **not** a supplier invoice, purchase price or
+accounting entry.
+
+### Allocation methods
+
+| Method | UI label | Basis |
+|---|---|---|
+| `BY_VALUE` | `Pagal vertę` | all-WEIGHT receipt: each eligible batch's share of **actual net kg** (`Pagal partijų neto svorį.`); all-PIECE receipt: each batch's share of **actual pieces** (`Pagal priimtą vienetų kiekį.`); mixed WEIGHT + PIECE receipt: each batch's share of its **recorded acquisition amount in EUR**, excluding transport and customs (`Pagal partijų įsigijimo vertę eurais.`) |
+| `EQUAL` | `Po lygiai` | equal share for every eligible batch |
+
+- **Eligible** means the batch has a positive actual quantity (active package net
+  weight or active item pieces). Zero-quantity batches receive no share.
+- A **mixed** receipt can use `BY_VALUE` only when **every** eligible batch has a
+  recorded acquisition amount and their sum is positive. A recorded `0,00 €` is a
+  valid zero share. A missing value is unknown: the preview names the batch
+  (`Trūksta įsigijimo vertės: P02.`), keeps `Po lygiai` available and blocks apply
+  with `ACQUISITION_BASIS_UNAVAILABLE`. If every value is zero, the preview
+  explains `Įsigijimo verčių suma lygi 0, todėl proporcinis paskirstymas
+  negalimas.`; `EQUAL` remains available. There is no kg + vnt. denominator.
+- The basis shown beside the method is derived from the eligible batches, so it
+  still describes the eligible set rather than the whole receipt.
+- Transport and customs are allocated **separately**, each to the cent, using
+  largest-remainder rounding, so the shares always sum exactly to the entered
+  amount. Example: 80 € transport and 20 € customs over 10 kg and 30 kg produce
+  `20 € + 5 €` for `P01` and `60 € + 15 €` for `P02` under `BY_VALUE`; `EQUAL`
+  produces `40 € + 10 €` for each. A mixed receipt with acquisition values
+  `P01 = 6 000 €` and `P02 = 4 000 €` splits 2 000 € transport and 350 € customs
+  as `1 200 € + 210 €` (60 %) and `800 € + 140 €` (40 %).
+
+### Preview, apply and late invoices
+
+- The manager screen shows one `Priėmimo išlaidos` block below the batch table.
+  The proposed transport/customs share for every batch is previewed before apply.
+- `POST /deliveries/:id/expenses/preview` computes the proposal without writing;
+  `POST /deliveries/:id/expenses/apply` applies it to the **whole receipt**, and
+  `PUT /deliveries/:id/expenses` remains a draft header save. All three are
+  `ADMIN`-only, together with the `GET`.
+- Applying writes one `DeliveryExpenseApplication` with the receipt amounts/method,
+  `appliedById`, `appliedAt` and one `DeliveryExpenseApplicationEntry` per batch
+  carrying the **previous** and **new** transport/customs shares.
+- The batch's `allocatedTransportAmount`/`allocatedCustomsAmount` are the
+  **current applied shares**. Stock valuation adds them once for each
+  `CONFIRMED` batch. A pending batch contributes its share only when confirmed.
+- A **late invoice or revised amount** can be applied after confirmation. A
+  confirmed batch's physical quantity, confirmation, barcodes and discrepancy
+  history are untouched; only its valuation changes by the share difference.
+  Example: two 10 kg batches, P01 confirmed first, then a 100 € transport invoice
+  is applied → P01 and P02 each get 50 €; P01's confirmed stock value rises by
+  50 € immediately. Confirming P02 recognises its remaining 50 €. Revising the
+  invoice to 120 € adds a further 10 € to each, leaving 0 € unallocated.
+- Applying identical amounts/method again writes **no** application row and has no
+  additional valuation effect.
+- A receipt may be partially confirmed: only confirmed batches' current shares
+  enter the dashboard; pending siblings do not.
+- Receipts that never had expenses behave as zero: `GET` returns `0` / `0` with
+  `updatedAt: null`; batches keep `null` allocations until an allocation is
+  applied, and valuation uses only `acquisitionAmount`.
+
+### Authorization
+
+| Capability | Endpoint | Requirement |
+|---|---|---|
+| Read the shared receipt expenses | `GET /deliveries/:id/expenses` | `ADMIN` |
+| Save a draft expense header | `PUT /deliveries/:id/expenses` | `ADMIN` |
+| Preview the receipt allocation | `POST /deliveries/:id/expenses/preview` | `ADMIN` |
+| Apply/reapply the receipt allocation | `POST /deliveries/:id/expenses/apply` | `ADMIN` |
+| Delete a batch-less receipt (non-zero expenses block it) | `DELETE /deliveries/:id` | `ADMIN` or `WAREHOUSE_WORKER` |
+
+`DELETE /deliveries/:id` locks the delivery row `FOR UPDATE`, counts its batches
+and inspects the expense record in the same transaction. A receipt with any batch
+is rejected with `DELIVERY_HAS_BATCHES`; a non-zero transport or customs amount is
+rejected with `DELIVERY_HAS_EXPENSES`; a zero-amount expense record does not block
+deletion and is removed by the cascade. The row lock prevents a concurrent
+first-batch insert from slipping between the count and the delete.
 
 ## Receiving discrepancy (neatitikimas)
 
@@ -347,34 +460,54 @@ the affected package's barcode, previous/new value, reason, who and when.
 | Void a package (audited, never deleted) | `POST /batches/:id/bags/:bagId/void` | `ADMIN` or `WAREHOUSE_WORKER` |
 | Look up a package by barcode | `GET /bags/by-barcode/:barcode` | authenticated |
 | Reconcile (formal confirmation) | `POST /batches/:id/reconcile` | `ADMIN` |
+| Read the shared receipt expenses | `GET /deliveries/:id/expenses` | `ADMIN` |
+| Create / replace the shared receipt expenses | `PUT /deliveries/:id/expenses` | `ADMIN` |
+| Preview the receipt allocation | `POST /deliveries/:id/expenses/preview` | `ADMIN` |
+| Apply/reapply the receipt allocation | `POST /deliveries/:id/expenses/apply` | `ADMIN` |
+| Delete a batch-less receipt (non-zero expenses block it) | `DELETE /deliveries/:id` | `ADMIN` or `WAREHOUSE_WORKER` |
 
-- **`Priėmimas`** (`/receipts`) is the received-batch **list** (status /
-  supplier / resource / warehouse / arrival-date / code filters; default `Reikia
-  patvirtinti` = the not-yet-confirmed `PENDING` batches) and
-  `/receipts/batches/[id]` is the **ADMIN review** screen (batch context,
-  read-only package list, label preview/print, formal reconciliation form). The
-  default queue is **not date-bounded**: the `Priėmimo data` filters start empty
-  so old pending items are never silently hidden (the generic supplier/resource/
-  warehouse options read `Visi`). Each
-  queue row is a **whole-row link**. Queue columns: `Priėmimas`, `Partija`,
-  `Priėmimo data`, `Tiekėjas`, `Išteklius`, `Sandėlis`, `Pakuotės / kiekis`,
-  `Būsena` — status is neutral for `PENDING` and emerald for `CONFIRMED`; a
-  confirmed batch with an unresolved discrepancy also carries a `Neatitikimas`
-  marker. The filter panel has an **`Atstatyti filtrus`** action that clears every
-  filter back to the default view. ADMIN does **not** create receiving records
-  here.
-- The batch detail page shows the batch context and a **read-only** list of the
+- **`Priėmimas`** (`/receipts`) is the one-row-per-receipt list (status /
+  supplier / resource / warehouse / arrival-date / code filters; status defaults
+  to `Laukia patvirtinimo`), `/receipts/[deliveryId]` is the **ADMIN manager**
+  screen (confirmation + expense revision), and `/receipts/batches/[id]` remains
+  the ADMIN batch-detail review. The default view is **not date-bounded**: the
+  `Priėmimo data` filters start empty so old pending items are never silently
+  hidden (the generic supplier/resource/warehouse options read `Visi`). The G…
+  number opens `/receiving/[deliveryId]`; manager actions (`Tvirtinti`,
+  `Peržiūrėti`) open `/receipts/[deliveryId]`. Receipt columns: `Priėmimas`,
+  `Priėmimo data`, `Tiekėjas`, `Patvirtintos partijos`, `Būsena`, `Veiksmai`.
+  The filter panel has an **`Atstatyti filtrus`** action that clears every filter
+  back to the default view. ADMIN does **not** create receiving records here.
+- The batch detail page shows a **compact header** and a **read-only** list of the
   registered packages (`Barkodas`, `Vieta`, `Neto svoris`, `Būsena`,
   `Užregistruota`) with an optional label preview/reprint; voided packages are
-  shown muted. It also
+  shown muted. The receipt and batch code are shown **once** as
+  `Priėmimas GYYMM-NN / PXX`; the status, arrival date, supplier, resource,
+  warehouse and actual quantity follow as one wrapping row (a second line is
+  allowed on narrow screens), and the actions `Priėmimo GYYMM-NN išlaidos` and
+  `Redaguoti partiją` (PENDING only) sit beside the heading. It also
   shows the **`Pataisymų istorija`** (correction history) table. There are **no**
   package-creation or correction controls here (those are worker actions).
-- For a non-confirmed batch, `ADMIN` sees a **reconciliation form** with formal
-  data only — `Dokumentinis svoris`, `Dokumentiniai vienetai` (optional),
-  `Įsigijimo vertė`, `Dokumento data`, `Dokumento Nr.` — plus the `Faktiškai
-  susverta` / `Dokumentuose` / `Skirtumas` summary and the **`Patvirtinti priėmimą`**
-  action. A `CONFIRMED` batch shows a read-only summary. The detail page's back
-  link returns to the `Priėmimas` list (`/receipts`).
+- For a non-confirmed batch, `ADMIN` sees a **type-specific confirmation form**
+  with formal data only:
+  - WEIGHT: `Dokumentinis svoris, kg`, `Įsigijimo vertė`, `Dokumento data`,
+    `Dokumento Nr.`; the summary is `Faktiškai susverta` / `Dokumentuose` /
+    `Skirtumas` in kg.
+  - PIECE: a documentary-form selector `Pagal prekes` / `Bendras kiekis`.
+    Itemised mode shows `Prekė | Faktiškai | Dokumentuose | Skirtumas` with one
+    input per product; total mode shows `Faktiškai užregistruota` and one
+    `Dokumentinis kiekis, vnt.` field. Both share `Įsigijimo vertė`,
+    `Dokumento data`, `Dokumento Nr.` and the `Faktiškai gauta` / `Dokumentuose` /
+    `Skirtumas` comparison in `vnt.` Itemised is the default for a multi-product
+    batch, total for a single-product batch; a confirmed itemised batch keeps its
+    per-product table read-only.
+  The applicable quantity field is chosen from the stored `receivingMode`, so it
+  is correct even before any unit is registered. An empty documentary field shows
+  `—` in the comparison; a non-zero difference is confirmed through the existing
+  acknowledgement dialog and recorded as a `ReceivingDiscrepancy`. Switching
+  batches clears the previous draft values. A `CONFIRMED` batch shows a read-only
+  summary. The detail page's back link returns to the `Priėmimas` list
+  (`/receipts`).
 
 ### Editing a PENDING batch
 
@@ -398,7 +531,8 @@ handling-unit barcodes stay stable.
 - **Save/cancel:** `Išsaugoti pakeitimus` writes receipt/batch metadata and returns
   to the same batch detail; `Atšaukti` discards the unsaved metadata form. Unit
   operations have their own immediate save/cancel. Saving never changes
-  `PENDING`; **`Patvirtinti priėmimą` remains a separate ADMIN action**.
+  `PENDING`; the code-labelled per-batch confirmation (`Patvirtinti PXX`) on the
+  manager receipt screen remains a separate ADMIN action.
 - **Concurrency:** all registration/content mutations lock the batch row (and all
   delivery rows for shared receipt fields) and re-check `PENDING`. An edit that
   arrives after confirmation is rejected with `BATCH_CONFIRMED` and no data is
@@ -422,36 +556,122 @@ The warehouse worker's job is the **physical** receiving step only; the formal
 
 - **Home** (`/`): for a receiving role the home is a focused operational
   workplace whose primary action is the prominent `Naujas priėmimas` button.
-- **Receiving list** (`/receiving`, protected by the receiving roles): the open
-  receiving queue **`Nepatvirtinti priėmimai`** plus the `Naujas priėmimas` action.
-  The queue is **derived from the child batches** (there is **no** stored delivery
-  status): a delivery is listed while it has at least one `PENDING` batch — or no
-  batches yet (just created); a delivery whose batches are **all `CONFIRMED`**
-  disappears. Confirmed history stays in the `Priėmimas` list, not here.
-  `/receiving/new` opens the entry form directly from `Priėmimas → Naujas
-  priėmimas`.
-- **Delivery screen** (`/receiving/[deliveryId]`): selecting an existing delivery
-  (or creating one) navigates to its own route, so the URL is
-  bookmarkable/refreshable and browser Back works naturally; a secondary
-  `← Priėmimų sąrašas` action returns to the list, and the top-level
-  `Priėmimas` navigation stays active throughout. The screen is **delivery first**:
-  `Naujas priėmimas` opens the delivery header (**`Tiekėjas`** + **`Atvykimo
-  data`** only; no warehouse, no resource; the code is system-generated) with the
-  primary action `Pradėti priėmimą`. Inside a delivery the header shows `Priėmimas
-  <code>`, supplier and arrival; a compact `Priėmimo turinys` table lists the
-  batches already
-  registered (resource, **warehouse**, active package count, total weight,
-  status). The worker then uses **`Registruojama rūšis`** (`Išteklius` +
-  `Sandėlis` + `Pradėti registruoti`) to start or resolve one batch per
-  resource/warehouse. **`Kitas išteklius`** clears the active resource/batch and
-  starts another batch **in the same delivery** (packaging preference is
-  batch-specific — a new batch starts without a `Tara` selection). Package entry
+- **Receipt list** (`/receipts`, protected by the receiving roles): the single
+  `Priėmimai` list, **one row per receipt** even when it contains several batches.
+  Columns: `Priėmimas`, `Priėmimo data`, `Tiekėjas`, `Patvirtintos partijos`,
+  `Būsena`, `Veiksmai`.
+  - `Laukia patvirtinimo` (default) shows receipts with at least one pending
+    batch, including partially confirmed receipts; `Patvirtinta` shows receipts
+    whose batches are all confirmed; `Visos` also adds zero-batch receipts.
+  - `Patvirtintos partijos` is `—` for zero batches, otherwise `confirmed iš total`.
+    Statuses: `Be partijų`, `Laukia patvirtinimo`, `Patvirtintas`.
+  - Supplier/date filters apply at receipt level. Resource/warehouse/batch-code
+    filters match a receipt **once** when any of its batches matches all supplied
+    batch-specific filters; zero-batch receipts cannot match them.
+  - Rows are grouped first, then sorted newest-first and paginated (`20` per page).
+  - The G… code opens the operational receipt page `/receiving/[deliveryId]` for
+    every status and every receiving role. `Tvirtinti` (pending, confirmation
+    permission) and `Peržiūrėti` (fully confirmed, manager access) open the
+    manager screen `/receipts/[deliveryId]`.
+  - `Atstatyti filtrus` returns to `Laukia patvirtinimo` (zero-batch receipts are
+    hidden).
+  - A zero-batch row offers **`Ištrinti priėmimą`** when the receipt has no
+    non-zero recorded expense. Deletion asks `Ištrinti priėmimą GYYMM-NN?` with
+    `Atšaukti` / `Ištrinti`, then refreshes the list, keeps the filters and reports
+    through the global toast. A non-zero expense shows
+    `Negalima ištrinti: užregistruota transporto arba muitinės išlaidų.` instead.
+  - The old `/receiving` index is a redirect to `/receipts`.
+
+### Manager receipt screen (`/receipts/[deliveryId]`, ADMIN)
+
+One confirmation screen per receipt: `Priėmimas G…` heading, supplier/arrival once,
+then one bordered group per batch with `Partija`, `Prekė`, `Priimta`,
+`Dokumentuose`, `Skirtumas`, `Įsigijimo vertė, €` and `Būsena / veiksmas`.
+Expanding a group keeps its summary row, document fields, product table and
+confirmation action inside the same continuous border, with a muted background and
+a `PXX prekės` product heading; the next batch starts outside that border.
+
+- A single toggle sits directly below the product in the `Prekė` column and uses
+  the same compact outlined style, chevron, pointer cursor and
+  `focus-visible` ring. Multi-product PIECE batches label it
+  `Rodyti prekes` / `Slėpti prekes`; WEIGHT and single-product batches label it
+  `Dokumento duomenys` / `Slėpti detales`. Both open the same panel, so a batch
+  never shows two expansion controls.
+- Collapsed summary columns stay aligned with their headings across every batch.
+  `Būsena / veiksmas` contains only the status or the collapsed
+  `Patvirtinti PXX` action.
+- `Priimta` is read-only from active packages (`netWeight` kg for WEIGHT) or active
+  item lines (`vnt.` for PIECE), including zero.
+- `Dokumentuose` accepts the matching unit; `—` is shown for an empty difference.
+- When a pending batch is expanded, every empty/invalid **required** input gets a
+  red border immediately and carries `aria-required` plus `aria-invalid`. The
+  border clears as soon as the value satisfies the same rule as confirmation and
+  returns if it is cleared again:
+  - WEIGHT: `Dokumentinis svoris, kg` (positive) and `Įsigijimo vertė` (a recorded
+    `0` is valid);
+  - PIECE `Pagal prekes`: each product's `Dokumentuose` value independently (a
+    whole number, `0` included);
+  - PIECE `Bendras kiekis`: the single total instead.
+  Optional `Dokumento data` and `Dokumento Nr.` stay neutral.
+- A multi-product PIECE batch shows `N prekės`; expanding it reveals the
+  `PXX prekės` product table and the existing itemised comparison, with
+  `Pagal prekes` / `Bendras kiekis` preserved so itemised shortages and surpluses
+  are recorded separately.
+- Document date/number and the discrepancy acknowledgement are available in the
+  expanded row / confirmation dialog.
+- Each pending batch has exactly one confirmation button carrying its code:
+  `Patvirtinti P01` sits on the collapsed summary row and moves to the
+  bottom-right of the group, immediately after the expanded inputs. The
+  discrepancy dialog names the same batch (`Patvirtinti P01 su neatitikimu?`).
+  Confirmation applies only to that batch; the receipt list derives
+  `Patvirtintas` when the last batch is confirmed. There is no separate
+  receipt-confirmation button.
+- The `Priėmimo išlaidos` block sits below the batch groups and is manager-only.
+  The proposal preview shows each batch's `Įsigijimo vertė, €` beside its actual
+  quantity so a mixed `Pagal vertę` split can be checked before apply.
+- Warehouse workers do not see this screen or any acquisition/transport/customs
+  controls; they retain the operational `/receiving/...` screens, direct links and
+  pending-batch continuation.
+- **New receipt** (`/receiving/new`): only the receipt header form
+  (**`Tiekėjas`** + **`Atvykimo data`**; no warehouse, no resource; the code is
+  system-generated). Opening or leaving this form creates **no database record**;
+  `Pradėti priėmimą` is the explicit `POST /deliveries` that creates the receipt
+  and opens `/receiving/[deliveryId]`.
+- **Delivery screen** (`/receiving/[deliveryId]`): opening a started/selected
+  receipt or creating one navigates to its own route, so the URL is
+  bookmarkable/refreshable and browser Back works naturally; the page heading
+  `Priėmimas <code>` is shown **once**, the `Priėmimo turinys` heading sits above
+  its batch table, and `← Priėmimų sąrašas` returns to `/receipts`. The top-level
+  `Priėmimas` navigation stays active throughout. The screen is **delivery
+  first**: supplier and arrival date, the batch table, then the `Nauja partija`
+  resource/warehouse selection. The worker uses **`Pradėti registruoti`** to start
+  or resolve one batch per resource/warehouse; **`Kitas išteklius`** clears the
+  active resource/batch and starts another batch **in the same delivery**
+  (packaging preference is batch-specific — a new batch starts without a `Tara`
+  selection). When **every** batch of the receipt is `CONFIRMED`, the operational
+  screen becomes read-only: the `Nauja partija` block is replaced by
+  `Priėmimas patvirtintas. Duomenų keisti negalima; …`, rows still open the batch
+  contents and label reprinting for active units, and receipt-level expense
+  revisions stay on the manager screen. A partially confirmed receipt keeps the
+  `Nauja partija` block and editable pending batches; each `CONFIRMED` row opens
+  read-only. Direct URLs to a confirmed batch produce the same read-only view, and
+  the server still rejects physical changes (`BATCH_ALREADY_CONFIRMED`). Package entry
   takes **`Tara`** (active packaging types only), **`Vieta`** (required) and
   **`Bruto svoris`**; the UI shows the calculated **`Taros svoris`** and **`Neto
   svoris`** (the worker enters only the gross weight). The batch's **latest active
   package** supplies the suggested packaging type (`suggestedPackagingTypeId`) and
   location (`suggestedLocationId`) — server-derived so they survive a
   refresh/re-entry; a batch with no active package suggests nothing.
+- **Batch editor** (`/receiving/[deliveryId]/batches/[batchId]`): the
+  `Priėmimo turinys` heading stays above the batch table, and the navigation
+  action to the parent receipt is labelled `Redaguoti priėmimą` while the batch is
+  `PENDING` and the operator may edit, otherwise `Peržiūrėti priėmimą`. It opens
+  `/receiving/[deliveryId]` for that exact batch's parent receipt. A
+  `CONFIRMED` batch, whether reached from the receipt table or a direct URL,
+  shows no add/correct/void or `Redaguoti partiją`/`Nauja pakuotė` controls;
+  active packages remain visible with `Spausdinti` for label reprinting. Receipt
+  transport/customs revision stays available to ADMIN through
+  `/receipts/[deliveryId]`.
 - **Save actions:** **`Išsaugoti ir spausdinti`** (primary — persists the package
   and goes **straight to the label surface**, invoking the browser print preview)
   and **`Išsaugoti`** (secondary — persists and returns to the form). Both keep the

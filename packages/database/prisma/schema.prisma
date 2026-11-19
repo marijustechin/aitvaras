@@ -66,6 +66,7 @@ model User {
   batchItems             BatchItem[]
   voidedBatchItems       BatchItem[]          @relation("BatchItemVoidedBy")
   pieceReconciliationLines PieceReconciliationLine[]
+  deliveryExpenseApplications DeliveryExpenseApplication[] @relation("ExpenseApplicationAppliedBy")
 
   @@map("users")
 }
@@ -360,6 +361,15 @@ enum DiscrepancySettlementType {
   MONEY
 }
 
+// How receipt-level transport/customs expenses are split across eligible batches.
+// `BY_VALUE` means actual net kg for an all-WEIGHT receipt or actual pieces for an
+// all-PIECE receipt; it is unavailable for mixed receipts. `EQUAL` always divides
+// equally and is the only method for mixed receipts.
+enum DeliveryExpenseAllocationMethod {
+  BY_VALUE
+  EQUAL
+}
+
 // One physical incoming delivery / arrival (Gavimas): the physical goods of ONE
 // supplier on ONE arrival date, registered by a warehouse worker. A delivery is
 // the user-facing receiving unit and the container above batches: it may contain
@@ -379,10 +389,68 @@ model IncomingDelivery {
   supplier  BusinessPartner @relation(fields: [supplierId], references: [id])
   createdBy User            @relation(fields: [createdById], references: [id])
   batches   Batch[]
+  expense   IncomingDeliveryExpense?
+  expenseApplications DeliveryExpenseApplication[]
 
   @@index([supplierId])
   @@index([createdAt])
   @@map("incoming_deliveries")
+}
+
+// One draft expense record per arrival (`Priėmimo išlaidos`). Transport and
+// customs are stored separately. The record is editable while batches are
+// pending; each batch snapshots its allocated shares when it is confirmed.
+model IncomingDeliveryExpense {
+  id               String                        @id @default(uuid()) @db.Uuid
+  deliveryId       String                        @unique @map("delivery_id") @db.Uuid
+  transportAmount  Decimal                       @map("transport_amount") @db.Decimal(14, 2)
+  customsAmount    Decimal                       @map("customs_amount") @db.Decimal(14, 2)
+  allocationMethod DeliveryExpenseAllocationMethod @map("allocation_method")
+  createdAt        DateTime                      @default(now()) @map("created_at")
+  updatedAt        DateTime                      @updatedAt @map("updated_at")
+
+  delivery IncomingDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  @@map("incoming_delivery_expenses")
+}
+
+// One application of a receipt-level expense allocation. The header
+// `IncomingDeliveryExpense` stores the current amounts/method; every apply writes
+// one application with the per-batch previous/new shares, who applied it and
+// when. Reapplying identical amounts writes nothing.
+model DeliveryExpenseApplication {
+  id               String                        @id @default(uuid()) @db.Uuid
+  deliveryId       String                        @map("delivery_id") @db.Uuid
+  transportAmount  Decimal                       @map("transport_amount") @db.Decimal(14, 2)
+  customsAmount    Decimal                       @map("customs_amount") @db.Decimal(14, 2)
+  allocationMethod DeliveryExpenseAllocationMethod @map("allocation_method")
+  appliedById      String                        @map("applied_by_id") @db.Uuid
+  appliedAt        DateTime                      @default(now()) @map("applied_at")
+
+  delivery  IncomingDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  appliedBy User             @relation("ExpenseApplicationAppliedBy", fields: [appliedById], references: [id])
+  entries   DeliveryExpenseApplicationEntry[]
+
+  @@index([deliveryId, appliedAt])
+  @@map("delivery_expense_applications")
+}
+
+// Per-batch previous/new shares captured by one expense application.
+model DeliveryExpenseApplicationEntry {
+  id                       String   @id @default(uuid()) @db.Uuid
+  applicationId            String   @map("application_id") @db.Uuid
+  batchId                  String   @map("batch_id") @db.Uuid
+  previousTransportAmount  Decimal  @map("previous_transport_amount") @db.Decimal(14, 2)
+  newTransportAmount       Decimal  @map("new_transport_amount") @db.Decimal(14, 2)
+  previousCustomsAmount    Decimal  @map("previous_customs_amount") @db.Decimal(14, 2)
+  newCustomsAmount         Decimal  @map("new_customs_amount") @db.Decimal(14, 2)
+
+  application DeliveryExpenseApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  batch       Batch                      @relation(fields: [batchId], references: [id])
+
+  @@unique([applicationId, batchId])
+  @@index([batchId])
+  @@map("delivery_expense_application_entries")
 }
 
 // A receiving batch/lot (Partija): the INTERNAL grouping of ONE resource into ONE
@@ -423,6 +491,11 @@ model Batch {
   documentDate      DateTime? @map("document_date")
   documentNumber    String?   @map("document_number") @db.VarChar(64)
   confirmedAt       DateTime? @map("confirmed_at")
+  // Current applied expense shares for this batch. Applying a revised receipt
+  // allocation updates these values for confirmed and pending batches; stock
+  // valuation reads them once for a confirmed batch.
+  allocatedTransportAmount Decimal? @map("allocated_transport_amount") @db.Decimal(14, 2)
+  allocatedCustomsAmount   Decimal? @map("allocated_customs_amount") @db.Decimal(14, 2)
   createdById       String    @map("created_by_id") @db.Uuid
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
@@ -437,6 +510,7 @@ model Batch {
   discrepancies ReceivingDiscrepancy[]
   pieceReconciliationLines PieceReconciliationLine[]
   discrepancySettlements DiscrepancySettlement[] @relation("DiscrepancySettlementSourceBatch")
+  expenseApplicationEntries DeliveryExpenseApplicationEntry[]
 
   @@unique([deliveryId, code])
   @@unique([deliveryId, resourceId, warehouseId])

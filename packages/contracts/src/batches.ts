@@ -485,10 +485,30 @@ export const ConfirmPieceBatchRequestSchema = z
       .min(1)
       .max(DOCUMENT_NUMBER_MAX_LENGTH)
       .optional(),
-    products: z.array(PieceConfirmationProductSchema),
+    documentPieces: z
+      .number({ error: "Dokumentinis kiekis turi buti sveikasis skaicius." })
+      .int("Dokumentinis kiekis turi buti sveikasis skaicius.")
+      .nonnegative("Dokumentinis kiekis negali buti neigiamas.")
+      .optional(),
+    products: z.array(PieceConfirmationProductSchema).optional(),
     acknowledgeDiscrepancies: z.boolean().optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (value) =>
+      (value.products !== undefined && value.products.length > 0) ||
+      value.documentPieces !== undefined,
+    { message: "Nurodykite dokumentini kieki." },
+  )
+  .refine(
+    (value) =>
+      !(
+        value.products !== undefined &&
+        value.products.length > 0 &&
+        value.documentPieces !== undefined
+      ),
+    { message: "Nurodykite viena dokumentinio kiekio forma." },
+  );
 export type ConfirmPieceBatchRequest = z.infer<
   typeof ConfirmPieceBatchRequestSchema
 >;

@@ -17,6 +17,9 @@ import type {
   CreateBagRequest,
   CreateBatchItemRequest,
   CreateIncomingDeliveryRequest,
+  ApplyDeliveryExpensesResponse,
+  DeliveryExpensePreview,
+  DeliveryExpenses,
   IncomingDelivery,
   IncomingDeliveryDetail,
   PieceReconciliationRow,
@@ -25,11 +28,19 @@ import type {
   UpdateBagRequest,
   UpdateBatchItemRequest,
   UpdateBatchRegistrationRequest,
+  UpdateDeliveryExpensesRequest,
   VoidBagRequest,
   VoidBatchItemRequest,
 } from "@aitvaras/contracts";
 import { PrismaService } from "../../infrastructure/prisma/prisma.service";
 import { generateBagBarcode } from "./bag-barcode";
+import {
+  allocateExpenses,
+  allocationBasis,
+  MissingAcquisitionValueError,
+  proportionalEligibility,
+  ZeroAcquisitionBasisError,
+} from "./expense-allocation";
 import {
   formatBatchCode,
   MAX_BATCH_SEQUENCE,
@@ -113,6 +124,9 @@ const itemInclude = {
 const deliveryInclude = {
   supplier: true,
   createdBy: true,
+  expense: {
+    select: { transportAmount: true, customsAmount: true },
+  },
 } satisfies Prisma.IncomingDeliveryInclude;
 
 function isUniqueConstraintError(error: unknown): boolean {
@@ -182,6 +196,51 @@ export class BatchesService {
   }
 
   /**
+   * Delete a started receipt that has no batches.
+   *
+   * The delivery row is locked `FOR UPDATE` so a concurrent first-batch insert
+   * cannot slip between the batch-count check and the delete. A non-zero
+   * transport/customs expense also blocks deletion; a zero-amount expense record
+   * is removed with the receipt by the cascade.
+   */
+  async deleteDelivery(id: string): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM "incoming_deliveries" WHERE id = ${id}::uuid FOR UPDATE
+      `;
+      if (locked.length === 0) {
+        throw new NotFoundException({
+          code: "DELIVERY_NOT_FOUND",
+          message: "Gavimas nerastas.",
+        });
+      }
+      const batchCount = await tx.batch.count({ where: { deliveryId: id } });
+      if (batchCount > 0) {
+        throw new ConflictException({
+          code: "DELIVERY_HAS_BATCHES",
+          message:
+            "Priėmimo ištrinti negalima: jame jau yra partijų.",
+        });
+      }
+      const expense = await tx.incomingDeliveryExpense.findUnique({
+        where: { deliveryId: id },
+        select: { transportAmount: true, customsAmount: true },
+      });
+      if (
+        expense &&
+        (!expense.transportAmount.isZero() || !expense.customsAmount.isZero())
+      ) {
+        throw new ConflictException({
+          code: "DELIVERY_HAS_EXPENSES",
+          message:
+            "Priėmimo ištrinti negalima: užregistruotos transporto arba muitinės išlaidos.",
+        });
+      }
+      await tx.incomingDelivery.delete({ where: { id } });
+    });
+  }
+
+  /**
    * All deliveries, newest first, with derived batch counts. `pendingBatchCount`
    * is computed from the child batches (a delivery with no batches counts as
    * open work); the open receiving queue filters on it rather than a stored
@@ -239,6 +298,379 @@ export class BatchesService {
     return {
       ...toDelivery(delivery, batches.length, pendingBatchCount),
       batches,
+    };
+  }
+
+  /** The shared receipt expense record, with zero defaults before first save. */
+  async getDeliveryExpenses(deliveryId: string): Promise<DeliveryExpenses> {
+    const delivery = await this.prisma.incomingDelivery.findUnique({
+      where: { id: deliveryId },
+      select: { id: true },
+    });
+    if (!delivery) {
+      throw new NotFoundException({
+        code: "DELIVERY_NOT_FOUND",
+        message: "Gavimas nerastas.",
+      });
+    }
+    const record = await this.prisma.incomingDeliveryExpense.findUnique({
+      where: { deliveryId },
+    });
+    return record
+      ? {
+          deliveryId,
+          transportAmount: record.transportAmount.toString(),
+          customsAmount: record.customsAmount.toString(),
+          allocationMethod: record.allocationMethod,
+          updatedAt: record.updatedAt.toISOString(),
+        }
+      : {
+          deliveryId,
+          transportAmount: "0",
+          customsAmount: "0",
+          allocationMethod: "BY_VALUE",
+          updatedAt: null,
+        };
+  }
+
+  /** Create/replace the shared receipt expenses without applying an allocation. */
+  async updateDeliveryExpenses(
+    deliveryId: string,
+    input: UpdateDeliveryExpensesRequest,
+  ): Promise<DeliveryExpenses> {
+    const delivery = await this.prisma.incomingDelivery.findUnique({
+      where: { id: deliveryId },
+      select: { id: true },
+    });
+    if (!delivery) {
+      throw new NotFoundException({
+        code: "DELIVERY_NOT_FOUND",
+        message: "Gavimas nerastas.",
+      });
+    }
+    const transportAmount = new Prisma.Decimal(input.transportAmount);
+    const customsAmount = new Prisma.Decimal(input.customsAmount);
+    const record = await this.prisma.incomingDeliveryExpense.upsert({
+      where: { deliveryId },
+      create: {
+        deliveryId,
+        transportAmount,
+        customsAmount,
+        allocationMethod: input.allocationMethod,
+      },
+      update: {
+        transportAmount,
+        customsAmount,
+        allocationMethod: input.allocationMethod,
+      },
+    });
+    return {
+      deliveryId,
+      transportAmount: record.transportAmount.toString(),
+      customsAmount: record.customsAmount.toString(),
+      allocationMethod: record.allocationMethod,
+      updatedAt: record.updatedAt.toISOString(),
+    };
+  }
+
+  /** The proposed allocation without writing anything. */
+  async previewDeliveryExpenses(
+    deliveryId: string,
+    input: UpdateDeliveryExpensesRequest,
+  ): Promise<DeliveryExpensePreview> {
+    await this.assertDeliveryExists(this.prisma, deliveryId);
+    return this.buildExpensePreview(this.prisma, deliveryId, input);
+  }
+
+  /**
+   * Apply the proposed allocation to the whole receipt, including confirmed
+   * batches. A confirmed batch only changes its expense valuation (physical data
+   * is untouched). The application ledger records who/when and previous/new
+   * shares per batch. Reapplying identical amounts writes nothing.
+   */
+  async applyDeliveryExpenses(
+    deliveryId: string,
+    input: UpdateDeliveryExpensesRequest,
+    actorId: string,
+  ): Promise<ApplyDeliveryExpensesResponse> {
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM "incoming_deliveries" WHERE id = ${deliveryId}::uuid FOR UPDATE
+      `;
+      if (locked.length === 0) {
+        throw new NotFoundException({
+          code: "DELIVERY_NOT_FOUND",
+          message: "Gavimas nerastas.",
+        });
+      }
+      const preview = await this.buildExpensePreview(tx, deliveryId, input);
+      if (
+        input.allocationMethod === "BY_VALUE" &&
+        !preview.proportionalAvailable
+      ) {
+        throw new BadRequestException({
+          code: "ACQUISITION_BASIS_UNAVAILABLE",
+          message:
+            preview.proportionalBlockedReason ??
+            "Proporcinis paskirstymas negalimas.",
+        });
+      }
+      const header = await tx.incomingDeliveryExpense.findUnique({
+        where: { deliveryId },
+      });
+      const headerUnchanged = header
+        ? header.transportAmount.equals(input.transportAmount) &&
+          header.customsAmount.equals(input.customsAmount) &&
+          header.allocationMethod === input.allocationMethod
+        : new Prisma.Decimal(input.transportAmount).isZero() &&
+          new Prisma.Decimal(input.customsAmount).isZero();
+      const batchesUnchanged = preview.batches.every(
+        (batch) =>
+          new Prisma.Decimal(batch.currentTransportAmount).equals(
+            batch.proposedTransportAmount,
+          ) &&
+          new Prisma.Decimal(batch.currentCustomsAmount).equals(
+            batch.proposedCustomsAmount,
+          ),
+      );
+      if (headerUnchanged && batchesUnchanged) {
+        return { ...preview, applied: false, applicationId: null };
+      }
+
+      const transportAmount = new Prisma.Decimal(input.transportAmount);
+      const customsAmount = new Prisma.Decimal(input.customsAmount);
+      const application = await tx.deliveryExpenseApplication.create({
+        data: {
+          deliveryId,
+          transportAmount,
+          customsAmount,
+          allocationMethod: input.allocationMethod,
+          appliedById: actorId,
+          entries: {
+            create: preview.batches.map((batch) => ({
+              batchId: batch.batchId,
+              previousTransportAmount: new Prisma.Decimal(
+                batch.currentTransportAmount,
+              ),
+              newTransportAmount: new Prisma.Decimal(
+                batch.proposedTransportAmount,
+              ),
+              previousCustomsAmount: new Prisma.Decimal(
+                batch.currentCustomsAmount,
+              ),
+              newCustomsAmount: new Prisma.Decimal(
+                batch.proposedCustomsAmount,
+              ),
+            })),
+          },
+        },
+      });
+      for (const batch of preview.batches) {
+        await tx.batch.update({
+          where: { id: batch.batchId },
+          data: {
+            allocatedTransportAmount: new Prisma.Decimal(
+              batch.proposedTransportAmount,
+            ),
+            allocatedCustomsAmount: new Prisma.Decimal(
+              batch.proposedCustomsAmount,
+            ),
+          },
+        });
+      }
+      await tx.incomingDeliveryExpense.upsert({
+        where: { deliveryId },
+        create: {
+          deliveryId,
+          transportAmount,
+          customsAmount,
+          allocationMethod: input.allocationMethod,
+        },
+        update: {
+          transportAmount,
+          customsAmount,
+          allocationMethod: input.allocationMethod,
+        },
+      });
+      const appliedPreview = await this.buildExpensePreview(tx, deliveryId, input);
+      return {
+        ...appliedPreview,
+        applied: true,
+        applicationId: application.id,
+      };
+    });
+  }
+
+  private async assertDeliveryExists(
+    client: Prisma.TransactionClient | PrismaService,
+    deliveryId: string,
+  ): Promise<void> {
+    const delivery = await client.incomingDelivery.findUnique({
+      where: { id: deliveryId },
+      select: { id: true },
+    });
+    if (!delivery) {
+      throw new NotFoundException({
+        code: "DELIVERY_NOT_FOUND",
+        message: "Gavimas nerastas.",
+      });
+    }
+  }
+
+  /** Batch-level expense state used by preview/apply. */
+  private async expenseBatchStates(
+    client: Prisma.TransactionClient | PrismaService,
+    deliveryId: string,
+  ) {
+    const batches = await client.batch.findMany({
+      where: { deliveryId },
+      orderBy: [{ code: "asc" }, { id: "asc" }],
+      select: {
+        id: true,
+        code: true,
+        receivingMode: true,
+        status: true,
+        resource: { select: { name: true } },
+        acquisitionAmount: true,
+        allocatedTransportAmount: true,
+        allocatedCustomsAmount: true,
+        bags: {
+          where: { status: "ACTIVE" },
+          select: { netWeight: true },
+        },
+        items: {
+          where: { status: "ACTIVE" },
+          select: { quantity: true },
+        },
+      },
+    });
+    return batches.map((batch) => ({
+      id: batch.id,
+      code: batch.code,
+      receivingMode: batch.receivingMode,
+      status: batch.status,
+      resourceName: batch.resource?.name ?? null,
+      acquisitionAmount: batch.acquisitionAmount,
+      unit: batch.receivingMode === "WEIGHT" ? ("KG" as const) : ("PCS" as const),
+      quantity:
+        batch.receivingMode === "WEIGHT"
+          ? batch.bags.reduce(
+              (sum, bag) => sum.plus(bag.netWeight),
+              new Prisma.Decimal(0),
+            )
+          : new Prisma.Decimal(
+              batch.items.reduce((sum, item) => sum + item.quantity, 0),
+            ),
+      currentTransport:
+        batch.allocatedTransportAmount ?? new Prisma.Decimal(0),
+      currentCustoms: batch.allocatedCustomsAmount ?? new Prisma.Decimal(0),
+    }));
+  }
+
+  private async buildExpensePreview(
+    client: Prisma.TransactionClient | PrismaService,
+    deliveryId: string,
+    input: UpdateDeliveryExpensesRequest,
+  ): Promise<DeliveryExpensePreview> {
+    const batches = await this.expenseBatchStates(client, deliveryId);
+    const transportAmount = new Prisma.Decimal(input.transportAmount);
+    const customsAmount = new Prisma.Decimal(input.customsAmount);
+    const allocationInputs = batches.map((batch) => ({
+      id: batch.id,
+      code: batch.code,
+      receivingMode: batch.receivingMode,
+      quantity: batch.quantity,
+      acquisitionAmount: batch.acquisitionAmount,
+    }));
+    const eligibility = proportionalEligibility(allocationInputs);
+    const basis = allocationBasis(allocationInputs);
+    let shares = new Map<
+      string,
+      { transport: Prisma.Decimal; customs: Prisma.Decimal }
+    >();
+    if (input.allocationMethod === "EQUAL" || eligibility.available) {
+      try {
+        shares = allocateExpenses(
+          allocationInputs,
+          input.allocationMethod,
+          transportAmount,
+          customsAmount,
+        );
+      } catch (error) {
+        if (error instanceof MissingAcquisitionValueError) {
+          throw new BadRequestException({
+            code: "ACQUISITION_VALUE_MISSING",
+            message: error.message,
+          });
+        }
+        if (error instanceof ZeroAcquisitionBasisError) {
+          throw new BadRequestException({
+            code: "ACQUISITION_BASIS_ZERO",
+            message: error.message,
+          });
+        }
+        throw error;
+      }
+    } else {
+      // Blocked proportional preview: keep current allocations so the manager
+      // sees the existing valuation and the explicit reason beside the method.
+      for (const batch of batches) {
+        shares.set(batch.id, {
+          transport: batch.currentTransport,
+          customs: batch.currentCustoms,
+        });
+      }
+    }
+    const rows = batches.map((batch) => {
+      const share = shares.get(batch.id);
+      return {
+        batchId: batch.id,
+        code: batch.code,
+        resourceName: batch.resourceName,
+        receivingMode: batch.receivingMode,
+        unit: batch.unit,
+        actualQuantity: batch.quantity.toString(),
+        acquisitionAmount: batch.acquisitionAmount?.toString() ?? null,
+        status: batch.status,
+        currentTransportAmount: batch.currentTransport.toString(),
+        currentCustomsAmount: batch.currentCustoms.toString(),
+        proposedTransportAmount: (share?.transport ?? new Prisma.Decimal(0)).toString(),
+        proposedCustomsAmount: (share?.customs ?? new Prisma.Decimal(0)).toString(),
+      };
+    });
+    const allocatedTransport = rows.reduce(
+      (sum, row) => sum.plus(row.proposedTransportAmount),
+      new Prisma.Decimal(0),
+    );
+    const allocatedCustoms = rows.reduce(
+      (sum, row) => sum.plus(row.proposedCustomsAmount),
+      new Prisma.Decimal(0),
+    );
+    const last = await client.deliveryExpenseApplication.findFirst({
+      where: { deliveryId },
+      orderBy: { appliedAt: "desc" },
+      select: {
+        appliedAt: true,
+        appliedBy: { select: { firstName: true, lastName: true } },
+      },
+    });
+    return {
+      deliveryId,
+      transportAmount: transportAmount.toString(),
+      customsAmount: customsAmount.toString(),
+      allocationMethod: input.allocationMethod,
+      basis,
+      proportionalAvailable: eligibility.available,
+      proportionalBlockedReason: eligibility.blockedReason,
+      batches: rows,
+      allocatedTransportTotal: allocatedTransport.toString(),
+      allocatedCustomsTotal: allocatedCustoms.toString(),
+      unallocatedTransport: transportAmount.minus(allocatedTransport).toString(),
+      unallocatedCustoms: customsAmount.minus(allocatedCustoms).toString(),
+      lastAppliedAt: last?.appliedAt.toISOString() ?? null,
+      lastAppliedByName: last
+        ? `${last.appliedBy.firstName} ${last.appliedBy.lastName}`.trim()
+        : null,
     };
   }
 
@@ -1012,6 +1444,7 @@ export class BatchesService {
         code: true,
         status: true,
         receivingMode: true,
+        deliveryId: true,
         delivery: { select: { supplierId: true } },
       },
     });
@@ -1049,54 +1482,77 @@ export class BatchesService {
       });
     }
     const actual = aggregateActualPieces(items);
-    const actualByResource = new Set(actual.map((row) => row.resourceId));
+    const totalPieces = actual.reduce((sum, row) => sum + row.actualPieces, 0);
 
-    const documentByResource = new Map<string, number>();
-    for (const product of input.products) {
-      if (!actualByResource.has(product.resourceId)) {
+    let lines: Array<{
+      resourceId: string;
+      resourceName: string;
+      actualPieces: number;
+      documentPieces: number;
+      differencePieces: number;
+    }> = [];
+    let mismatched: typeof lines = [];
+    let totalDocumentPieces: number;
+    let aggregateDifference = 0;
+
+    if (input.documentPieces !== undefined) {
+      totalDocumentPieces = input.documentPieces;
+      aggregateDifference = totalPieces - totalDocumentPieces;
+      if (aggregateDifference !== 0 && input.acknowledgeDiscrepancies !== true) {
         throw new BadRequestException({
-          code: "UNKNOWN_RESOURCE",
-          message: "Nurodyta prekė nepriklauso šiai partijai.",
+          code: "DISCREPANCY_NOT_ACKNOWLEDGED",
+          message: "Neatitikimas turi būti patvirtintas.",
         });
       }
-      if (documentByResource.has(product.resourceId)) {
+    } else {
+      const products = input.products ?? [];
+      const actualByResource = new Set(actual.map((row) => row.resourceId));
+      const documentByResource = new Map<string, number>();
+      for (const product of products) {
+        if (!actualByResource.has(product.resourceId)) {
+          throw new BadRequestException({
+            code: "UNKNOWN_RESOURCE",
+            message: "Nurodyta prekė nepriklauso šiai partijai.",
+          });
+        }
+        if (documentByResource.has(product.resourceId)) {
+          throw new BadRequestException({
+            code: "DUPLICATE_RESOURCE",
+            message: "Ta pati prekė nurodyta kelis kartus.",
+          });
+        }
+        documentByResource.set(product.resourceId, product.documentPieces);
+      }
+      if (actual.some((row) => !documentByResource.has(row.resourceId))) {
         throw new BadRequestException({
-          code: "DUPLICATE_RESOURCE",
-          message: "Ta pati prekė nurodyta kelis kartus.",
+          code: "MISSING_DOCUMENT_PIECES",
+          message: "Įveskite dokumentinius kiekius visoms prekėms.",
         });
       }
-      documentByResource.set(product.resourceId, product.documentPieces);
-    }
-    if (actual.some((row) => !documentByResource.has(row.resourceId))) {
-      throw new BadRequestException({
-        code: "MISSING_DOCUMENT_PIECES",
-        message: "Įveskite dokumentinius kiekius visoms prekėms.",
+
+      lines = actual.map((row) => {
+        const documentPieces = documentByResource.get(row.resourceId)!;
+        return {
+          resourceId: row.resourceId,
+          resourceName: row.resourceName,
+          actualPieces: row.actualPieces,
+          documentPieces,
+          differencePieces: row.actualPieces - documentPieces,
+        };
       });
+      mismatched = lines.filter((line) => line.differencePieces !== 0);
+      if (mismatched.length > 0 && input.acknowledgeDiscrepancies !== true) {
+        throw new BadRequestException({
+          code: "DISCREPANCY_NOT_ACKNOWLEDGED",
+          message: "Neatitikimai turi būti patvirtinti.",
+        });
+      }
+      totalDocumentPieces = lines.reduce(
+        (sum, line) => sum + line.documentPieces,
+        0,
+      );
     }
 
-    const lines = actual.map((row) => {
-      const documentPieces = documentByResource.get(row.resourceId)!;
-      return {
-        resourceId: row.resourceId,
-        resourceName: row.resourceName,
-        actualPieces: row.actualPieces,
-        documentPieces,
-        differencePieces: row.actualPieces - documentPieces,
-      };
-    });
-    const mismatched = lines.filter((line) => line.differencePieces !== 0);
-    if (mismatched.length > 0 && input.acknowledgeDiscrepancies !== true) {
-      throw new BadRequestException({
-        code: "DISCREPANCY_NOT_ACKNOWLEDGED",
-        message: "Neatitikimai turi būti patvirtinti.",
-      });
-    }
-
-    const totalPieces = lines.reduce((sum, line) => sum + line.actualPieces, 0);
-    const totalDocumentPieces = lines.reduce(
-      (sum, line) => sum + line.documentPieces,
-      0,
-    );
     const acquisitionAmount = new Prisma.Decimal(input.acquisitionAmount);
     const documentDate = input.documentDate ? new Date(input.documentDate) : null;
     const documentNumber = input.documentNumber ?? null;
@@ -1108,6 +1564,7 @@ export class BatchesService {
         data: {
           status: "CONFIRMED",
           acquisitionAmount,
+          documentPieces: totalDocumentPieces,
           documentDate,
           documentNumber,
           confirmedAt,
@@ -1141,6 +1598,19 @@ export class BatchesService {
             actualPieces: line.actualPieces,
             documentPieces: line.documentPieces,
             differencePieces: line.differencePieces,
+            createdById: actorId,
+          },
+        });
+      }
+      if (aggregateDifference !== 0) {
+        await tx.receivingDiscrepancy.create({
+          data: {
+            kind: "PIECE",
+            batchId,
+            supplierId: batch.delivery.supplierId,
+            actualPieces: totalPieces,
+            documentPieces: totalDocumentPieces,
+            differencePieces: aggregateDifference,
             createdById: actorId,
           },
         });
@@ -1308,7 +1778,8 @@ export class BatchesService {
 
       // Conditional update: a concurrent/retried confirmation of an already
       // confirmed batch affects no rows and therefore cannot create a duplicate
-      // discrepancy.
+      // discrepancy. Applied expense shares are kept; confirmation only changes
+      // status and documentary/acquisition data.
       const result = await tx.batch.updateMany({
         where: { id: batchId, status: { not: "CONFIRMED" } },
         data: {

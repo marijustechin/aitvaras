@@ -122,6 +122,17 @@ username; role management stays ADMIN-only via `/users`.
 | Delivery details (with batches) | `GET /deliveries/:id` | authenticated |
 | Start a delivery (supplier + arrival date) | `POST /deliveries` | `ADMIN` or `WAREHOUSE_WORKER` |
 | Start/resolve a resource + warehouse batch in a delivery | `POST /deliveries/:id/batches` | `ADMIN` or `WAREHOUSE_WORKER` |
+| Read the shared receipt expenses | `GET /deliveries/:id/expenses` | `ADMIN` |
+| Save a draft expense header | `PUT /deliveries/:id/expenses` | `ADMIN` |
+| Preview the receipt allocation | `POST /deliveries/:id/expenses/preview` | `ADMIN` |
+| Apply/reapply the receipt allocation | `POST /deliveries/:id/expenses/apply` | `ADMIN` |
+| Delete a batch-less receipt (non-zero expenses block it) | `DELETE /deliveries/:id` | `ADMIN` or `WAREHOUSE_WORKER` |
+
+Batch detail/list responses redact the financial/documentary fields
+(`documentWeight`, `documentPieces`, `difference`, `acquisitionAmount`,
+document date/number) for non-`ADMIN` callers. Warehouse workers retain the
+operational shape (resource, warehouse, status, totals, units, locations,
+barcodes); the manager screens and expense endpoints remain ADMIN-only.
 | List batches | `GET /batches` | authenticated |
 | Batch details (with bags) | `GET /batches/:id` | authenticated |
 | List a batch's bags | `GET /batches/:id/bags` | authenticated |

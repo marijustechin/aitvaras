@@ -105,14 +105,28 @@ packages:
   `netWeight = grossWeight − tare`, with a **required** warehouse location and a
   unique barcode that identifies the physical package only and encodes **no**
   business data;
-- a **PENDING** batch is formally **confirmed** against a `Pajamavimas` line: the
-  accepted **documentary weight**, **initial acquisition value** and optional
-  documentary **piece count** are recorded and compared with the measured net
-  weight; an exact match confirms directly, and a **mismatch does not block
+- a **PENDING** batch is formally **confirmed** against a `Pajamavimas` line with
+  one type-specific documentary quantity: a **WEIGHT** batch records the accepted
+  **documentary weight (kg)** and compares it with the measured net weight; a
+  **PIECE** batch records either **itemised documentary pieces per product** or one
+  **aggregate documentary total (`vnt.`)** and compares it with the actual counted
+  pieces. Both record the **initial acquisition value** and optional document
+  date/number; an exact match confirms directly, and a **mismatch does not block
   confirmation** — it confirms (with an explicit acknowledgement) and records a
   long-lived **`ReceivingDiscrepancy`** (`OPEN`); the physical stock stays the
-  measured net weight and the signed difference is `measured − document`. No new
-  packages or stock are created (pieces are documentary only);
+  measured quantity and the signed difference is `actual − document`. No new
+  packages or stock are created;
+- transport and customs are entered **once per `Priėmimas`** as a shared
+  `IncomingDeliveryExpense` (`Transportas, €`, `Muitinė, €`), previewed and applied
+  to its batches `Pagal vertę` (actual net kg for an all-WEIGHT receipt, actual
+  pieces for an all-PIECE receipt, recorded acquisition value in EUR for a mixed
+  kg/vnt. receipt whose eligible batches all have a value and a positive total) or
+  `Po lygiai`; a missing or all-zero mixed acquisition basis blocks only
+  `Pagal vertę` and `Po lygiai` stays available. A late invoice or revised amount
+  can be reapplied to the whole receipt, including confirmed batches, with an
+  audited previous/new share per batch; a confirmed batch's physical quantity,
+  confirmation and discrepancy history stay intact and only its valuation changes
+  by the difference;
 - a long-lived discrepancy is settled through an append-only
   **`DiscrepancySettlement`** ledger (ADMIN `Ataskaitos → Neatitikimai`): `WEIGHT`
   (optional link to the later confirmed same-supplier batch; no stock is added) or
@@ -133,12 +147,13 @@ See [batches.md](batches.md), [piece-batches.md](piece-batches.md) and
 
 The `Suvestinė` dashboard shows a **read-only stock summary derived from confirmed
 receiving batches**: active package net weight, active PIECE item quantity, and
-the remaining acquisition value added once per confirmed batch. It introduces
-**no stock-balance table, movement ledger, lot ledger or new valuation method**;
-it is a projection of the confirmed receiving data. Missing acquisition values
-are shown as incomplete rather than zero. See
-[stock-summary.md](stock-summary.md).
-Vehicles/transport, scan-driven warehouse movements, package split/merge,
+each confirmed batch's acquisition value plus its **current applied**
+transport/customs shares, added once per confirmed batch. A confirmed share may
+change only through an audited application; stock value then changes by the
+difference. It introduces **no stock-balance table, movement ledger, lot ledger
+or new valuation method**; it is a projection of the confirmed receiving data. Missing acquisition values are shown as incomplete rather than
+zero. See [stock-summary.md](stock-summary.md).
+Vehicles/transport logistics, scan-driven warehouse movements, package split/merge,
 settlement reversal/correction, overage-specific return/write-off semantics,
 tolerance handling, production lineage and cost redistribution are **not**
 implemented.

@@ -13,17 +13,6 @@ import {
   type DraftResource,
 } from "./batch-form";
 
-/**
- * Modes of the `/receiving` list screen.
- *
- * - `choose` — show the open receiving queue and start a new `Naujas priėmimas`;
- * - `new` — enter the receipt header (supplier, arrival date).
- *
- * Working inside one receipt is a separate route (`/receiving/[deliveryId]`), not
- * a mode of the list screen.
- */
-export type ReceivingMode = "choose" | "new";
-
 /** Label for the "start a new receipt" action. */
 export const NEW_DELIVERY_LABEL = "Naujas priėmimas";
 
@@ -32,12 +21,6 @@ export const DELIVERY_FORM_HEADING = "Priėmimo informacija";
 
 /** Primary action of the delivery header form. */
 export const START_DELIVERY_LABEL = "Pradėti priėmimą";
-
-/** Heading of the open-receipts list in choose mode. */
-export const OPEN_DELIVERIES_HEADING = "Nepatvirtinti priėmimai";
-
-/** Empty-state text when there are no receipts to continue. */
-export const EMPTY_DELIVERIES_MESSAGE = "Nėra priėmimų.";
 
 /** Action that resolves/creates the internal batch for the chosen resource. */
 export const START_RESOURCE_LABEL = "Pradėti registruoti";
@@ -99,23 +82,11 @@ export type DeliveryContextField = (typeof DELIVERY_CONTEXT_FIELDS)[number];
 /** Back/navigation action on a receipt screen (returns to the receipt list). */
 export const DELIVERIES_LIST_BACK_LABEL = "← Priėmimų sąrašas";
 
-/**
- * The warehouse **open receiving queue** (`Nepatvirtinti priėmimai`): deliveries
- * that still need physical receiving work. Openness is derived from the child
- * batches, never a stored delivery status:
- *
- * - at least one `PENDING` batch → open (present);
- * - no batches yet (just created) → open (present);
- * - all batches `CONFIRMED` → closed (absent; confirmed history stays in the
- *   `Priėmimas` workflow).
- */
-export function openReceivingDeliveries(
-  deliveries: IncomingDelivery[],
-): IncomingDelivery[] {
-  return deliveries.filter(
-    (delivery) => delivery.batchCount === 0 || delivery.pendingBatchCount > 0,
-  );
-}
+/** Parent-receipt action when the operator may still edit the receipt. */
+export const EDIT_DELIVERY_LABEL = "Redaguoti priėmimą";
+
+/** Parent-receipt action when the operator has read-only access. */
+export const VIEW_DELIVERY_LABEL = "Peržiūrėti priėmimą";
 
 /** The internal batches of a delivery, in registration order. */
 export function deliveryBatches(
@@ -329,7 +300,7 @@ export const PIECE_BATCH_HEADING = "Vienetinė partija";
 export const PIECE_ITEMS_HEADING = "Prekės";
 
 /** PIECE item form labels. */
-export const ITEM_RESOURCE_LABEL = "Prekės pavadinimas";
+export const ITEM_RESOURCE_LABEL = "Prekė";
 export const ITEM_QUANTITY_LABEL = "Kiekis, vnt.";
 export const ITEM_LOCATION_LABEL = "Vieta";
 export const ITEMS_TOTAL_LABEL = "Iš viso";

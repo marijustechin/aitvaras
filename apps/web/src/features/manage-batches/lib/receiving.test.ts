@@ -24,8 +24,8 @@ import {
   DELIVERY_CONTENTS_HEADING,
   DELIVERY_CONTEXT_FIELDS,
   deliveryBatches,
+  EDIT_DELIVERY_LABEL,
   EMPTY_BATCH_UNITS_MESSAGE,
-  EMPTY_DELIVERIES_MESSAGE,
   EMPTY_DELIVERY_CONTENTS_MESSAGE,
   enterBatch,
   enterDelivery,
@@ -33,14 +33,13 @@ import {
   initialReceivingState,
   NEW_DELIVERY_LABEL,
   openLabel,
-  openReceivingDeliveries,
-  OPEN_DELIVERIES_HEADING,
   REPRINT_LABEL,
   RESOURCE_SELECTION_FIELDS,
   SAVE_AND_PRINT_LABEL,
   SAVE_LABEL,
   START_DELIVERY_LABEL,
   START_RESOURCE_LABEL,
+  VIEW_DELIVERY_LABEL,
   VOID_CONFIRM_LABEL,
   VOID_LABEL,
   VOIDED_UNITS_HEADING,
@@ -118,6 +117,7 @@ function delivery(
     createdByName: "Vardas Pavardė",
     batchCount: 1,
     pendingBatchCount: 1,
+    hasNonZeroExpenses: false,
     batches: [batch()],
     createdAt: "2026-09-29T09:00:00.000Z",
     updatedAt: "2026-09-29T09:00:00.000Z",
@@ -152,8 +152,6 @@ describe("receiving modes and labels", () => {
   it("exposes the receipt-centric labels", () => {
     expect(NEW_DELIVERY_LABEL).toBe("Naujas priėmimas");
     expect(START_DELIVERY_LABEL).toBe("Pradėti priėmimą");
-    expect(OPEN_DELIVERIES_HEADING).toBe("Nepatvirtinti priėmimai");
-    expect(EMPTY_DELIVERIES_MESSAGE).toBe("Nėra priėmimų.");
     expect(START_RESOURCE_LABEL).toBe("Pradėti registruoti");
     expect(DELIVERY_CONTENTS_HEADING).toBe("Priėmimo turinys");
     expect(EMPTY_DELIVERY_CONTENTS_MESSAGE).toBe(
@@ -377,35 +375,6 @@ describe("batch unit list", () => {
   });
 });
 
-describe("openReceivingDeliveries — warehouse open queue", () => {
-  it("shows a delivery while it still has a pending batch", () => {
-    const pending = delivery({ batchCount: 2, pendingBatchCount: 1 });
-    expect(openReceivingDeliveries([pending])).toHaveLength(1);
-  });
-
-  it("keeps a just-created delivery with no batches yet", () => {
-    const empty = delivery({ batchCount: 0, pendingBatchCount: 0, batches: [] });
-    expect(openReceivingDeliveries([empty])).toHaveLength(1);
-  });
-
-  it("hides a delivery whose batches are all confirmed", () => {
-    const confirmed = delivery({ batchCount: 2, pendingBatchCount: 0 });
-    expect(openReceivingDeliveries([confirmed])).toEqual([]);
-  });
-
-  it("keeps a mixed confirmed/pending delivery in the queue", () => {
-    const mixed = delivery({ batchCount: 3, pendingBatchCount: 2 });
-    const closed = delivery({
-      id: "other",
-      batchCount: 1,
-      pendingBatchCount: 0,
-    });
-    expect(openReceivingDeliveries([mixed, closed]).map((d) => d.id)).toEqual([
-      DELIVERY_ID,
-    ]);
-  });
-});
-
 describe("receiving routes and navigation (source)", () => {
   const srcRoot = fileURLToPath(new URL("../../../", import.meta.url));
   const listSource = readFileSync(
@@ -416,8 +385,16 @@ describe("receiving routes and navigation (source)", () => {
     fileURLToPath(new URL("../ui/receiving-delivery.tsx", import.meta.url)),
     "utf8",
   );
+  const gavimaiSource = readFileSync(
+    fileURLToPath(new URL("../ui/gavimai-page.tsx", import.meta.url)),
+    "utf8",
+  );
   const listRoute = readFileSync(
     join(srcRoot, "app", "receiving", "page.tsx"),
+    "utf8",
+  );
+  const newRoute = readFileSync(
+    join(srcRoot, "app", "receiving", "new", "page.tsx"),
     "utf8",
   );
   const detailRoute = readFileSync(
@@ -425,24 +402,40 @@ describe("receiving routes and navigation (source)", () => {
     "utf8",
   );
 
-  it("keeps /receiving as the list and gives a delivery its own route", () => {
-    expect(listRoute).toContain("ReceivingPage");
+  it("makes /receipts the single list and redirects /receiving to it", () => {
+    expect(listRoute).toContain('redirect("/receipts")');
+    expect(listRoute).not.toContain("ReceivingPage");
+    expect(newRoute).toContain("ReceivingPage");
     expect(detailRoute).toContain("ReceivingDeliveryPage");
+    expect(gavimaiSource).toContain("receiptRows");
+    expect(gavimaiSource).toContain("DELETE_RECEIPT_LABEL");
+    expect(gavimaiSource).toContain("receiptStatusLabel");
+    expect(gavimaiSource).not.toContain("EMPTY_RECEIPTS_HEADING");
   });
 
-  it("navigates to a selected/created delivery instead of ephemeral state", () => {
+  it("creates the receipt only on the explicit new-receipt submit", () => {
     expect(listSource).toContain("router.push(`/receiving/${created.id}`)");
-    expect(listSource).toContain("router.push(`/receiving/${item.id}`)");
+    expect(listSource).not.toContain("router.push(`/receiving/${item.id}`)");
     expect(listSource).not.toContain('setMode("bag")');
     expect(listSource).not.toContain("window.location");
   });
 
-  it("offers a Priėmimų sąrašas back action that returns to the list", () => {
+  it("offers a Priėmimų sąrašas back action that returns to /receipts", () => {
     expect(DELIVERIES_LIST_BACK_LABEL).toBe("← Priėmimų sąrašas");
     expect(detailSource).toContain("DELIVERIES_LIST_BACK_LABEL");
-    expect(detailSource).toContain('href="/receiving"');
+    expect(detailSource).not.toContain('href="/receiving"');
+    expect(detailSource).toContain('href="/receipts"');
     expect(detailSource).not.toContain("Kitas priėmimas");
     expect(detailSource).not.toContain("window.location");
+  });
+
+  it("labels the parent-receipt action by editing availability", () => {
+    expect(EDIT_DELIVERY_LABEL).toBe("Redaguoti priėmimą");
+    expect(VIEW_DELIVERY_LABEL).toBe("Peržiūrėti priėmimą");
+    expect(detailSource).toContain("EDIT_DELIVERY_LABEL");
+    expect(detailSource).toContain("VIEW_DELIVERY_LABEL");
+    expect(detailSource).toContain('href={`/receiving/${activeBatch.deliveryId}`}');
+    expect(detailSource).toContain("DELIVERY_CONTENTS_HEADING");
   });
 });
 
@@ -528,17 +521,26 @@ describe("PIECE batch confirmation (source)", () => {
     expect(source).toContain("formatSignedPieces");
   });
 
-  it("renders the per-product reconciliation table", () => {
-    expect(source).toContain("Sutampa");
-    expect(source).toContain("Dokumentuose");
-    expect(source).toContain("Skirtumas");
-    expect(source).toContain("pieceReconciliation");
+  it("offers itemised and single-total documentary entry", () => {
+    expect(source).toContain("Dokumentinis kiekis, vnt.");
+    expect(source).toContain("Pagal prekes");
+    expect(source).toContain("Bendras kiekis");
+    expect(source).toContain("piece-document-");
+    expect(source).toContain("formatPieces");
+    expect(source).toContain("formatSignedPieces");
   });
 
-  it("requires acknowledgement when any product mismatches", () => {
+  it("shows the actual/documentary/difference comparison in pieces", () => {
+    expect(source).toContain("Faktiškai gauta");
+    expect(source).toContain("Dokumentuose");
+    expect(source).toContain("Skirtumas");
+  });
+
+  it("requires acknowledgement for itemised or aggregate mismatches", () => {
     expect(source).toContain("Patvirtinti priėmimą su neatitikimais?");
-    expect(source).toContain("toConfirmPiecePayload(draftPiece, rows, acknowledge)");
+    expect(source).toContain("toConfirmPiecePayload");
     expect(source).toContain("pieceRowDifference");
+    expect(source).toContain("mismatchedRows");
     expect(source).toContain("confirmPieceWith(true)");
   });
 });

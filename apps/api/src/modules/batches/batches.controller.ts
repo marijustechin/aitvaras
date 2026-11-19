@@ -44,6 +44,7 @@ import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { Roles } from "../../common/decorators/roles.decorator";
 import { ZodValidationPipe } from "../../common/validation/zod-validation.pipe";
 import { BatchesService } from "./batches.service";
+import { redactBatch, redactBatchDetail } from "./batch-redaction";
 
 /**
  * Batches (Partijos) and their bags (Maišai).
@@ -61,13 +62,20 @@ export class BatchesController {
   constructor(private readonly batchesService: BatchesService) {}
 
   @Get()
-  list(@Query("status") status?: string): Promise<Batch[]> {
-    return this.batchesService.list(this.parseStatus(status));
+  async list(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Query("status") status?: string,
+  ): Promise<Batch[]> {
+    const batches = await this.batchesService.list(this.parseStatus(status));
+    return batches.map((batch) => redactBatch(batch, actor));
   }
 
   @Get(":id")
-  get(@Param("id", ParseUUIDPipe) id: string): Promise<BatchDetail> {
-    return this.batchesService.get(id);
+  async get(
+    @Param("id", ParseUUIDPipe) id: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<BatchDetail> {
+    return redactBatchDetail(await this.batchesService.get(id), actor);
   }
 
   @Get(":id/bags")
@@ -82,13 +90,16 @@ export class BatchesController {
 
   @Patch(":id/registration")
   @Roles("ADMIN", "WAREHOUSE_WORKER")
-  updateRegistration(
+  async updateRegistration(
     @Param("id", ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(UpdateBatchRegistrationRequestSchema))
     body: UpdateBatchRegistrationRequest,
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<BatchDetail> {
-    return this.batchesService.updateRegistration(id, body, actor.id);
+    return redactBatchDetail(
+      await this.batchesService.updateRegistration(id, body, actor.id),
+      actor,
+    );
   }
 
   @Post(":id/items")

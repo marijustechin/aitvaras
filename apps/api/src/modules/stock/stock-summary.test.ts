@@ -67,6 +67,24 @@ describe("summarizeStock", () => {
     expect(summary.weight.value).toBe("100");
   });
 
+  it("adds frozen receipt expense shares once per confirmed batch", () => {
+    const summary = summarizeStock({
+      weightKg: decimal("30"),
+      pieces: 0,
+      batches: [
+        {
+          receivingMode: "WEIGHT",
+          acquisitionAmount: decimal("100.00"),
+          allocatedTransportAmount: decimal("20.00"),
+          allocatedCustomsAmount: decimal("5.00"),
+          activeBagCount: 12,
+          activeItemCount: 0,
+        },
+      ],
+    });
+    expect(summary.weight.value).toBe("125");
+  });
+
   it("retains quantity when valuation is missing and flags it", () => {
     const summary = summarizeStock({
       weightKg: decimal("10"),

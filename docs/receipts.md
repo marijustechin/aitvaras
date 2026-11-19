@@ -41,6 +41,19 @@ is modelled explicitly as `GoodsReceiptLine → Batch` (`Batch.receiptLineId`); 
 receipt may reconcile several batches via several lines. See
 [batches.md](batches.md#reconciliation-formal-confirmation).
 
+## Transport and customs expenses
+
+Transport (`Transportas, €`) and customs (`Muitinė, €`) are **not** fields of a
+`GoodsReceipt`/`Pajamavimas`. They belong to the operational `IncomingDelivery`
+(`Priėmimas`) as one shared `IncomingDeliveryExpense` record, previewed and applied
+to the whole receipt through an auditable application ledger. A confirmed batch's
+share may be revised by a late invoice; only its valuation difference changes.
+Pending batches contribute their share when confirmed. The manager screen owns
+the block and the financial endpoints are ADMIN-only. Rules, allocation methods
+and the revision history are documented in
+[batches.md](batches.md#receipt-level-transport-and-customs-expenses-priėmimo-išlaidos)
+and [stock-summary.md](stock-summary.md).
+
 ## Domain model
 
 ```text

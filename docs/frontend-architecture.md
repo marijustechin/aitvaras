@@ -181,8 +181,11 @@ Authenticated navigation is defined in
   a modal drawer opened from the top bar (`Escape`, backdrop click and choosing a
   destination close it; focus is trapped and returned to the trigger).
 - **Operacijos** — daily operational flows: `Suvestinė` and `Priėmimas` are plain
-  destinations. `Priėmimas` covers the received-batch list (`/receipts`) and the
-  new-receipt workflow (`/receiving`, `/receiving/new`, delivery/batch detail).
+  destinations. `Priėmimas` covers the single receipt list (`/receipts`, one row
+  per receipt including zero-batch receipts in `Visos`), the ADMIN manager receipt
+  screen (`/receipts/[deliveryId]`) and the new-receipt/warehouse workflow
+  (`/receiving/new`, `/receiving/[deliveryId]`, batch editor);
+  `/receiving` itself redirects to `/receipts`.
 - **Duomenys / Žinynai** — one section destination whose existing reference-data
   pages render as horizontal child navigation below the heading:
   `Partneriai`, `Ištekliai`, `Kategorijos`, `Tara`, `Sandėliai`.

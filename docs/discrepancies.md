@@ -18,10 +18,12 @@ discrepancy has a **kind**:
 - **WEIGHT** — documentary weight vs the measured net weight (see
   [batches.md](batches.md#reconciliation-formal-confirmation)); one per batch.
   Signed `differenceWeight = measuredWeight − documentWeight`.
-- **PIECE** — documentary pieces vs the actual counted pieces **per product**
-  (see [piece-batches.md](piece-batches.md)); zero-to-many per batch, one per
-  resource. Signed `differencePieces = actualPieces − documentPieces`, carrying
-  piece quantities only (never fake weight).
+- **PIECE** — documentary pieces vs the actual counted pieces (see
+  [piece-batches.md](piece-batches.md)). The current aggregate confirmation
+  creates one per batch without a `resourceId`; the legacy per-product path can
+  create zero-to-many per batch, one per resource. Signed
+  `differencePieces = actualPieces − documentPieces`, carrying piece quantities
+  only (never fake weight).
 
 | Example | Signed difference | Direction |
 |---|---|---|
@@ -40,9 +42,10 @@ yet.
 A future correction/reversal would be a separate audited workflow, not a silent
 rewrite. Settlement is a **WEIGHT-only** workflow today: `coveredWeightKg` and the
 `WEIGHT`/`MONEY` types apply to weight discrepancies. **PIECE discrepancy
-settlement is not defined yet** — the detail shows the product and the signed
-`vnt.` difference and no weight-settlement form (a piece shortage could later be
-covered by pieces, money, replacement products, etc.; that is unconfirmed).
+settlement is not defined yet** - the detail shows the signed `vnt.` difference
+(and the product when the legacy per-product path recorded one) and no
+weight-settlement form (a piece shortage could later be covered by pieces, money,
+replacement products, etc.; that is unconfirmed).
 
 | Field | Meaning |
 |---|---|

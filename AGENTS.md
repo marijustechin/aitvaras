@@ -43,17 +43,23 @@ concise and operational; put durable knowledge in `docs/`.
   is several product/resource **item lines** with integer quantities into one
   warehouse and owns **no** batch-level resource (the batch is the cost/provenance
   pool; the purchase value is not allocated per line). Also implemented: formal
-  **GoodsReceipt reconciliation** for WEIGHT (documentary weight + optional
-  documentary piece count + initial acquisition value; a mismatch **does not block
-  confirmation** — it confirms and records a long-lived `ReceivingDiscrepancy`),
+  **GoodsReceipt reconciliation** with one type-specific documentary quantity —
+  WEIGHT documentary weight, PIECE itemised per-product counts or one aggregate
+  total — plus the initial acquisition value; a mismatch **does not block confirmation** — it
+  confirms and records a long-lived `ReceivingDiscrepancy`), receipt-level
+  transport/customs expenses (`IncomingDeliveryExpense`, one shared record per
+  `Priėmimas`; `Pagal vertę`/`Po lygiai`, allocated to the cent and applied per
+  receipt as an auditable ledger; confirmed batches receive only valuation
+  differences, pending batches contribute their share on confirmation),
   the append-only discrepancy settlement ledger (`DiscrepancySettlement`,
   `WEIGHT`/`MONEY`; never changes inventory and never converts money↔weight) and
   auditable physical package **correction/void** (packaging/gross/location/void;
   `PENDING` only)
   ([docs/batches.md](docs/batches.md), [docs/piece-batches.md](docs/piece-batches.md),
   [docs/discrepancies.md](docs/discrepancies.md),
-  [docs/packaging-types.md](docs/packaging-types.md));
-  vehicles/transport are **outside scope**; scan-driven movements, package
+  [docs/packaging-types.md](docs/packaging-types.md),
+  [docs/stock-summary.md](docs/stock-summary.md));
+  vehicles/transport logistics are **outside scope**; scan-driven movements, package
   **split/merge**, settlement reversal/correction, overage-specific
   return/write-off semantics, production lineage
   and batch/output-lot **cost redistribution** remain **confirmed future

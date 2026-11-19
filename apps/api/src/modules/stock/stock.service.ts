@@ -36,6 +36,8 @@ export class StockService {
           select: {
             receivingMode: true,
             acquisitionAmount: true,
+            allocatedTransportAmount: true,
+            allocatedCustomsAmount: true,
             _count: {
               select: {
                 bags: { where: { status: "ACTIVE" } },
@@ -52,6 +54,8 @@ export class StockService {
       batches: confirmedBatches.map((batch) => ({
         receivingMode: batch.receivingMode,
         acquisitionAmount: batch.acquisitionAmount,
+        allocatedTransportAmount: batch.allocatedTransportAmount,
+        allocatedCustomsAmount: batch.allocatedCustomsAmount,
         activeBagCount: batch._count.bags,
         activeItemCount: batch._count.items,
       })),

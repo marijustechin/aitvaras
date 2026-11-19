@@ -464,6 +464,16 @@ describe.skipIf(!dbAvailable)(
       return res.json() as BatchDetail;
     }
 
+    async function getDetailAsAdmin(batchId: string): Promise<BatchDetail> {
+      const res = await app.inject({
+        method: "GET",
+        url: `/batches/${batchId}`,
+        cookies: { [AUTH_COOKIE_NAME]: adminCookie },
+      });
+      expect(res.statusCode).toBe(200);
+      return res.json() as BatchDetail;
+    }
+
     async function getDeliveryDetail(
       deliveryId: string,
     ): Promise<IncomingDeliveryDetail> {
@@ -526,6 +536,137 @@ describe.skipIf(!dbAvailable)(
       expect(delivery.createdByName).toBe("Seed worker");
       expect("warehouseId" in delivery).toBe(false);
       expect("warehouseName" in delivery).toBe(false);
+    });
+
+    it("keeps a started delivery without batches until the first batch is added", async () => {
+      const delivery = await createDeliveryOk();
+      expect(delivery.batchCount).toBe(0);
+
+      const deliveries = await app
+        .inject({ method: "GET", url: "/deliveries", ...auth() })
+        .then((res) => res.json() as IncomingDelivery[]);
+      const listedBefore = deliveries.find((item) => item.id === delivery.id);
+      expect(listedBefore?.batchCount).toBe(0);
+
+      const batchesBefore = await app
+        .inject({ method: "GET", url: "/batches", ...auth() })
+        .then((res) => res.json() as Batch[]);
+      expect(batchesBefore.some((batch) => batch.deliveryId === delivery.id)).toBe(
+        false,
+      );
+
+      const created = await resolveBatchOk(delivery.id);
+      expect(created.deliveryId).toBe(delivery.id);
+
+      const deliveriesAfter = await app
+        .inject({ method: "GET", url: "/deliveries", ...auth() })
+        .then((res) => res.json() as IncomingDelivery[]);
+      const listedAfter = deliveriesAfter.find((item) => item.id === delivery.id);
+      expect(listedAfter?.batchCount).toBe(1);
+      expect(listedAfter?.pendingBatchCount).toBe(1);
+
+      const batchesAfter = await app
+        .inject({ method: "GET", url: "/batches", ...auth() })
+        .then((res) => res.json() as Batch[]);
+      expect(batchesAfter.some((batch) => batch.id === created.id)).toBe(true);
+    });
+
+    it("deletes a batch-less receipt and removes it from both lists", async () => {
+      const delivery = await createDeliveryOk();
+      const deleted = await app.inject({
+        method: "DELETE",
+        url: `/deliveries/${delivery.id}`,
+        ...auth(),
+      });
+      expect(deleted.statusCode).toBe(204);
+
+      const deliveries = await app
+        .inject({ method: "GET", url: "/deliveries", ...auth() })
+        .then((res) => res.json() as IncomingDelivery[]);
+      expect(deliveries.some((item) => item.id === delivery.id)).toBe(false);
+      expect(
+        await prisma.incomingDelivery.findUnique({ where: { id: delivery.id } }),
+      ).toBeNull();
+    });
+
+    it("rejects deletion when the receipt already has a batch", async () => {
+      const delivery = await createDeliveryOk();
+      await resolveBatchOk(delivery.id);
+      const deleted = await app.inject({
+        method: "DELETE",
+        url: `/deliveries/${delivery.id}`,
+        ...auth(),
+      });
+      expect(deleted.statusCode).toBe(409);
+      expect((deleted.json() as { code: string }).code).toBe(
+        "DELIVERY_HAS_BATCHES",
+      );
+      expect(
+        await prisma.incomingDelivery.findUnique({ where: { id: delivery.id } }),
+      ).not.toBeNull();
+    });
+
+    it("blocks deletion for non-zero expenses but allows a zero-amount record", async () => {
+      const delivery = await createDeliveryOk();
+      const expenses = await app.inject({
+        method: "PUT",
+        url: `/deliveries/${delivery.id}/expenses`,
+        cookies: { [AUTH_COOKIE_NAME]: adminCookie },
+        payload: {
+          transportAmount: "10.00",
+          customsAmount: "0",
+          allocationMethod: "BY_VALUE",
+        },
+      });
+      expect(expenses.statusCode).toBe(200);
+
+      const blocked = await app.inject({
+        method: "DELETE",
+        url: `/deliveries/${delivery.id}`,
+        ...auth(),
+      });
+      expect(blocked.statusCode).toBe(409);
+      expect((blocked.json() as { code: string }).code).toBe(
+        "DELIVERY_HAS_EXPENSES",
+      );
+      const listed = await app
+        .inject({ method: "GET", url: "/deliveries", ...auth() })
+        .then((res) => res.json() as IncomingDelivery[]);
+      expect(
+        listed.find((item) => item.id === delivery.id)?.hasNonZeroExpenses,
+      ).toBe(true);
+
+      const cleared = await app.inject({
+        method: "PUT",
+        url: `/deliveries/${delivery.id}/expenses`,
+        cookies: { [AUTH_COOKIE_NAME]: adminCookie },
+        payload: {
+          transportAmount: "0",
+          customsAmount: "0",
+          allocationMethod: "BY_VALUE",
+        },
+      });
+      expect(cleared.statusCode).toBe(200);
+
+      const deleted = await app.inject({
+        method: "DELETE",
+        url: `/deliveries/${delivery.id}`,
+        ...auth(),
+      });
+      expect(deleted.statusCode).toBe(204);
+    });
+
+    it("allows only receiving roles to delete a receipt", async () => {
+      const delivery = await createDeliveryOk();
+      const denied = await app.inject({
+        method: "DELETE",
+        url: `/deliveries/${delivery.id}`,
+        cookies: { [AUTH_COOKIE_NAME]: accountingCookie },
+      });
+      expect(denied.statusCode).toBe(403);
+      expect(
+        await prisma.incomingDelivery.findUnique({ where: { id: delivery.id } }),
+      ).not.toBeNull();
     });
 
     it("assigns a monthly sequence and unique delivery codes", async () => {
@@ -1110,7 +1251,7 @@ describe.skipIf(!dbAvailable)(
       expect(summary.difference).toBe("-1.6");
       expect(summary.discrepancyId).toBeTruthy();
 
-      const body = await getDetail(batch.id);
+      const body = await getDetailAsAdmin(batch.id);
       expect(body.status).toBe("CONFIRMED");
       expect(body.hasOpenDiscrepancy).toBe(true);
       expect(body.discrepancies).toHaveLength(1);
@@ -1303,11 +1444,30 @@ describe.skipIf(!dbAvailable)(
         documentDate: "2026-09-20T00:00:00.000Z",
         documentNumber: "SF-2026-001",
       });
-      const body = await getDetail(batch.id);
+      const body = await getDetailAsAdmin(batch.id);
       expect(Number(body.acquisitionAmount)).toBe(123.45);
       expect(body.documentNumber).toBe("SF-2026-001");
       expect(body.confirmedAt).not.toBeNull();
       expect(body.arrivalDate).toBe(ARRIVAL);
+    });
+
+    it("redacts financial/documentary batch fields from warehouse workers", async () => {
+      const batch = await createBatchWithBags(["10"]);
+      const confirmed = await reconcile(batch.id, {
+        documentWeight: "10",
+        acquisitionAmount: "100",
+      });
+      expect(confirmed.statusCode).toBe(200);
+
+      const workerView = await getDetail(batch.id);
+      expect(workerView.documentWeight).toBeNull();
+      expect(workerView.acquisitionAmount).toBeNull();
+      expect(workerView.documentPieces).toBeNull();
+      expect(workerView.difference).toBeNull();
+
+      const adminView = await getDetailAsAdmin(batch.id);
+      expect(Number(adminView.documentWeight)).toBe(10);
+      expect(Number(adminView.acquisitionAmount)).toBe(100);
     });
 
     // ── Corrections / void ────────────────────────────────────────────────

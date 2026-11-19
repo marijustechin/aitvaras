@@ -174,6 +174,10 @@ export interface DeliveryRecord {
   updatedAt: Date;
   supplier: { name: string };
   createdBy: NamedPerson;
+  expense: {
+    transportAmount: Prisma.Decimal;
+    customsAmount: Prisma.Decimal;
+  } | null;
 }
 
 export function displayName(person: NamedPerson): string {
@@ -279,6 +283,10 @@ export function toDelivery(
     createdByName: displayName(record.createdBy),
     batchCount,
     pendingBatchCount,
+    hasNonZeroExpenses: record.expense
+      ? !record.expense.transportAmount.isZero() ||
+        !record.expense.customsAmount.isZero()
+      : false,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
   };

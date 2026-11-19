@@ -562,18 +562,146 @@ Status legend: **DONE** · **CURRENT** · **NEXT** · **LATER / DISCOVERY ONLY**
   company settings, users/roles, schema and migrations. Dashboard now shows zero
   stock and the discrepancy register is empty. Record:
   `tasks/done/ATV-065-remove-fake-receiving-data.md`.
+- **Compact Gautos partijos filters (ATV-066)** — four-column desktop filter
+  grid in the required order, natural-width reset aligned to row two, mobile
+  wrapping without horizontal scroll, and reset visibility derived from active
+  filters (including `Visos` alone) with session restoration. Screenshots in
+  `docs/screenshots/atv-066/`; record:
+  `tasks/done/ATV-066-compact-gautos-partijos-filters.md`.
+- **Compact batch header, type-specific confirmation, receipt expenses and
+  expense-aware valuation (ATV-067)** — the batch page shows
+  `Priėmimas GYYMM-NN / PXX` once with a compact status/date/supplier/resource/
+  warehouse/actual-quantity row and the `Priėmimo GYYMM-NN išlaidos` /
+  `Redaguoti partiją` actions. Confirmation renders one field chosen from the
+  stored mode (`Dokumentinis svoris, kg` for WEIGHT; PIECE offers itemised
+  per-product entry `Pagal prekes` or one `Dokumentinis kiekis, vnt.` total for
+  documents with only a total) with a same-unit comparison and `—` for empty
+  input. Transport and customs are one shared `IncomingDeliveryExpense` per
+  `Priėmimas` (`Pagal vertę` / `Po lygiai`, cent-exact allocation; mixed receipts
+  only equal at ATV-067, later extended by ATV-072), frozen per batch at
+  confirmation and added to dashboard stock value
+  once; later edits warn about an unallocated balance instead of rewriting
+  confirmed shares. Receipts without expenses keep acquisition-only valuation.
+  Integration suite, screenshots (`docs/screenshots/atv-067/`) and docs updated.
+  Record: `tasks/done/ATV-067-receiving-header-expenses-and-valuation.md`.
+- **Single receiving list, unfinished receipts and parent navigation (ATV-068)** —
+  `/receipts` is the only receiving list; `/receiving` redirects there, while
+  `/receiving/new` stays a record-free form and the receipt/batch routes remain.
+  The list shows `Pradėti priėmimai be partijų` only while zero-batch started
+  receipts exist, each with `Tęsti priėmimą`; adding the first batch moves the
+  receipt into `Gautos partijos`. Every `Priėmimų sąrašas` action returns to
+  `/receipts` with the operator's filters restored, including after a direct
+  editor link. The batch editor's parent action is `Redaguoti priėmimą` while
+  editable or `Peržiūrėti priėmimą` when read-only, opens the exact parent
+  receipt, and the `Priėmimas G…` heading appears once. The `G2611-02`/`G2611-03`
+  trace and isolated creation-flow reproduction are recorded in the task record;
+  live records were preserved. Screenshots in `docs/screenshots/atv-068/`.
+  Record: `tasks/done/ATV-068-receiving-navigation-and-empty-receipts.md`.
+- **Batch-less receipt rows and protected deletion (ATV-069)** — the separate
+  `Pradėti priėmimai be partijų` block was removed. `Gautos partijos` merges
+  normal batch rows with one row per zero-batch receipt in `Visos`; `Reikia
+  patvirtinti`/`PENDING`/`CONFIRMED` show only matching batches. Empty rows show
+  `Be partijų`, use `—` for batch-specific values, and link the receipt code to
+  the receipt editor. Supplier/date filters apply to both; resource/warehouse/
+  batch-code filters exclude empty receipts. Eligible rows offer
+  `Ištrinti priėmimą` with a code-specific `Atšaukti`/`Ištrinti` dialog, toast,
+  filter retention and refresh. The API locks the delivery row, rejects batches
+  (`DELIVERY_HAS_BATCHES`) and non-zero expenses (`DELIVERY_HAS_EXPENSES`), and
+  allows zero-amount expense records. Screenshots in
+  `docs/screenshots/atv-069/`; record:
+  `tasks/done/ATV-069-batch-less-receipts-and-deletion.md`.
+- **Receipt list, per-receipt manager confirmation and revisable expenses
+  (ATV-070)** — `/receipts` is a receipt list (`Priėmimai`) with one row per
+  receipt, confirmation counts, derived status, supplier/date and once-per-receipt
+  batch filters, plus pagination after grouping. The ADMIN manager screen
+  `/receipts/[deliveryId]` confirms individual P… batches with `Priimta`,
+  `Dokumentuose`, `Skirtumas`, acquisition value and the itemised/total PIECE
+  forms. Receipt expenses are previewed and applied per receipt through an
+  append-only application ledger; late invoices/revisions update confirmed
+  valuations by the difference only, reapply is a no-op, and pending shares
+  enter on confirmation. Worker screens and batch reads no longer expose
+  acquisition/expense data. Screenshots in `docs/screenshots/atv-070/`; record:
+  `tasks/done/ATV-070-receipt-list-manager-screen-and-expense-revisions.md`.
+- **Receipt status filter and distinct receipt/action destinations (ATV-071)** —
+  the `Būsena` filter is exactly `Laukia patvirtinimo` (default, including
+  partially confirmed receipts), `Patvirtinta` and `Visos`; legacy
+  `NEEDS_CONFIRMATION` values map to the new default while other filters are
+  preserved. On `/receipts`, the G… number always opens the operational
+  `/receiving/[deliveryId]` page for every status/role; `Tvirtinti` (pending) and
+  `Peržiūrėti` (fully confirmed) open `/receipts/[deliveryId]` only for managers.
+  Workers see no manager actions but retain operational batch/label access.
+  Keyboard activation of the receipt number follows its own link. Screenshots in
+  `docs/screenshots/atv-071/`; record:
+  `tasks/done/ATV-071-receipt-status-filter-and-distinct-destinations.md`.
+- **PIECE entry layout/search, read-only confirmed receiving and mixed acquisition
+  allocation (ATV-072)** — the PIECE form uses two aligned desktop rows (`Prekė`
+  widest, equal control heights, `+ Nauja prekė` under the product selector, save
+  actions right-aligned) and a searchable product selector that stores the existing
+  product ID. Fully confirmed operational receipts are read-only (no `Nauja
+  partija`, no confirmed-batch edit controls, `Spausdinti` retained), partially
+  confirmed receipts keep pending batches editable, and direct confirmed-batch
+  URLs render read-only while server checks stay authoritative. Mixed kg/vnt.
+  `Pagal vertę` now allocates by recorded acquisition value in EUR when every
+  eligible batch has a value and the total is positive; a recorded `0,00 €` is a
+  valid zero share, a missing value names the batch and keeps `Po lygiai`, and an
+  all-zero basis is explained. Preview/apply share one calculation, allocate
+  transport/customs separately to the cent, show acquisition values, and record
+  only valuation differences on revision. Screenshots in
+  `docs/screenshots/atv-072/`; record:
+  `tasks/done/ATV-072-piece-entry-readonly-and-mixed-allocation.md`.
+- **Unmistakable manager batch grouping and confirmation (ATV-073)** — the
+  manager receipt screen now renders each batch as its own continuous bordered
+  group; an expanded multi-product PIECE batch shows a compact outlined
+  `Rodyti prekes` / `Slėpti prekes` toggle with a chevron and focus ring, a
+  `PXX prekės` heading and a muted panel, while the next batch starts outside the
+  border. Each pending batch has exactly one code-labelled action
+  (`Patvirtinti P01`): on the summary row when collapsed, at the bottom-right
+  after the inputs when expanded. The discrepancy dialog names the same batch.
+  Confirmed groups stay read-only. Screenshots in `docs/screenshots/atv-073/`;
+  record: `tasks/done/ATV-073-manager-batch-grouping-and-confirmation.md`.
+- **Required-field highlighting and aligned manager toggles (ATV-074)** — expanding
+  a pending batch immediately marks each empty/invalid required manager input with
+  a red border and `aria-required`/`aria-invalid`: WEIGHT documentary weight and
+  acquisition, each PIECE `Pagal prekes` product independently, or the single
+  `Bendras kiekis` total. Values clear/restore the border using the same rules as
+  confirmation; `0` is accepted where the rule allows it, and optional document
+  date/number stay neutral. `Dokumento duomenys` now sits below `Prekė` with the
+  same outlined chevron toggle as `Rodyti prekes`, with one toggle per batch.
+  Summary columns align with their headings, and `Būsena / veiksmas` contains only
+  the status or `Patvirtinti PXX`. Screenshots in `docs/screenshots/atv-074/`;
+  record: `tasks/done/ATV-074-required-field-highlighting-and-toggle-alignment.md`.
+- **Receiving workflow inventory before redesign (ATV-075)** — documentation-only
+  reproducible baseline of the receiving workflow at the uncommitted ATV-066…074
+  tree: branch/HEAD/status plus a 108-file SHA-256 fingerprint (aggregate
+  `74332527…156dc4`), a UI-inward route/role/scenario walk, a code-outward API
+  map including direct-URL-only pages and endpoints with no web caller, 118
+  stable-ID inventory rows (`RCV-*`) covering receipt/batch lifecycle, physical
+  WEIGHT/PIECE receiving, labels, documentary confirmation, discrepancies,
+  settlements, acquisition/expenses/allocation, stock valuation and measurement
+  mode, a calculation register, and 29 classified findings. Re-run procedure in
+  `docs/audits/receiving-inventory-method.md`; inventory in
+  `docs/audits/receiving-inventory-before.md`; record:
+  `tasks/done/ATV-075-receiving-inventory-before-redesign.md`. No application,
+  schema or live data changed.
 
 ## CURRENT
 
-- **No uncommitted work.** ATV-062…065 (settlement clarification, npm workspace
-  migration, logo correction, fake-receiving cleanup) are committed and pushed
-  to `main`. No functional scope beyond confirmed requirements was added; stock
-  balances, movements, purchasing/accounting, production, orders and sales remain
+- **Ten uncommitted changes awaiting human review:** ATV-066 (compact filters),
+  ATV-067 (batch header, type-specific confirmation, expenses, valuation),
+  ATV-068 (single receiving list + parent navigation), ATV-069 (batch-less rows
+  + deletion), ATV-070 (receipt list, manager screen, revisable expenses),
+  ATV-071 (status filter + distinct destinations), ATV-072 (PIECE entry
+  layout/search, read-only confirmed receiving, mixed acquisition allocation),
+  ATV-073 (manager batch grouping + code-labelled confirmation), ATV-074
+  (required-field highlighting + toggle alignment) and ATV-075 (documentation-only
+  receiving inventory baseline). No
+  functional scope beyond confirmed requirements was added; stock balances,
+  movements, purchasing/accounting, production, orders and sales remain
   unconfirmed.
 
 ## NEXT (only with a confirmed requirement)
 
-1. Human review of the pushed ATV-062…065 delivery.
+1. Human review and commit of ATV-066…075.
 2. Any new functional scope — **none confirmed**. Requires a confirmed
    requirement and a new task; do not infer from `/sandelys`.
 

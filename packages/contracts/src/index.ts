@@ -13,4 +13,5 @@ export * from "./receipts";
 export * from "./batches";
 export * from "./stock";
 export * from "./incoming-deliveries";
+export * from "./delivery-expenses";
 export * from "./receiving-discrepancies";

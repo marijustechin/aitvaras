@@ -590,6 +590,91 @@ describe.skipIf(!dbAvailable)("Piece batches (integration)", () => {
     ).toBe(2);
   });
 
+  it("reconciles an itemised document with 9 vacuum cleaners and 11 suitcases against 10 each", async () => {
+    const batch = await createPieceBatch();
+    await addItem(batch.id, {
+      resourceId: alphaId,
+      warehouseLocationId: locationAId,
+      quantity: 9,
+    });
+    await addItem(batch.id, {
+      resourceId: betaId,
+      warehouseLocationId: locationBId,
+      quantity: 11,
+    });
+
+    const pending = await app
+      .inject({ method: "GET", url: `/batches/${batch.id}`, ...auth() })
+      .then((res) => res.json() as BatchDetail);
+    expect(pending.totalPieces).toBe(20);
+    expect(pending.pieceReconciliation).toHaveLength(2);
+
+    const rejected = await app.inject({
+      method: "POST",
+      url: `/batches/${batch.id}/confirm-piece`,
+      cookies: { [AUTH_COOKIE_NAME]: adminCookie },
+      payload: {
+        acquisitionAmount: "1000",
+        products: [
+          { resourceId: alphaId, documentPieces: 10 },
+          { resourceId: betaId, documentPieces: 10 },
+        ],
+      },
+    });
+    expect(rejected.statusCode).toBe(400);
+    expect((rejected.json() as { code: string }).code).toBe(
+      "DISCREPANCY_NOT_ACKNOWLEDGED",
+    );
+
+    const confirm = await app.inject({
+      method: "POST",
+      url: `/batches/${batch.id}/confirm-piece`,
+      cookies: { [AUTH_COOKIE_NAME]: adminCookie },
+      payload: {
+        acquisitionAmount: "1000",
+        products: [
+          { resourceId: alphaId, documentPieces: 10 },
+          { resourceId: betaId, documentPieces: 10 },
+        ],
+        acknowledgeDiscrepancies: true,
+      },
+    });
+    expect(confirm.statusCode).toBe(200);
+    const result = confirm.json() as BatchPieceConfirmation;
+    expect(result.totalPieces).toBe(20);
+    expect(result.totalDocumentPieces).toBe(20);
+    expect(
+      result.lines.find((line) => line.resourceId === alphaId),
+    ).toMatchObject({ actualPieces: 9, documentPieces: 10, differencePieces: -1 });
+    expect(
+      result.lines.find((line) => line.resourceId === betaId),
+    ).toMatchObject({ actualPieces: 11, documentPieces: 10, differencePieces: 1 });
+
+    const discrepancies = await prisma.receivingDiscrepancy.findMany({
+      where: { batchId: batch.id },
+      orderBy: { resourceId: "asc" },
+    });
+    expect(discrepancies).toHaveLength(2);
+    expect(discrepancies).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "PIECE",
+          resourceId: alphaId,
+          actualPieces: 9,
+          documentPieces: 10,
+          differencePieces: -1,
+        }),
+        expect.objectContaining({
+          kind: "PIECE",
+          resourceId: betaId,
+          actualPieces: 11,
+          documentPieces: 10,
+          differencePieces: 1,
+        }),
+      ]),
+    );
+  });
+
   it("rejects a mismatch without acknowledgement and changes nothing", async () => {
     const batch = await createPieceBatch();
     await addItem(batch.id, {

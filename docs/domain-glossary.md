@@ -50,19 +50,18 @@ provenance. **Status: implemented** (`docs/resources.md`); the surrounding
 inventory/production principles are confirmed future direction, not implemented —
 see [scope.md](scope.md).
 
-## Priėmimas (received batches)
+## Priėmimas (receipt list and workflow)
 
-The received-batch list of physical receiving records created through the
-`Priėmimas` workflow. It is a review/history and work-queue view (filter by
-status / supplier / resource / warehouse / arrival date / batch code; default
-`Reikia patvirtinti` = the not-yet-confirmed `PENDING` batches) whose rows open the batch's
-formal **reconciliation**, with the human-facing `Priėmimas` code shown as the
-grouping reference. The default pending queue is **not date-bounded** (the
-`Priėmimo data` filters are empty by default) so old pending items are never
-silently hidden. `Priėmimas` replaced the former top-level `Pajamavimas` label;
-it is **not** a place to create receiving records (that is the warehouse
-receiving workflow). The internal model names `IncomingDelivery`, `GAVIMAI_*`
-and the delivery code prefix `G` are retained.
+The operational receiving destination. `/receipts` lists **one row per receipt**
+(`Priėmimas`) with `Priėmimas`, `Priėmimo data`, `Tiekėjas`, `Patvirtintos
+partijos`, `Būsena` and `Veiksmai`; the default `Laukia patvirtinimo` view shows
+receipts with at least one pending batch, `Visos` also includes zero-batch
+receipts. The G… code opens the operational receipt page
+`/receiving/[deliveryId]`; manager actions open `/receipts/[deliveryId]`. The
+default filter is **not date-bounded** (the `Priėmimo data` filters are empty by
+default) so old pending items are never silently hidden. `Priėmimas` replaced the
+former top-level `Pajamavimas` label. The internal model names
+`IncomingDelivery`, `GAVIMAI_*` and the delivery code prefix `G` are retained.
 
 **Status: implemented** (`docs/batches.md`).
 
@@ -149,15 +148,33 @@ references. Denominations: `Tara`.
 
 **Status: implemented** (`docs/packaging-types.md`).
 
-## Dokumentiniai vienetai (documentary piece count)
+## Dokumentinis kiekis, vnt. (documentary piece count)
 
-An optional positive whole-number piece count (`Batch.documentPieces`) recorded
-during ADMIN confirmation. It is **additional documentary/business information**
-(e.g. "500 pieces") and is **not** a physical receiving unit: it does not replace
-the document weight, does not replace the measured physical weight and does not
-drive any package or batch total.
+The **type-specific documentary quantity of a PIECE batch**
+(`Batch.documentPieces` and/or `PieceReconciliationLine`). ADMIN can enter it
+**itemised per product** (for itemised documents; one discrepancy per mismatched
+product) or as **one aggregate `Dokumentinis kiekis, vnt.`** (for documents with
+only a total; one aggregate discrepancy). Both compare against the actual counted
+pieces, e.g. 9 + 11 received vs 10 + 10 documented → `−1 vnt.` and `+1 vnt.` For
+WEIGHT the same column is retained only as optional, API-compatible documentary
+information; it is not a physical receiving unit, does not replace the documentary
+weight and does not drive any package or batch total.
 
-**Status: implemented** (`docs/batches.md`).
+**Status: implemented** (`docs/piece-batches.md`, `docs/batches.md`).
+
+## Priėmimo išlaidos (receipt transport and customs expenses)
+
+One shared `IncomingDeliveryExpense` per `Priėmimas`: `Transportas, €` and
+`Muitinė, €`, previewed and applied across the receipt's eligible batches
+(`Pagal vertę` by actual net kg, actual pieces, or recorded acquisition value for
+a mixed kg/vnt. receipt, or `Po lygiai`). Each apply is
+recorded with who/when and previous/new shares per batch. A late invoice or
+revised amount may change a confirmed batch's valuation by the difference only;
+physical quantity, confirmation and discrepancy history stay intact. Pending
+batches contribute their share on confirmation. See
+[docs/batches.md](batches.md#receipt-level-transport-and-customs-expenses-priėmimo-išlaidos).
+
+**Status: implemented** (`docs/batches.md`, `docs/stock-summary.md`).
 
 ## Anuliuota pakuotė / Pataisymas (voided package / correction)
 
@@ -189,15 +206,14 @@ transfer is out of scope).
 The formal/documentary confirmation that links a physical `Partija` to a
 `Pajamavimas` (GoodsReceipt) line. A warehouse worker records the physical truth
 (packages and measured net weights); the confirmation (by `ADMIN`/Eimantas) records
-the **accepted documentary weight** (`Dokumentinis svoris`), an optional
-**`Dokumentiniai vienetai`** piece count and the **initial acquisition value**, and
-confirms the batch. It creates no packages or stock: the **packages are the
-physical quantity source**, the receipt is the documentary/financial record. An
-exact match confirms directly; a **mismatch does not block confirmation** — it also
-confirms (with an explicit acknowledgement) and records a separate
-`Gavimo neatitikimas` (discrepancy). The signed difference is
-`measuredWeight − documentWeight`. Everything is weight-based; the piece count is
-documentary only.
+the type-specific documentary quantity — `Dokumentinis svoris` for WEIGHT, or
+itemised per-product counts / one aggregate `Dokumentinis kiekis, vnt.` for PIECE —
+and the **initial acquisition value**, and confirms the batch. It creates no
+packages or stock: the **packages/item lines are the physical quantity source**,
+the receipt is the documentary/financial record. An exact match confirms directly; a **mismatch does
+not block confirmation** — it also confirms (with an explicit acknowledgement) and
+records a separate `Gavimo neatitikimas` (discrepancy). The signed difference is
+`actual − document` in the matching unit (kg or `vnt.`).
 
 **Status: implemented** (`docs/batches.md#reconciliation-formal-confirmation`).
 

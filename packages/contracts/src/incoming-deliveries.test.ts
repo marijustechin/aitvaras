@@ -62,6 +62,7 @@ describe("IncomingDeliverySchema", () => {
       createdByName: "Vardenis Pavardenis",
       batchCount: 2,
       pendingBatchCount: 1,
+      hasNonZeroExpenses: false,
       createdAt: "2026-09-29T09:00:00.000Z",
       updatedAt: "2026-09-29T09:00:00.000Z",
     });
@@ -80,6 +81,7 @@ describe("IncomingDeliverySchema", () => {
       createdByName: "Vardenis Pavardenis",
       batchCount: 1,
       pendingBatchCount: 1,
+      hasNonZeroExpenses: false,
       createdAt: "2026-09-29T09:00:00.000Z",
       updatedAt: "2026-09-29T09:00:00.000Z",
       batches: [batchPayload()],

@@ -32,6 +32,7 @@ import {
   batchReceivingModeLabel,
   batchStatusLabel,
   canPrintLabel,
+  canReceiveStock,
   EMPTY_BATCH_ITEMS_MESSAGE,
   formatArrivalDate,
   formatBatchDateTime,
@@ -108,6 +109,7 @@ import {
   CORRECT_LABEL,
   DELIVERIES_LIST_BACK_LABEL,
   DELIVERY_CONTENTS_HEADING,
+  EDIT_DELIVERY_LABEL,
   deliveryBatches,
   EMPTY_BATCH_UNITS_MESSAGE,
   EMPTY_DELIVERY_CONTENTS_MESSAGE,
@@ -132,6 +134,7 @@ import {
   SAVE_CORRECTION_LABEL,
   SAVE_LABEL,
   START_RESOURCE_LABEL,
+  VIEW_DELIVERY_LABEL,
   VOID_CONFIRM_LABEL,
   VOID_ITEM_CONFIRM_LABEL,
   VOID_ITEM_LABEL,
@@ -145,6 +148,7 @@ import {
 import { BagLabel } from "./bag-label";
 import { BatchRegistrationEditor } from "./batch-registration-editor";
 import { PieceLabel } from "./piece-label";
+import { ProductCombobox } from "./product-combobox";
 
 const inputClass =
   "w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60";
@@ -176,8 +180,9 @@ export function ReceivingDeliveryPage() {
   const deliveryId =
     typeof params.deliveryId === "string" ? params.deliveryId : "";
   const batchId = typeof params.batchId === "string" ? params.batchId : "";
-  const { clearSession } = useAuth();
+  const { user, clearSession } = useAuth();
   const toast = useToast();
+  const canEditReceipt = user ? canReceiveStock(user.roles) : false;
 
   const [resources, setResources] = useState<Resource[] | null>(null);
   const [warehouses, setWarehouses] = useState<WarehouseWithLocations[] | null>(
@@ -737,6 +742,10 @@ export function ReceivingDeliveryPage() {
     : [];
   const delivery = state.delivery;
   const activeBatch = state.batch;
+  const receiptBatches = delivery ? deliveryBatches(delivery) : [];
+  const allConfirmed =
+    receiptBatches.length > 0 &&
+    receiptBatches.every((batch) => batch.status === "CONFIRMED");
   const savedBag = state.label;
   const locationOptions =
     activeBatch && warehouses
@@ -769,7 +778,7 @@ export function ReceivingDeliveryPage() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <Link href="/receiving" className={SECONDARY_BUTTON_CLASS}>
+        <Link href="/receipts" className={SECONDARY_BUTTON_CLASS}>
           {DELIVERIES_LIST_BACK_LABEL}
         </Link>
       </div>
@@ -789,8 +798,12 @@ export function ReceivingDeliveryPage() {
             partners={partners}
             resources={resources}
             warehouses={warehouses}
-            onSaved={() => router.push(`/receipts/batches/${state.batch?.id}`)}
-            onCancel={() => router.push(`/receipts/batches/${state.batch?.id}`)}
+            onSaved={() =>
+              router.push(`/receiving/${state.batch?.deliveryId}`)
+            }
+            onCancel={() =>
+              router.push(`/receiving/${state.batch?.deliveryId}`)
+            }
             onConflict={() => void reloadAfterConflict()}
           />
         ) : (
@@ -811,10 +824,6 @@ export function ReceivingDeliveryPage() {
       {delivery ? (
         <section className={workSurfaceClass()}>
           <div className="flex flex-col gap-4">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h2 className="text-lg font-medium">Priėmimas {delivery.code}</h2>
-            </div>
-
             <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
               <div>
                 <dt className="text-sm font-medium">Tiekėjas</dt>
@@ -865,7 +874,7 @@ export function ReceivingDeliveryPage() {
               )}
             </div>
 
-            {!batchId ? (
+            {!batchId && !allConfirmed ? (
               <div className="grid gap-3 border-t border-border pt-4">
                 <h3 className="text-base font-medium">{NEW_BATCH_LABEL}</h3>
                 <div className="flex flex-wrap items-end gap-3">
@@ -945,12 +954,21 @@ export function ReceivingDeliveryPage() {
                   {batchReceivingModeLabel(activeBatch.receivingMode)}
                 </p>
                 <Link
-                  href={`/receiving/${deliveryId}`}
+                  href={`/receiving/${activeBatch.deliveryId}`}
                   className={SECONDARY_BUTTON_CLASS}
                 >
-                  ← {DELIVERY_CONTENTS_HEADING}
+                  {canEditReceipt && activeBatch.status === "PENDING"
+                    ? EDIT_DELIVERY_LABEL
+                    : VIEW_DELIVERY_LABEL}
                 </Link>
               </div>
+            ) : null}
+
+            {!batchId && allConfirmed ? (
+              <p className="border-t border-border pt-4 text-sm text-muted-foreground">
+                Priėmimas patvirtintas. Duomenų keisti negalima; galite peržiūrėti
+                partijas ir spausdinti aktyvių pakuočių etiketes.
+              </p>
             ) : null}
 
             {activeBatch?.receivingMode === "WEIGHT" &&
@@ -1054,7 +1072,7 @@ export function ReceivingDeliveryPage() {
             ) : null}
 
             <div className="flex items-center justify-start border-t border-border pt-4">
-              <Link href="/receiving" className={SECONDARY_BUTTON_CLASS}>
+              <Link href="/receipts" className={SECONDARY_BUTTON_CLASS}>
                 {DELIVERIES_LIST_BACK_LABEL}
               </Link>
             </div>
@@ -1074,98 +1092,95 @@ export function ReceivingDeliveryPage() {
           {activeBatch.status === "PENDING" ? (
             <>
               <form onSubmit={submitItem} noValidate className={workSurfaceClass()}>
-            <div className="grid gap-3 sm:grid-cols-12">
-              <div className="grid gap-1 text-sm sm:col-span-6">
-                <label className="grid gap-1">
-                  <span className="font-medium">{ITEM_RESOURCE_LABEL}</span>
-                  <select
-                    id="piece-resource"
-                    required
-                    value={pieceDraft.resourceId}
-                    onChange={(event) =>
-                      updatePieceDraft({ resourceId: event.target.value })
-                    }
-                    className={inputClass}
-                  >
-                    <option value="">— Pasirinkti —</option>
-                    {resourceOptions.map((resource) => (
-                      <option key={resource.id} value={resource.id}>
-                        {resource.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setQuickOpen((current) => !current)}
-                  className={`${SECONDARY_NAV_BUTTON_CLASS} self-start`}
-                >
-                  {NEW_PRODUCT_LABEL}
-                </button>
-              </div>
-              <label className="grid gap-1 text-sm sm:col-span-3">
-                <span className="font-medium">{ITEM_QUANTITY_LABEL}</span>
-                <input
-                  id="piece-quantity"
-                  required
-                  type="number"
-                  inputMode="numeric"
-                  min="1"
-                  step="1"
-                  value={pieceDraft.quantity}
-                  onChange={(event) =>
-                    updatePieceDraft({ quantity: event.target.value })
-                  }
-                  className={inputClass}
-                />
-              </label>
-              <label className="grid gap-1 text-sm sm:col-span-3">
-                <span className="font-medium">{ITEM_LOCATION_LABEL}</span>
-                <select
-                  id="piece-location"
-                  required
-                  value={pieceDraft.warehouseLocationId}
-                  onChange={(event) =>
-                    updatePieceDraft({
-                      warehouseLocationId: event.target.value,
-                    })
-                  }
-                  className={inputClass}
-                >
-                  <option value="">— Pasirinkti —</option>
-                  {locationOptions.map((location) => (
-                    <option key={location.id} value={location.id}>
-                      {location.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
-              <button
-                type="submit"
-                disabled={submittingItem}
-                onClick={() => {
-                  submitIntentRef.current = "save";
-                }}
-                className={SECONDARY_BUTTON_CLASS}
-              >
-                <SaveIcon />
-                {submittingItem ? "Saugoma…" : SAVE_LABEL}
-              </button>
-              <button
-                type="submit"
-                disabled={submittingItem}
-                onClick={() => {
-                  submitIntentRef.current = "print";
-                }}
-                className={PRIMARY_BUTTON_CLASS}
-              >
-                <PrinterIcon />
-                {submittingItem ? "Saugoma…" : SAVE_AND_PRINT_LABEL}
-              </button>
-            </div>
-          </form>
+                <div className="grid gap-3 sm:grid-cols-12 sm:items-end">
+                  <div className="grid gap-1 text-sm sm:col-span-6">
+                    <label htmlFor="piece-resource" className="font-medium">
+                      {ITEM_RESOURCE_LABEL}
+                    </label>
+                    <ProductCombobox
+                      id="piece-resource"
+                      resources={resourceOptions}
+                      value={pieceDraft.resourceId}
+                      onChange={(resourceId) =>
+                        updatePieceDraft({ resourceId })
+                      }
+                      inputClassName={`${inputClass} h-10`}
+                    />
+                  </div>
+                  <label className="grid gap-1 text-sm sm:col-span-3">
+                    <span className="font-medium">{ITEM_QUANTITY_LABEL}</span>
+                    <input
+                      id="piece-quantity"
+                      required
+                      type="number"
+                      inputMode="numeric"
+                      min="1"
+                      step="1"
+                      value={pieceDraft.quantity}
+                      onChange={(event) =>
+                        updatePieceDraft({ quantity: event.target.value })
+                      }
+                      className={`${inputClass} h-10`}
+                    />
+                  </label>
+                  <label className="grid gap-1 text-sm sm:col-span-3">
+                    <span className="font-medium">{ITEM_LOCATION_LABEL}</span>
+                    <select
+                      id="piece-location"
+                      required
+                      value={pieceDraft.warehouseLocationId}
+                      onChange={(event) =>
+                        updatePieceDraft({
+                          warehouseLocationId: event.target.value,
+                        })
+                      }
+                      className={`${inputClass} h-10`}
+                    >
+                      <option value="">— Pasirinkti —</option>
+                      {locationOptions.map((location) => (
+                        <option key={location.id} value={location.id}>
+                          {location.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="mt-3 grid gap-3 sm:grid-cols-12 sm:items-center">
+                  <div className="sm:col-span-6">
+                    <button
+                      type="button"
+                      onClick={() => setQuickOpen((current) => !current)}
+                      className={`${SECONDARY_NAV_BUTTON_CLASS} h-10 w-full`}
+                    >
+                      {NEW_PRODUCT_LABEL}
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-end gap-2 sm:col-span-6">
+                    <button
+                      type="submit"
+                      disabled={submittingItem}
+                      onClick={() => {
+                        submitIntentRef.current = "save";
+                      }}
+                      className={`${SECONDARY_BUTTON_CLASS} h-10`}
+                    >
+                      <SaveIcon />
+                      {submittingItem ? "Saugoma…" : SAVE_LABEL}
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={submittingItem}
+                      onClick={() => {
+                        submitIntentRef.current = "print";
+                      }}
+                      className={`${PRIMARY_BUTTON_CLASS} h-10`}
+                    >
+                      <PrinterIcon />
+                      {submittingItem ? "Saugoma…" : SAVE_AND_PRINT_LABEL}
+                    </button>
+                  </div>
+                </div>
+              </form>
 
           {quickOpen ? (
             <form

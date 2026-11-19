@@ -14,7 +14,6 @@ import {
   bagStatusLabel,
   batchItemStatusClass,
   batchItemStatusLabel,
-  batchReceivingModeLabel,
   batchStatusLabel,
   correctionKindLabel,
   EMPTY_BAGS_MESSAGE,
@@ -48,15 +47,18 @@ import { CONFIRM_RECEIPT_LABEL } from "../lib/batch-list";
 import {
   createDraftPieceConfirmation,
   createDraftReconciliation,
+  defaultPieceDocumentaryMode,
+  pieceConfirmationDifference,
   pieceConfirmationFormError,
-  pieceConfirmationRows,
   pieceRowDifference,
+  pieceRowDraftValue,
   reconciliationFormError,
   toConfirmPiecePayload,
   toReconcilePayload,
   type DraftPieceConfirmation,
   type DraftReconciliation,
   type PieceConfirmationRow,
+  type PieceDocumentaryMode,
 } from "../lib/batch-form";
 import {
   activeBatchItems,
@@ -68,6 +70,10 @@ import { BagLabel } from "./bag-label";
 
 const inputClass =
   "w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60";
+
+/** Narrow per-product input used inside the itemised PIECE table. */
+const pieceInputClass =
+  "w-16 rounded-md border border-input bg-background px-1 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-24 sm:px-2";
 
 /**
  * ADMIN batch (partija) review: batch context, a read-only list of the registered
@@ -172,23 +178,27 @@ export function BatchDetailsPage() {
     setDraftReconciliation({
       documentWeight: batch.documentWeight ?? "",
       acquisitionAmount: batch.acquisitionAmount ?? "",
-      documentPieces:
-        batch.documentPieces === null ? "" : String(batch.documentPieces),
       documentDate: batch.documentDate ? isoDatePart(batch.documentDate) : "",
       documentNumber: batch.documentNumber ?? "",
     });
     if (batch.receivingMode === "PIECE") {
+      const rows = batch.pieceReconciliation.map((row) => ({
+        resourceId: row.resourceId,
+        resourceName: row.resourceName,
+        actualPieces: row.actualPieces,
+      }));
       setDraftPiece({
+        ...createDraftPieceConfirmation(defaultPieceDocumentaryMode(rows)),
+        documentPieces:
+          batch.documentPieces === null ? "" : String(batch.documentPieces),
+        products: Object.fromEntries(
+          batch.pieceReconciliation
+            .filter((row) => row.documentPieces !== null)
+            .map((row) => [row.resourceId, String(row.documentPieces)]),
+        ),
         acquisitionAmount: batch.acquisitionAmount ?? "",
         documentDate: batch.documentDate ? isoDatePart(batch.documentDate) : "",
         documentNumber: batch.documentNumber ?? "",
-        products: pieceConfirmationRows(
-          batch.pieceReconciliation.map((row) => ({
-            resourceId: row.resourceId,
-            resourceName: row.resourceName,
-            actualPieces: row.actualPieces,
-          })),
-        ),
       });
     }
   }, [batch]);
@@ -258,13 +268,12 @@ export function BatchDetailsPage() {
     }
     setConfirmingPiece(true);
     try {
-      const rows = pieceRowsOf(batch);
       const result = await apiFetch<BatchPieceConfirmation>(
         `/batches/${id}/confirm-piece`,
         {
           method: "POST",
           body: JSON.stringify(
-            toConfirmPiecePayload(draftPiece, rows, acknowledge),
+            toConfirmPiecePayload(draftPiece, pieceRowsOf(batch), acknowledge),
           ),
         },
       );
@@ -290,15 +299,34 @@ export function BatchDetailsPage() {
     const validation = pieceConfirmationFormError(draftPiece, rows);
     if (validation) {
       toast.error(validation);
+      const invalidRow = rows.find(
+        (row) => pieceRowDifference(draftPiece, row) === null,
+      );
       focusField(
-        draftPiece.acquisitionAmount.trim() === ""
-          ? "piece-acquisition-amount"
-          : "piece-document-date",
+        draftPiece.mode === "ITEMISED" && invalidRow
+          ? `piece-document-${invalidRow.resourceId}`
+          : draftPiece.mode === "TOTAL" &&
+              draftPiece.documentPieces.trim() === ""
+            ? "piece-document-pieces"
+            : "piece-acquisition-amount",
       );
       return;
     }
     // A mismatch does not block confirmation; the ADMIN acknowledges it first.
-    if (rows.some((row) => pieceRowDifference(draftPiece, row) !== 0)) {
+    const hasMismatch =
+      draftPiece.mode === "ITEMISED"
+        ? rows.some((row) => {
+            const difference = pieceRowDifference(draftPiece, row);
+            return difference !== null && difference !== 0;
+          })
+        : (() => {
+            const difference = pieceConfirmationDifference(
+              batchTotalPieces(batch),
+              draftPiece,
+            );
+            return difference !== null && difference !== 0;
+          })();
+    if (hasMismatch) {
       setShowPieceDialog(true);
       return;
     }
@@ -330,59 +358,48 @@ export function BatchDetailsPage() {
     const pieceConfirmed = isBatchConfirmed(batch.status);
     const activeItems = activeBatchItems(batch);
     const voidedItems = voidedBatchItems(batch);
+    const actualPieces = batchTotalPieces(batch);
     const pieceRows = pieceRowsOf(batch);
+    const itemised = draftPiece.mode === "ITEMISED";
+    // Prefer the aggregate count; fall back to the legacy per-product lines for
+    // batches confirmed before aggregate confirmation existed.
+    const documentedPieces =
+      batch.documentPieces ??
+      (batch.pieceReconciliation.length > 0
+        ? batch.pieceReconciliation.reduce(
+            (sum, line) => sum + (line.documentPieces ?? 0),
+            0,
+          )
+        : null);
+    const draftDocumentPieces = draftPiece.documentPieces.trim();
+    const liveDocumentPieces =
+      draftDocumentPieces !== "" && /^\d+$/.test(draftDocumentPieces)
+        ? Number(draftDocumentPieces)
+        : null;
+    const itemisedDocumented =
+      itemised &&
+      pieceRows.every((row) => {
+        const value = pieceRowDraftValue(draftPiece, row).trim();
+        return value !== "" && /^\d+$/.test(value);
+      })
+        ? pieceRows.reduce(
+            (sum, row) => sum + Number(pieceRowDraftValue(draftPiece, row)),
+            0,
+          )
+        : null;
+    const documentedTotal = itemised ? itemisedDocumented : liveDocumentPieces;
+    const totalDifference =
+      documentedTotal === null ? null : actualPieces - documentedTotal;
+    const mismatchedRows = pieceRows.filter((row) => {
+      const difference = pieceRowDifference(draftPiece, row);
+      return difference !== null && difference !== 0;
+    });
     return (
       <div className="flex flex-col gap-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex flex-col gap-1">
-            <Link
-              href={GAVIMAI_ACTION.href}
-              className={SECONDARY_NAV_BUTTON_CLASS}
-            >
-              ← {GAVIMAI_ACTION.label}
-            </Link>
-            <h1 className="text-2xl font-semibold tracking-tight">
-              Priėmimas {batch.deliveryCode}
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Partija {batch.code} ·{" "}
-              {batchReceivingModeLabel(batch.receivingMode)}
-            </p>
-          </div>
-          {canEditRegistration && batch.status === "PENDING" ? (
-            <Link
-              href={`/receiving/${batch.deliveryId}/batches/${batch.id}`}
-              className={SECONDARY_NAV_BUTTON_CLASS}
-            >
-              Redaguoti partiją
-            </Link>
-          ) : null}
-        </div>
-
-        <section className={workSurfaceClass()}>
-          <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
-            <ContextField label="Priėmimas" value={batch.deliveryCode} />
-            <ContextField
-              label="Būsena"
-              value={batchStatusLabel(batch.status)}
-            />
-            <ContextField
-              label="Priėmimo data"
-              value={formatArrivalDate(batch.arrivalDate)}
-            />
-            <ContextField
-              label="Tipas"
-              value={batchReceivingModeLabel(batch.receivingMode)}
-            />
-            <ContextField label="Tiekėjas" value={batch.supplierName} />
-            <ContextField label="Sandėlis" value={batch.warehouseName} />
-            <ContextField label="Eilutės" value={String(batch.itemLineCount)} />
-            <ContextField
-              label="Iš viso"
-              value={formatPieces(batch.totalPieces)}
-            />
-          </dl>
-        </section>
+        <BatchHeader
+          batch={batch}
+          canEdit={canEditRegistration}
+        />
 
         <section className="flex flex-col gap-3">
           <h2 className="text-lg font-medium">Prekės</h2>
@@ -457,62 +474,68 @@ export function BatchDetailsPage() {
         {pieceConfirmed ? (
           <section className="rounded-xl border border-border bg-card p-6">
             <h2 className="text-lg font-medium">Priėmimo patvirtinimas</h2>
-            <div className="mt-4 overflow-hidden rounded-xl border border-border">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-muted text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-2 font-medium">Prekė</th>
-                    <th className="px-4 py-2 font-medium">Faktiškai</th>
-                    <th className="px-4 py-2 font-medium">Dokumentuose</th>
-                    <th className="px-4 py-2 font-medium">Skirtumas</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pieceRows.map((row) => {
-                    const line = batch.pieceReconciliation.find(
-                      (entry) => entry.resourceId === row.resourceId,
-                    );
-                    const documentPieces = line?.documentPieces ?? null;
-                    const difference = line?.differencePieces ?? 0;
-                    return (
-                      <tr key={row.resourceId} className="border-t border-border">
-                        <td className="px-4 py-2">{row.resourceName}</td>
+            {batch.pieceReconciliation.some(
+              (line) => line.documentPieces !== null,
+            ) ? (
+              <div className="mt-4 overflow-hidden rounded-xl border border-border">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-muted text-muted-foreground">
+                    <tr>
+                      <th className="px-4 py-2 font-medium">Prekė</th>
+                      <th className="px-4 py-2 font-medium">Faktiškai</th>
+                      <th className="px-4 py-2 font-medium">Dokumentuose</th>
+                      <th className="px-4 py-2 font-medium">Skirtumas</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {batch.pieceReconciliation.map((line) => (
+                      <tr key={line.resourceId} className="border-t border-border">
+                        <td className="px-4 py-2">{line.resourceName}</td>
                         <td className="px-4 py-2">
-                          {formatPieces(row.actualPieces)}
+                          {formatPieces(line.actualPieces)}
                         </td>
                         <td className="px-4 py-2">
-                          {documentPieces === null
+                          {line.documentPieces === null
                             ? "—"
-                            : formatPieces(documentPieces)}
+                            : formatPieces(line.documentPieces)}
                         </td>
                         <td
-                          className={`px-4 py-2 ${
-                            difference !== 0
-                              ? "font-medium text-rose-600"
-                              : "text-muted-foreground"
-                          }`}
+                          className={
+                            line.differencePieces
+                              ? "px-4 py-2 font-medium text-rose-600"
+                              : "px-4 py-2 text-muted-foreground"
+                          }
                         >
-                          {formatSignedPieces(difference)}
+                          {line.differencePieces === null
+                            ? "—"
+                            : formatSignedPieces(line.differencePieces)}
                         </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
             <dl className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2">
               <ContextField
-                label="Faktiškai užregistruota"
-                value={formatPieces(batch.totalPieces)}
+                label="Faktiškai gauta"
+                value={formatPieces(actualPieces)}
               />
               <ContextField
                 label="Dokumentuose"
-                value={formatPieces(
-                  batch.pieceReconciliation.reduce(
-                    (sum, line) => sum + (line.documentPieces ?? 0),
-                    0,
-                  ),
-                )}
+                value={
+                  documentedPieces === null
+                    ? "—"
+                    : formatPieces(documentedPieces)
+                }
+              />
+              <ContextField
+                label="Skirtumas"
+                value={
+                  documentedPieces === null
+                    ? "—"
+                    : formatSignedPieces(actualPieces - documentedPieces)
+                }
               />
               <ContextField
                 label="Įsigijimo vertė"
@@ -545,105 +568,169 @@ export function BatchDetailsPage() {
             </dl>
           </section>
         ) : canReconcile ? (
-          <section className="rounded-xl border border-border bg-card p-6">
-            <h2 className="text-lg font-medium">Priėmimo patvirtinimas</h2>
-            <form onSubmit={submitPieceConfirmation} noValidate className="mt-4 grid gap-4">
-              <div className="overflow-hidden rounded-xl border border-border">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-muted text-muted-foreground">
-                    <tr>
-                      <th className="px-4 py-2 font-medium">Prekė</th>
-                      <th className="px-4 py-2 font-medium">Faktiškai</th>
-                      <th className="px-4 py-2 font-medium">Sutampa</th>
-                      <th className="px-4 py-2 font-medium">Dokumentuose</th>
-                      <th className="px-4 py-2 font-medium">Skirtumas</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pieceRows.map((row) => {
-                      const product =
-                        draftPiece.products[row.resourceId] ?? {
-                          matches: true,
-                          documentPieces: String(row.actualPieces),
-                        };
-                      const difference = pieceRowDifference(draftPiece, row);
-                      return (
-                        <tr key={row.resourceId} className="border-t border-border">
-                          <td className="px-4 py-2">{row.resourceName}</td>
-                          <td className="px-4 py-2">
-                            {formatPieces(row.actualPieces)}
-                          </td>
-                          <td className="px-4 py-2">
-                            <input
-                              type="checkbox"
-                              aria-label={`Sutampa ${row.resourceName}`}
-                              checked={product.matches}
-                              onChange={(event) =>
-                                setDraftPiece((current) => ({
-                                  ...current,
-                                  products: {
-                                    ...current.products,
-                                    [row.resourceId]: {
-                                      matches: event.target.checked,
-                                      documentPieces: event.target.checked
-                                        ? String(row.actualPieces)
-                                        : (current.products[row.resourceId]
-                                            ?.documentPieces ??
-                                          String(row.actualPieces)),
-                                    },
-                                  },
-                                }))
-                              }
-                            />
-                          </td>
-                          <td className="px-4 py-2">
-                            <input
-                              type="number"
-                              inputMode="numeric"
-                              min="0"
-                              step="1"
-                              disabled={product.matches}
-                              value={product.documentPieces}
-                              onChange={(event) =>
-                                setDraftPiece((current) => ({
-                                  ...current,
-                                  products: {
-                                    ...current.products,
-                                    [row.resourceId]: {
-                                      matches: false,
-                                      documentPieces: event.target.value,
-                                    },
-                                  },
-                                }))
-                              }
-                              className={`${inputClass} w-24`}
-                            />
-                          </td>
-                          <td
-                            className={`px-4 py-2 ${
-                              difference !== 0
-                                ? "font-medium text-rose-600"
-                                : "text-muted-foreground"
-                            }`}
-                          >
-                            {formatSignedPieces(difference)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="grid gap-1 text-sm">
-                  <span className="font-medium">Faktiškai užregistruota</span>
+          <section className={workSurfaceClass()}>
+            <form
+              onSubmit={submitPieceConfirmation}
+              noValidate
+              className="grid gap-4"
+            >
+              <h2 className="text-lg font-medium">{CONFIRM_RECEIPT_LABEL}</h2>
+              {actualPieces === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Prekės dar neužregistruotos; patvirtinti bus galima po
+                  registracijos.
+                </p>
+              ) : null}
+              <fieldset className="flex flex-wrap items-center gap-x-5 gap-y-2">
+                <legend className="mb-1 text-sm font-medium">
+                  Dokumento forma
+                </legend>
+                <label className="flex items-center gap-2 text-sm">
                   <input
-                    readOnly
-                    value={formatPieces(batch.totalPieces)}
-                    className={inputClass}
+                    type="radio"
+                    name="piece-documentary-mode"
+                    value="ITEMISED"
+                    checked={itemised}
+                    onChange={() =>
+                      setDraftPiece((current) => ({
+                        ...current,
+                        mode: "ITEMISED" as PieceDocumentaryMode,
+                      }))
+                    }
                   />
+                  Pagal prekes
                 </label>
-                <label className="grid gap-1 text-sm">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="piece-documentary-mode"
+                    value="TOTAL"
+                    checked={!itemised}
+                    onChange={() =>
+                      setDraftPiece((current) => ({
+                        ...current,
+                        mode: "TOTAL" as PieceDocumentaryMode,
+                      }))
+                    }
+                  />
+                  Bendras kiekis
+                </label>
+              </fieldset>
+
+              {itemised ? (
+                <div className="overflow-hidden rounded-xl border border-border">
+                  <table className="w-full table-fixed text-left text-xs sm:text-sm">
+                    <colgroup>
+                      <col className="w-[42%]" />
+                      <col className="w-[16%]" />
+                      <col className="w-[22%]" />
+                      <col className="w-[20%]" />
+                    </colgroup>
+                    <thead className="bg-muted text-muted-foreground">
+                      <tr>
+                        <th className="px-2 py-2 font-medium sm:px-4">Prekė</th>
+                        <th className="whitespace-nowrap px-2 py-2 font-medium sm:px-4">
+                          <span className="sm:hidden">Fakt.</span>
+                          <span className="hidden sm:inline">Faktiškai</span>
+                        </th>
+                        <th className="whitespace-nowrap px-2 py-2 font-medium sm:px-4">
+                          <span className="sm:hidden">Dokum.</span>
+                          <span className="hidden sm:inline">Dokumentuose</span>
+                        </th>
+                        <th className="whitespace-nowrap px-2 py-2 font-medium sm:px-4">
+                          <span className="sm:hidden">Skirt.</span>
+                          <span className="hidden sm:inline">Skirtumas</span>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pieceRows.map((row) => {
+                        const difference = pieceRowDifference(draftPiece, row);
+                        return (
+                          <tr
+                            key={row.resourceId}
+                            className="border-t border-border"
+                          >
+                            <td className="px-2 py-2 sm:px-4">
+                              {row.resourceName}
+                            </td>
+                            <td className="whitespace-nowrap px-2 py-2 sm:px-4">
+                              {formatPieces(row.actualPieces)}
+                            </td>
+                            <td className="px-2 py-2 sm:px-4">
+                              <input
+                                id={`piece-document-${row.resourceId}`}
+                                required
+                                type="number"
+                                inputMode="numeric"
+                                min="0"
+                                step="1"
+                                value={pieceRowDraftValue(draftPiece, row)}
+                                onChange={(event) =>
+                                  setDraftPiece((current) => ({
+                                    ...current,
+                                    products: {
+                                      ...current.products,
+                                      [row.resourceId]: event.target.value,
+                                    },
+                                  }))
+                                }
+                                className={pieceInputClass}
+                              />
+                            </td>
+                            <td
+                              className={
+                                difference !== null && difference !== 0
+                                  ? "whitespace-nowrap px-2 py-2 font-medium text-destructive sm:px-4"
+                                  : "whitespace-nowrap px-2 py-2 text-muted-foreground sm:px-4"
+                              }
+                            >
+                              {difference === null
+                                ? "—"
+                                : formatSignedPieces(difference)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-12">
+                  <label className="grid gap-1 text-sm sm:col-span-3">
+                    <span className="font-medium">Faktiškai užregistruota</span>
+                    <input
+                      readOnly
+                      value={formatPieces(actualPieces)}
+                      className={inputClass}
+                    />
+                  </label>
+                  <label className="grid gap-1 text-sm sm:col-span-3">
+                    <span className="font-medium">
+                      Dokumentinis kiekis, vnt.
+                    </span>
+                    <input
+                      id="piece-document-pieces"
+                      required
+                      type="number"
+                      inputMode="numeric"
+                      min="0"
+                      step="1"
+                      value={draftPiece.documentPieces}
+                      onChange={(event) =>
+                        setDraftPiece({
+                          ...draftPiece,
+                          documentPieces: event.target.value,
+                        })
+                      }
+                      className={inputClass}
+                    />
+                  </label>
+                </div>
+              )}
+
+              <div className="grid gap-3 sm:grid-cols-12">
+                <label className="grid gap-1 text-sm sm:col-span-3">
                   <span className="font-medium">Įsigijimo vertė</span>
                   <input
                     id="piece-acquisition-amount"
@@ -662,7 +749,7 @@ export function BatchDetailsPage() {
                     className={inputClass}
                   />
                 </label>
-                <label className="grid gap-1 text-sm">
+                <label className="grid gap-1 text-sm sm:col-span-3">
                   <span className="font-medium">Dokumento data</span>
                   <DateInput
                     id="piece-document-date"
@@ -676,7 +763,7 @@ export function BatchDetailsPage() {
                     className={inputClass}
                   />
                 </label>
-                <label className="grid gap-1 text-sm">
+                <label className="grid gap-1 text-sm sm:col-span-3">
                   <span className="font-medium">Dokumento Nr.</span>
                   <input
                     type="text"
@@ -692,13 +779,46 @@ export function BatchDetailsPage() {
                   />
                 </label>
               </div>
-              <div className="flex justify-end">
+              <dl className="grid gap-x-8 gap-y-2 border-t border-border pt-4 sm:grid-cols-3">
+                <div>
+                  <dt className="text-sm font-medium">Faktiškai gauta</dt>
+                  <dd className="text-sm text-muted-foreground">
+                    {formatPieces(actualPieces)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium">Dokumentuose</dt>
+                  <dd className="text-sm text-muted-foreground">
+                    {documentedTotal === null
+                      ? "—"
+                      : formatPieces(documentedTotal)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium">Skirtumas</dt>
+                  <dd
+                    className={
+                      totalDifference !== null && totalDifference !== 0
+                        ? "text-sm text-destructive"
+                        : "text-sm text-muted-foreground"
+                    }
+                  >
+                    {totalDifference === null
+                      ? "—"
+                      : formatSignedPieces(totalDifference)}
+                    {totalDifference !== null && totalDifference !== 0
+                      ? " (neatitikimas)"
+                      : ""}
+                  </dd>
+                </div>
+              </dl>
+              <div className="flex items-center justify-end border-t border-border pt-4">
                 <button
                   type="submit"
                   disabled={confirmingPiece}
                   className={PRIMARY_BUTTON_CLASS}
                 >
-                  {confirmingPiece ? "Patvirtinama…" : CONFIRM_RECEIPT_LABEL}
+                  {confirmingPiece ? "Tvirtinama…" : CONFIRM_RECEIPT_LABEL}
                 </button>
               </div>
             </form>
@@ -716,20 +836,42 @@ export function BatchDetailsPage() {
           >
             <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-sm">
               <h2 id="piece-dialog-title" className="text-lg font-medium">
-                Patvirtinti priėmimą su neatitikimais?
+                {itemised
+                  ? "Patvirtinti priėmimą su neatitikimais?"
+                  : "Patvirtinti priėmimą su neatitikimu?"}
               </h2>
-              <ul className="mt-3 grid gap-1 text-sm">
-                {pieceRows
-                  .filter((row) => pieceRowDifference(draftPiece, row) !== 0)
-                  .map((row) => (
-                    <li key={row.resourceId}>
-                      {row.resourceName}:{" "}
-                      <span className="font-medium text-rose-600">
-                        {formatSignedPieces(pieceRowDifference(draftPiece, row))}
-                      </span>
-                    </li>
-                  ))}
-              </ul>
+              {itemised ? (
+                <>
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    Faktinis ir dokumentinis kiekis nesutampa šiose prekėse.
+                    Partija bus patvirtinta, o neatitikimai užregistruoti
+                    atskirai.
+                  </p>
+                  <ul className="mt-3 grid gap-1 text-sm">
+                    {mismatchedRows.map((row) => (
+                      <li key={row.resourceId}>
+                        {row.resourceName}:{" "}
+                        <span className="font-medium text-destructive">
+                          {formatSignedPieces(
+                            pieceRowDifference(draftPiece, row) ?? 0,
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p className="mt-3 text-sm text-muted-foreground">
+                  Faktinis ir dokumentinis kiekis nesutampa. Neatitikimas:{" "}
+                  <span className="font-medium text-destructive">
+                    {totalDifference === null
+                      ? "—"
+                      : formatSignedPieces(totalDifference)}
+                  </span>
+                  . Partija bus patvirtinta, o neatitikimas užregistruotas
+                  atskirai.
+                </p>
+              )}
               <div className="mt-5 flex items-center justify-end gap-2">
                 <button
                   type="button"
@@ -767,86 +909,17 @@ export function BatchDetailsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <Link href={GAVIMAI_ACTION.href} className={SECONDARY_NAV_BUTTON_CLASS}>
-            ← {GAVIMAI_ACTION.label}
-          </Link>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Priėmimas {batch.deliveryCode}
-          </h1>
-          <p className="text-sm text-muted-foreground">Partija {batch.code}</p>
-        </div>
-        {canEditRegistration && batch.status === "PENDING" ? (
-          <Link
-            href={`/receiving/${batch.deliveryId}/batches/${batch.id}`}
-            className={SECONDARY_NAV_BUTTON_CLASS}
-          >
-            Redaguoti partiją
-          </Link>
-        ) : null}
-      </div>
-
-      {batch.hasOpenDiscrepancy ? (
-        <p role="status" className="text-sm text-destructive">
-          Užregistruotas nepadengtas neatitikimas:{" "}
-          {batch.difference ? formatSignedWeight(batch.difference) : "—"}.
-        </p>
-      ) : null}
-
-      <section className={workSurfaceClass()}>
-        <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
-          <div>
-            <dt className="text-sm font-medium">Priėmimas</dt>
-            <dd className="text-sm text-muted-foreground">
-              {batch.deliveryCode}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium">Būsena</dt>
-            <dd className="text-sm text-muted-foreground">
-              {batchStatusLabel(batch.status)}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium">Priėmimo data</dt>
-            <dd className="text-sm text-muted-foreground">
-              {formatArrivalDate(batch.arrivalDate)}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium">Išteklius</dt>
-            <dd className="text-sm text-muted-foreground">
-              {batch.resourceName}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium">Tiekėjas</dt>
-            <dd className="text-sm text-muted-foreground">
-              {batch.supplierName}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium">Sandėlis</dt>
-            <dd className="text-sm text-muted-foreground">
-              {batch.warehouseName}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium">Pakuotės / svoris</dt>
-            <dd className="text-sm text-muted-foreground">
-              {batch.bagCount} · {totalWeightLabel}
-            </dd>
-          </div>
-        </dl>
-      </section>
+      <BatchHeader
+        batch={batch}
+        canEdit={canEditRegistration}
+      />
 
       {confirmed ? (
         <section className="rounded-xl border border-border bg-card p-6">
           <h2 className="text-lg font-medium">Priėmimo patvirtinimas</h2>
           <dl className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2">
             <div>
-              <dt className="text-sm font-medium">Faktiškai susverta</dt>
+              <dt className="text-sm font-medium">Faktiškai gauta</dt>
               <dd className="text-sm text-muted-foreground">
                 {totalWeightLabel}
               </dd>
@@ -855,12 +928,6 @@ export function BatchDetailsPage() {
               <dt className="text-sm font-medium">Dokumentuose</dt>
               <dd className="text-sm text-muted-foreground">
                 {batch.documentWeight ? formatWeight(batch.documentWeight) : "—"}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-sm font-medium">Dokumentiniai vienetai</dt>
-              <dd className="text-sm text-muted-foreground">
-                {batch.documentPieces === null ? "—" : batch.documentPieces}
               </dd>
             </div>
             <div>
@@ -899,51 +966,35 @@ export function BatchDetailsPage() {
 
       {!confirmed && canReconcile ? (
         <section className={workSurfaceClass()}>
-          {batch.bagCount === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Patvirtinti galima tik partiją su bent viena pakuote.
-            </p>
-          ) : (
-            <form onSubmit={submitReconciliation} noValidate className="grid gap-4">
-              <h2 className="text-lg font-medium">{CONFIRM_RECEIPT_LABEL}</h2>
-              <div className="grid gap-3 sm:grid-cols-12">
-                <label className="grid gap-1 text-sm sm:col-span-3">
-                  <span className="font-medium">Dokumentinis svoris</span>
-                  <input
-                    id="document-weight"
-                    required
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    step="0.001"
-                    value={draftReconciliation.documentWeight}
-                    onChange={(event) =>
-                      setDraftReconciliation({
-                        ...draftReconciliation,
-                        documentWeight: event.target.value,
-                      })
-                    }
-                    className={inputClass}
-                  />
-                </label>
-                <label className="grid gap-1 text-sm sm:col-span-3">
-                  <span className="font-medium">Dokumentiniai vienetai</span>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    min="0"
-                    step="1"
-                    value={draftReconciliation.documentPieces}
-                    onChange={(event) =>
-                      setDraftReconciliation({
-                        ...draftReconciliation,
-                        documentPieces: event.target.value,
-                      })
-                    }
-                    className={inputClass}
-                  />
-                </label>
-                <label className="grid gap-1 text-sm sm:col-span-3">
+          <form onSubmit={submitReconciliation} noValidate className="grid gap-4">
+            <h2 className="text-lg font-medium">{CONFIRM_RECEIPT_LABEL}</h2>
+            {batch.bagCount === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Pakuotės dar neužregistruotos; patvirtinti bus galima po
+                registracijos.
+              </p>
+            ) : null}
+            <div className="grid gap-3 sm:grid-cols-12">
+              <label className="grid gap-1 text-sm sm:col-span-3">
+                <span className="font-medium">Dokumentinis svoris, kg</span>
+                <input
+                  id="document-weight"
+                  required
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.001"
+                  value={draftReconciliation.documentWeight}
+                  onChange={(event) =>
+                    setDraftReconciliation({
+                      ...draftReconciliation,
+                      documentWeight: event.target.value,
+                    })
+                  }
+                  className={inputClass}
+                />
+              </label>
+              <label className="grid gap-1 text-sm sm:col-span-3">
                   <span className="font-medium">Įsigijimo vertė</span>
                   <input
                     id="document-acquisition-amount"
@@ -1033,7 +1084,6 @@ export function BatchDetailsPage() {
                 </button>
               </div>
             </form>
-          )}
         </section>
       ) : null}
 
@@ -1204,6 +1254,78 @@ export function BatchDetailsPage() {
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** Compact batch identity + context header shared by WEIGHT and PIECE batches. */
+function BatchHeader({
+  batch,
+  canEdit,
+}: {
+  batch: BatchDetail;
+  canEdit: boolean;
+}) {
+  const actualQuantity =
+    batch.receivingMode === "WEIGHT"
+      ? formatWeight(batch.totalNetWeight)
+      : formatPieces(batch.totalPieces);
+  return (
+    <div className="flex flex-col gap-3">
+      <Link
+        href={GAVIMAI_ACTION.href}
+        className={`${SECONDARY_NAV_BUTTON_CLASS} self-start`}
+      >
+        ← {GAVIMAI_ACTION.label}
+      </Link>
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+        <h1 className="min-w-0 text-2xl font-semibold tracking-tight">
+          Priėmimas {batch.deliveryCode} / {batch.code}
+        </h1>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={`/receipts/${batch.deliveryId}`}
+            className={SECONDARY_NAV_BUTTON_CLASS}
+          >
+            Priėmimo {batch.deliveryCode} išlaidos
+          </Link>
+          {canEdit && batch.status === "PENDING" ? (
+            <Link
+              href={`/receiving/${batch.deliveryId}/batches/${batch.id}`}
+              className={SECONDARY_NAV_BUTTON_CLASS}
+            >
+              Redaguoti partiją
+            </Link>
+          ) : null}
+        </div>
+      </div>
+      <dl className="flex flex-wrap items-baseline gap-x-5 gap-y-1 text-sm">
+        <HeaderFact label="Būsena" value={batchStatusLabel(batch.status)} />
+        <HeaderFact
+          label="Priėmimo data"
+          value={formatArrivalDate(batch.arrivalDate)}
+        />
+        <HeaderFact label="Tiekėjas" value={batch.supplierName} />
+        <HeaderFact label="Išteklius" value={batch.resourceName ?? "—"} />
+        <HeaderFact label="Sandėlis" value={batch.warehouseName} />
+        <HeaderFact label="Faktiškai" value={actualQuantity} />
+      </dl>
+      {batch.hasOpenDiscrepancy && batch.receivingMode === "WEIGHT" ? (
+        <p role="status" className="text-sm text-destructive">
+          Užregistruotas nepadengtas neatitikimas:{" "}
+          {batch.difference ? formatSignedWeight(batch.difference) : "—"}.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** A compact inline `<dt>`/`<dd>` pair for the batch header row. */
+function HeaderFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline gap-1.5">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="font-medium">{value}</dd>
     </div>
   );
 }

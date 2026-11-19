@@ -5,6 +5,9 @@ import type { StockSummary } from "@aitvaras/contracts";
 export interface ConfirmedBatchStockRow {
   receivingMode: "WEIGHT" | "PIECE";
   acquisitionAmount: Prisma.Decimal | null;
+  /** Frozen receipt-expense shares; absent/legacy batches have none. */
+  allocatedTransportAmount?: Prisma.Decimal | null;
+  allocatedCustomsAmount?: Prisma.Decimal | null;
   activeBagCount: number;
   activeItemCount: number;
 }
@@ -18,13 +21,21 @@ interface CardState {
 function addCost(
   state: CardState,
   acquisitionAmount: Prisma.Decimal | null,
+  allocatedTransportAmount: Prisma.Decimal | null,
+  allocatedCustomsAmount: Prisma.Decimal | null,
 ): void {
+  const expenses = (allocatedTransportAmount ?? new Prisma.Decimal(0)).plus(
+    allocatedCustomsAmount ?? new Prisma.Decimal(0),
+  );
   if (acquisitionAmount === null) {
     state.incomplete = true;
-    return;
   }
-  state.value = state.value.plus(acquisitionAmount);
-  state.known = true;
+  if (acquisitionAmount !== null || !expenses.isZero()) {
+    state.value = state.value
+      .plus(acquisitionAmount ?? new Prisma.Decimal(0))
+      .plus(expenses);
+    state.known = true;
+  }
 }
 
 function cardValue(quantityPresent: boolean, state: CardState): {
@@ -72,10 +83,20 @@ export function summarizeStock(input: {
 
   for (const batch of input.batches) {
     if (batch.receivingMode === "WEIGHT" && batch.activeBagCount > 0) {
-      addCost(weight, batch.acquisitionAmount);
+      addCost(
+        weight,
+        batch.acquisitionAmount,
+        batch.allocatedTransportAmount ?? null,
+        batch.allocatedCustomsAmount ?? null,
+      );
     }
     if (batch.receivingMode === "PIECE" && batch.activeItemCount > 0) {
-      addCost(pieces, batch.acquisitionAmount);
+      addCost(
+        pieces,
+        batch.acquisitionAmount,
+        batch.allocatedTransportAmount ?? null,
+        batch.allocatedCustomsAmount ?? null,
+      );
     }
   }
 

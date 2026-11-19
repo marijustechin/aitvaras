@@ -84,10 +84,20 @@ Inside an active delivery, the **`Nauja partija`** action first chooses
 
 - **Svorinė** — `Išteklius` + `Sandėlis`, then the existing package/tare/weight
   flow.
-- **Vienetinė** — `Sandėlis` only, then the piece screen: `Prekės pavadinimas`,
-  `Kiekis, vnt.`, `Vieta`, actions `Išsaugoti` / `Išsaugoti ir spausdinti`, the
-  entered group list (`Prekė`, `Kiekis`, `Vieta`, `Barkodas`, `Etiketė`/`Spausdinti`,
-  correction actions) and `Iš viso: N vnt.` No tare/weight controls appear.
+- **Vienetinė** — `Sandėlis` only, then the piece screen: `Prekė`, `Kiekis, vnt.`,
+  `Vieta`, actions `Išsaugoti` / `Išsaugoti ir spausdinti`, the entered group list
+  (`Prekė`, `Kiekis`, `Vieta`, `Barkodas`, `Etiketė`/`Spausdinti`, correction
+  actions) and `Iš viso: N vnt.` No tare/weight controls appear.
+
+On desktop the entry form uses two aligned rows: `Prekė` gets the widest column
+with `Kiekis, vnt.` and `Vieta` beside it, all controls the same height; below it,
+`+ Nauja prekė` sits directly under the product selector at the same left edge
+and width, while `Išsaugoti` and `Išsaugoti ir spausdinti` are right-aligned and
+the same height. On mobile the reading order is preserved and the controls wrap.
+
+`Prekė` is a **searchable selector**: typing narrows the existing products,
+mouse/Enter/Arrow selection stores the product ID, and the field still requires a
+selected product. `+ Nauja prekė` remains the explicit product-creation action.
 
 `+ Nauja prekė` opens a minimal inline quick-create (name + category) so a worker
 can create a missing product without leaving receiving; it uses the narrow
@@ -102,41 +112,44 @@ another group, barcode or batch.
 While the batch is `PENDING`, a worker may **correct** an item's quantity/location
 and **void** a line (kept for traceability). A `CONFIRMED` batch is frozen.
 
-## Confirmation (product-by-product reconciliation)
+## Confirmation (itemised or single total)
 
 ADMIN confirms a PIECE batch through `POST /batches/:id/confirm-piece` (a separate
-form from the WEIGHT reconciliation). It is **not** a single batch-level piece
-count: the documentary quantity is reconciled **per product**.
+form from the WEIGHT reconciliation). The UI preserves **both** documentary forms:
 
-- The confirmation table is `Prekė | Faktiškai | Sutampa | Dokumentuose |
-  Skirtumas`.
-- `Faktiškai` (actual pieces) is **server-derived by aggregating the active
-  barcode groups per resource** (the same product in several groups/locations is
-  one row), shown read-only.
-- `Sutampa` is a checkbox (default checked): when checked, `Dokumentuose` equals
-  the actual quantity and the difference is `0`; when unchecked, the ADMIN enters
-  the supplier-document quantity (a non-negative whole number).
-- Signed difference `differencePieces = actualPieces − documentPieces`
-  (shortage `−5 vnt.`, overage `+5 vnt.`).
-- No measured/document **weight**, no tare and no kg are shown for PIECE.
+- **`Pagal prekes` (itemised)** — a table `Prekė | Faktiškai | Dokumentuose |
+  Skirtumas`. `Faktiškai` is the server-derived sum of active item pieces for that
+  resource (the same product in several groups/locations is one row); the ADMIN
+  enters the documentary quantity per product. This is the default when the batch
+  has more than one product.
+- **`Bendras kiekis` (single total)** — one `Dokumentinis kiekis, vnt.` field for
+  documents that provide only a total. This is the default for a single-product
+  batch.
 
-If every product matches, the batch confirms immediately. If one or more products
-mismatch, `Patvirtinti priėmimą` opens an acknowledgement dialog
-(`Patvirtinti priėmimą su neatitikimais?`, listing each mismatch) before confirming.
-On confirmation (one transaction):
+Both forms share `Įsigijimo vertė`, `Dokumento data` and `Dokumento Nr.`, use the
+same unit everywhere (`Faktiškai gauta` / `Dokumentuose` / `Skirtumas`) and show
+`—` for an empty documentary value. The quantity input is selected from the stored
+`receivingMode` (not inferred from item lines), so it renders correctly before any
+item is registered. Switching batches clears the stale draft values.
 
-- one `PieceReconciliationLine` (batch + resource, `actualPieces` snapshot,
-  `documentPieces`, `differencePieces`) is persisted per product;
-- one **PIECE** `ReceivingDiscrepancy` is created per **non-zero** product line
-  (zero, one or many per batch — never one meaningless aggregate for the batch);
+If every count matches, the batch confirms immediately. A mismatch opens the
+acknowledgement dialog (`Patvirtinti priėmimą su neatitikimais?` for itemised,
+`... su neatitikimu?` for a total) before confirming. On confirmation (one
+transaction):
+
 - the batch **acquisition amount** and document date/number are stored;
+- itemised mode stores one `PieceReconciliationLine` per product and creates one
+  **PIECE** `ReceivingDiscrepancy` per non-zero product row (with `resourceId`);
+- total mode stores the aggregate `Batch.documentPieces` and creates one PIECE
+  discrepancy for the batch when the total differs (without `resourceId`);
 - the batch becomes `CONFIRMED`; group **barcodes are preserved** and the
   quantities become the baseline for future stock operations.
 
-Confirmed groups become read-only through the receiving endpoints, and the
-product-level reconciliation stays visible read-only (`Prekė`, `Faktiškai`,
-`Dokumentuose`, `Skirtumas` + totals). A retry cannot duplicate lines or
-discrepancies (the batch-status flip guards the transaction).
+Confirmed groups become read-only through the receiving endpoints, including when
+opened from a direct batch URL; active units can still reprint labels. An itemised
+confirmation keeps its per-product `Dokumentuose` / `Skirtumas` table visible
+read-only; a total confirmation shows the aggregate summary. A retry cannot
+duplicate records (the batch-status flip guards the transaction).
 
 ## Cost pool (per-line allocation deferred)
 
@@ -144,20 +157,21 @@ The whole PIECE batch has **one** acquisition amount / cost pool (`Įsigijimo
 vertė`), plus document date/number. A single total cannot be split across
 heterogeneous products without an explicit allocation rule, so **line-level cost
 allocation is intentionally deferred**. The system preserves the facts a later
-allocation needs: the batch acquisition amount, actual pieces per product,
-documentary pieces per product and the resulting shortages/overages. (Business
-consequence, not implemented now: a shortage on a product later allocated a known
-cost means that cost is spread over fewer actual units, raising the effective
-unit cost.)
+allocation needs: the batch acquisition amount, actual pieces per product (item
+lines), the aggregate documentary count and the resulting shortage/overage.
+(Business consequence, not implemented now: a shortage on a product later
+allocated a known cost means that cost is spread over fewer actual units, raising
+the effective unit cost.)
 
 ## Receiving discrepancy boundary
 
-PIECE confirmation creates zero, one or many **PIECE** `ReceivingDiscrepancy`
-records (one per mismatched product), carrying piece quantities only — never fake
-weight values. PIECE discrepancies appear in the `Ataskaitos → Neatitikimai`
-register with the product and a signed `vnt.` difference, and their **settlement
-is not defined yet** (see [discrepancies.md](discrepancies.md)). WEIGHT
-discrepancy logic and weight/money settlement are unchanged.
+An itemised PIECE confirmation creates one `ReceivingDiscrepancy` per non-zero
+product row (with `resourceId`); a single-total confirmation creates **one** per
+batch (without `resourceId`) when the totals differ. Both carry piece quantities
+only — never fake weight values. PIECE discrepancies appear in the
+`Ataskaitos → Neatitikimai` register and their **settlement is not defined yet**
+(see [discrepancies.md](discrepancies.md)). WEIGHT discrepancy logic and
+weight/money settlement are unchanged.
 
 ## API and authorization
 

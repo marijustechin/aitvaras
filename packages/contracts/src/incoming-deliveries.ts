@@ -31,6 +31,11 @@ export const IncomingDeliverySchema = z.object({
    * are all `CONFIRMED` is absent from the open receiving queue.
    */
   pendingBatchCount: z.number().int().nonnegative(),
+  /**
+   * Whether the receipt already has a non-zero transport/customs expense record.
+   * A zero-amount record does not block deletion of a batch-less receipt.
+   */
+  hasNonZeroExpenses: z.boolean(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });

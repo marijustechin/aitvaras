@@ -13,16 +13,19 @@ import {
   createDraftQuickResource,
   createDraftReconciliation,
   createDraftResource,
+  defaultPieceDocumentaryMode,
   deliveryFormError,
+  isAcquisitionAmountValid,
+  isDocumentaryWeightValid,
+  isPieceCountValid,
+  pieceConfirmationDifference,
   pieceConfirmationFormError,
-  pieceConfirmationRows,
   pieceCorrectionChanged,
   pieceCorrectionFromItem,
   pieceCorrectionFormError,
   pieceItemFormError,
   pieceRowDifference,
-  pieceRowDocumentPieces,
-  type PieceConfirmationRow,
+  pieceRowDraftValue,
   quickResourceFormError,
   reconciliationFormError,
   resourceFormError,
@@ -37,6 +40,7 @@ import {
   toUpdateItemPayload,
   toVoidBagPayload,
   toVoidItemPayload,
+  type PieceConfirmationRow,
 } from "./batch-form";
 
 describe("arrivalDateToIso", () => {
@@ -248,7 +252,6 @@ describe("reconciliation form", () => {
     expect(draft).toEqual({
       documentWeight: "",
       acquisitionAmount: "",
-      documentPieces: "",
       documentDate: "",
       documentNumber: "",
     });
@@ -259,7 +262,6 @@ describe("reconciliation form", () => {
     const valid = {
       documentWeight: "10",
       acquisitionAmount: "0",
-      documentPieces: "",
       documentDate: "",
       documentNumber: "",
     };
@@ -275,31 +277,22 @@ describe("reconciliation form", () => {
     ).toBe("Įveskite teisingą dokumento datą.");
   });
 
-  it("accepts an optional positive integer piece count and rejects invalid ones", () => {
-    const valid = {
-      documentWeight: "10",
-      acquisitionAmount: "0",
-      documentPieces: "",
-      documentDate: "",
-      documentNumber: "",
-    };
-    expect(reconciliationFormError({ ...valid, documentPieces: "500" })).toBeNull();
-    expect(reconciliationFormError({ ...valid, documentPieces: "0" })).toBe(
-      "Vienetų skaičius turi būti teigiamas sveikasis skaičius.",
-    );
-    expect(reconciliationFormError({ ...valid, documentPieces: "2.5" })).toBe(
-      "Vienetų skaičius turi būti teigiamas sveikasis skaičius.",
-    );
-    expect(reconciliationFormError({ ...valid, documentPieces: "-3" })).toBe(
-      "Vienetų skaičius turi būti teigiamas sveikasis skaičius.",
-    );
+  it("uses the same required-value rules for field-level highlighting", () => {
+    expect(isDocumentaryWeightValid("")).toBe(false);
+    expect(isDocumentaryWeightValid("0")).toBe(false);
+    expect(isDocumentaryWeightValid("0.001")).toBe(true);
+    expect(isAcquisitionAmountValid("")).toBe(false);
+    expect(isAcquisitionAmountValid("0")).toBe(true);
+    expect(isAcquisitionAmountValid("-1")).toBe(false);
+    expect(isPieceCountValid("")).toBe(false);
+    expect(isPieceCountValid("0")).toBe(true);
+    expect(isPieceCountValid("2.5")).toBe(false);
   });
 
   it("builds a payload without the measured weight or a receipt-line id", () => {
     const payload = toReconcilePayload({
       documentWeight: " 10.5 ",
       acquisitionAmount: " 20 ",
-      documentPieces: "",
       documentDate: "",
       documentNumber: "",
     });
@@ -312,18 +305,16 @@ describe("reconciliation form", () => {
     expect("documentPieces" in payload).toBe(false);
   });
 
-  it("includes document pieces, date and number when given", () => {
+  it("includes document date and number when given", () => {
     const payload = toReconcilePayload({
       documentWeight: "10",
       acquisitionAmount: "0",
-      documentPieces: "500",
       documentDate: "2026-09-20",
       documentNumber: " SF-1 ",
     });
-    expect(payload.documentPieces).toBe(500);
+    expect(payload.documentNumber).toBe("SF-1");
     expect(payload.documentDate).toBeDefined();
     expect(new Date(payload.documentDate as string).getFullYear()).toBe(2026);
-    expect(payload.documentNumber).toBe("SF-1");
   });
 });
 
@@ -451,93 +442,126 @@ describe("quick-create product form", () => {
 });
 
 const pieceRows: PieceConfirmationRow[] = [
-  { resourceId: "r1", resourceName: "Siurblys", actualPieces: 60 },
-  { resourceId: "r2", resourceName: "Lego", actualPieces: 100 },
+  { resourceId: "vacuum", resourceName: "Dulkių siurblys", actualPieces: 9 },
+  { resourceId: "suitcase", resourceName: "Lagaminas", actualPieces: 11 },
 ];
 
 describe("piece confirmation form", () => {
-  it("defaults rows to 'Sutampa' with document = actual", () => {
-    const products = pieceConfirmationRows(pieceRows);
-    expect(products.r1).toEqual({ matches: true, documentPieces: "60" });
-    expect(products.r2).toEqual({ matches: true, documentPieces: "100" });
+  it("defaults to itemised only for a multi-product document", () => {
+    expect(defaultPieceDocumentaryMode([])).toBe("TOTAL");
+    expect(defaultPieceDocumentaryMode(pieceRows.slice(0, 1))).toBe("TOTAL");
+    expect(defaultPieceDocumentaryMode(pieceRows)).toBe("ITEMISED");
   });
 
-  it("derives document and difference per row", () => {
+  it("starts empty in both documentary modes", () => {
+    expect(createDraftPieceConfirmation()).toEqual({
+      mode: "TOTAL",
+      documentPieces: "",
+      products: {},
+      acquisitionAmount: "",
+      documentDate: "",
+      documentNumber: "",
+    });
+    expect(createDraftPieceConfirmation("ITEMISED").mode).toBe("ITEMISED");
+  });
+
+  it("derives the aggregate difference for a total document", () => {
     const draft = {
       ...createDraftPieceConfirmation(),
-      products: pieceConfirmationRows(pieceRows),
+      documentPieces: "20",
     };
-    expect(pieceRowDocumentPieces(draft, pieceRows[0]!)).toBe(60);
-    expect(pieceRowDifference(draft, pieceRows[0]!)).toBe(0);
+    expect(pieceConfirmationDifference(18, draft)).toBe(-2);
+    expect(pieceConfirmationDifference(18, { ...draft, documentPieces: "18" })).toBe(0);
+    expect(pieceConfirmationDifference(18, { ...draft, documentPieces: "16" })).toBe(2);
+    expect(pieceConfirmationDifference(18, { ...draft, documentPieces: "" })).toBeNull();
+    expect(pieceConfirmationDifference(18, { ...draft, documentPieces: "2.5" })).toBeNull();
+  });
 
-    const short = {
-      ...draft,
-      products: { ...draft.products, r1: { matches: false, documentPieces: "65" } },
+  it("derives a per-product difference for an itemised document", () => {
+    const draft = {
+      ...createDraftPieceConfirmation("ITEMISED"),
+      products: { vacuum: "10", suitcase: "10" },
     };
-    expect(pieceRowDifference(short, pieceRows[0]!)).toBe(-5);
-    expect(pieceRowDifference(short, pieceRows[1]!)).toBe(0);
-
-    const over = {
-      ...draft,
-      products: { ...draft.products, r1: { matches: false, documentPieces: "55" } },
-    };
-    expect(pieceRowDifference(over, pieceRows[0]!)).toBe(5);
-
-    const invalid = {
-      ...draft,
-      acquisitionAmount: "0",
-      products: { ...draft.products, r1: { matches: false, documentPieces: "" } },
-    };
-    expect(pieceRowDocumentPieces(invalid, pieceRows[0]!)).toBeNull();
+    expect(pieceRowDraftValue(draft, pieceRows[0]!)).toBe("10");
+    expect(pieceRowDifference(draft, pieceRows[0]!)).toBe(-1);
+    expect(pieceRowDifference(draft, pieceRows[1]!)).toBe(1);
     expect(
-      pieceConfirmationFormError(invalid, pieceRows),
-    ).toContain("Siurblys");
+      pieceRowDifference(
+        { ...draft, products: { ...draft.products, vacuum: "" } },
+        pieceRows[0]!,
+      ),
+    ).toBeNull();
   });
 
   it("requires a non-negative acquisition amount and valid date", () => {
-    expect(
-      pieceConfirmationFormError(createDraftPieceConfirmation(), pieceRows),
-    ).toBeTruthy();
+    expect(pieceConfirmationFormError(createDraftPieceConfirmation(), []))
+      .toBeTruthy();
     expect(
       pieceConfirmationFormError(
         {
           ...createDraftPieceConfirmation(),
+          documentPieces: "18",
           acquisitionAmount: "0",
         },
-        pieceRows,
+        [],
       ),
     ).toBeNull();
     expect(
       pieceConfirmationFormError(
         {
           ...createDraftPieceConfirmation(),
+          documentPieces: "18",
           acquisitionAmount: "1000",
           documentDate: "2026-13-01",
         },
-        pieceRows,
+        [],
       ),
     ).toBeTruthy();
   });
 
-  it("builds the per-product payload and optional acknowledgement", () => {
+  it("requires every product in itemised mode", () => {
+    const draft = {
+      ...createDraftPieceConfirmation("ITEMISED"),
+      acquisitionAmount: "0",
+      products: { vacuum: "10" },
+    };
+    expect(pieceConfirmationFormError(draft, pieceRows)).toContain("Lagaminas");
+    expect(
+      pieceConfirmationFormError(
+        { ...draft, products: { vacuum: "10", suitcase: "10" } },
+        pieceRows,
+      ),
+    ).toBeNull();
+  });
+
+  it("builds the aggregate payload and optional acknowledgement", () => {
     const draft = {
       ...createDraftPieceConfirmation(),
+      documentPieces: "20",
       acquisitionAmount: " 1250.50 ",
       documentDate: "2026-10-02",
       documentNumber: " SF-9 ",
-      products: {
-        r1: { matches: false, documentPieces: "65" },
-        r2: { matches: true, documentPieces: "100" },
-      },
     };
     const payload = toConfirmPiecePayload(draft, pieceRows, true);
     expect(payload.acquisitionAmount).toBe("1250.50");
     expect(payload.documentNumber).toBe("SF-9");
     expect(payload.documentDate).toBeDefined();
     expect(payload.acknowledgeDiscrepancies).toBe(true);
+    expect(payload.documentPieces).toBe(20);
+    expect(payload.products).toBeUndefined();
+  });
+
+  it("builds the itemised payload without an aggregate count", () => {
+    const draft = {
+      ...createDraftPieceConfirmation("ITEMISED"),
+      acquisitionAmount: "100",
+      products: { vacuum: "10", suitcase: "10" },
+    };
+    const payload = toConfirmPiecePayload(draft, pieceRows, false);
+    expect(payload.documentPieces).toBeUndefined();
     expect(payload.products).toEqual([
-      { resourceId: "r1", documentPieces: 65 },
-      { resourceId: "r2", documentPieces: 100 },
+      { resourceId: "vacuum", documentPieces: 10 },
+      { resourceId: "suitcase", documentPieces: 10 },
     ]);
   });
 });

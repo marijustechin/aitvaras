@@ -1,25 +1,35 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
 } from "@nestjs/common";
 import {
   CreateIncomingDeliveryRequestSchema,
   ResolveBatchRequestSchema,
+  UpdateDeliveryExpensesRequestSchema,
   type BatchDetail,
   type CreateIncomingDeliveryRequest,
+  type ApplyDeliveryExpensesResponse,
+  type DeliveryExpensePreview,
+  type DeliveryExpenses,
   type IncomingDelivery,
   type IncomingDeliveryDetail,
   type ResolveBatchRequest,
+  type UpdateDeliveryExpensesRequest,
 } from "@aitvaras/contracts";
 import type { AuthenticatedUser } from "../../common/guards/authenticated-user";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { Roles } from "../../common/decorators/roles.decorator";
 import { ZodValidationPipe } from "../../common/validation/zod-validation.pipe";
 import { BatchesService } from "./batches.service";
+import { redactBatch, redactBatchDetail } from "./batch-redaction";
 
 /**
  * Incoming deliveries (Gavimai) — one physical arrival of one supplier into one
@@ -41,8 +51,15 @@ export class DeliveriesController {
   }
 
   @Get(":id")
-  get(@Param("id", ParseUUIDPipe) id: string): Promise<IncomingDeliveryDetail> {
-    return this.batchesService.getDelivery(id);
+  async get(
+    @Param("id", ParseUUIDPipe) id: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<IncomingDeliveryDetail> {
+    const delivery = await this.batchesService.getDelivery(id);
+    return {
+      ...delivery,
+      batches: delivery.batches.map((batch) => redactBatch(batch, actor)),
+    };
   }
 
   @Post()
@@ -57,12 +74,62 @@ export class DeliveriesController {
 
   @Post(":id/batches")
   @Roles("ADMIN", "WAREHOUSE_WORKER")
-  resolveBatch(
+  async resolveBatch(
     @Param("id", ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(ResolveBatchRequestSchema))
     body: ResolveBatchRequest,
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<BatchDetail> {
-    return this.batchesService.resolveBatch(id, body, actor.id);
+    return redactBatchDetail(
+      await this.batchesService.resolveBatch(id, body, actor.id),
+      actor,
+    );
+  }
+
+  @Get(":id/expenses")
+  @Roles("ADMIN")
+  getExpenses(
+    @Param("id", ParseUUIDPipe) id: string,
+  ): Promise<DeliveryExpenses> {
+    return this.batchesService.getDeliveryExpenses(id);
+  }
+
+  @Put(":id/expenses")
+  @Roles("ADMIN")
+  updateExpenses(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(UpdateDeliveryExpensesRequestSchema))
+    body: UpdateDeliveryExpensesRequest,
+  ): Promise<DeliveryExpenses> {
+    return this.batchesService.updateDeliveryExpenses(id, body);
+  }
+
+  @Post(":id/expenses/preview")
+  @Roles("ADMIN")
+  previewExpenses(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(UpdateDeliveryExpensesRequestSchema))
+    body: UpdateDeliveryExpensesRequest,
+  ): Promise<DeliveryExpensePreview> {
+    return this.batchesService.previewDeliveryExpenses(id, body);
+  }
+
+  @Post(":id/expenses/apply")
+  @HttpCode(HttpStatus.OK)
+  @Roles("ADMIN")
+  applyExpenses(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(UpdateDeliveryExpensesRequestSchema))
+    body: UpdateDeliveryExpensesRequest,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<ApplyDeliveryExpensesResponse> {
+    return this.batchesService.applyDeliveryExpenses(id, body, actor.id);
+  }
+
+  @Delete(":id")
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Roles("ADMIN", "WAREHOUSE_WORKER")
+  remove(@Param("id", ParseUUIDPipe) id: string): Promise<void> {
+    return this.batchesService.deleteDelivery(id);
   }
 }

@@ -8,8 +8,8 @@
 
 | Card | `Kiekis` | `Vertė` |
 |---|---|---|
-| `Atsargos kilogramais` | active packages' actual net weight (`kg`) | remaining acquisition cost of confirmed WEIGHT batches (EUR) |
-| `Atsargos vienetais` | active PIECE item lines' remaining pieces (`vnt.`) | remaining acquisition cost of confirmed PIECE batches (EUR) |
+| `Atsargos kilogramais` | active packages' actual net weight (`kg`) | remaining acquisition cost + current applied receipt expenses of confirmed WEIGHT batches (EUR) |
+| `Atsargos vienetais` | active PIECE item lines' remaining pieces (`vnt.`) | remaining acquisition cost + current applied receipt expenses of confirmed PIECE batches (EUR) |
 
 - Cards are side by side from `md`; stacked on mobile.
 - Monetary values use Lithuanian formatting with two decimals.
@@ -30,9 +30,25 @@
 - Current remaining quantity is the active confirmed units. There is **no stock
   movement table yet**; no historical receipt rows are summed. If movement
   records are introduced, they must reduce these quantities before valuation.
-- Value uses the only implemented cost field, `Batch.acquisitionAmount` (EUR),
-  added **once per confirmed batch**, never per bag/item line. This prevents
-  duplicated costs; multiple bags/lines do not multiply the batch cost.
+- Value uses the implemented cost fields: `Batch.acquisitionAmount` (EUR) plus the
+  batch's **current applied** `allocatedTransportAmount` and
+  `allocatedCustomsAmount`, added **once per confirmed batch**, never per bag/item
+  line. This prevents duplicated costs; multiple bags/lines do not multiply the
+  batch cost.
+- Receipt-level transport/customs expenses are applied per receipt through an
+  auditable ledger (see
+  [batches.md](batches.md#receipt-level-transport-and-customs-expenses-priėmimo-išlaidos)).
+  The valuation reads only the batch's **current applied** shares, regardless of
+  how they were derived: net weight for all-WEIGHT, pieces for all-PIECE, or the
+  mixed receipt's recorded acquisition value in EUR (with `Po lygiai` available
+  when that basis is missing/zero). A pending sibling's share is never included. A
+  late invoice or revised amount may update a confirmed batch's share; stock value
+  changes by the **difference** only, while physical quantity, confirmation and
+  discrepancy history stay intact. Reapplying identical amounts has no effect, so
+  the same expense is never counted twice.
+- Batches confirmed before this feature (or receipts with no applied allocation)
+  have `allocatedTransportAmount = null` and `allocatedCustomsAmount = null`;
+  their value remains exactly `acquisitionAmount`.
 - No sale price and no new valuation method are used.
 - If an included batch has no `acquisitionAmount`, its quantity is still included
   and the card shows the known value (or `—` if none) with `*` and
@@ -57,7 +73,10 @@
 `value` is `null` only when stock exists but no valuation is known. Zero stock
 returns `"0"`. Decimal strings are formatted by the web client.
 
-## Verification data (2026-11-17)
+## Historical verification data (ATV-058, 2026-11-17)
+
+Captured before the ATV-065 development-data cleanup; it is not the current
+development database state.
 
 Source database, confirmed batches only:
 
